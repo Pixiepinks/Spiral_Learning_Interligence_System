@@ -103,6 +103,8 @@ class Question(db.Model):
     grade = db.Column(db.String(20), nullable=False)
     subject = db.Column(db.String(100), nullable=False)
     topic = db.Column(db.String(150), nullable=False)
+    topic_en = db.Column(db.String(150), nullable=False)
+    topic_si = db.Column(db.String(150), nullable=False)
     question_text_en = db.Column(db.Text, nullable=False)
     question_text_si = db.Column(db.Text, nullable=False)
     option_a_en = db.Column(db.Text, nullable=False)
@@ -301,6 +303,10 @@ def update_db() -> tuple:
     try:
         db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS medium VARCHAR(20)"))
         db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
+        db.session.execute(db.text("UPDATE question SET topic_en = topic WHERE topic_en IS NULL"))
+        db.session.execute(db.text("UPDATE question SET topic_si = topic WHERE topic_si IS NULL"))
         db.session.commit()
         return jsonify({"success": True, "message": "Database updated successfully"}), 200
     except Exception as exc:
@@ -316,6 +322,8 @@ def create_question():
         "grade",
         "subject",
         "topic",
+        "topic_en",
+        "topic_si",
         "question_text_en",
         "question_text_si",
         "option_a_en",
@@ -338,7 +346,10 @@ def create_question():
     if correct_option not in {"A", "B", "C", "D"}:
         return jsonify({"success": False, "message": "correct_option must be one of A, B, C, D"}), 400
 
-    question = Question(**{field: data[field].strip() for field in required_fields if field != "correct_option"}, correct_option=correct_option)
+    payload = {field: data[field].strip() for field in required_fields if field != "correct_option"}
+    if not payload.get("topic"):
+        payload["topic"] = payload.get("topic_en") or payload.get("topic_si")
+    question = Question(**payload, correct_option=correct_option)
     db.session.add(question)
     db.session.commit()
 
@@ -352,6 +363,8 @@ def create_questions() -> tuple:
             "grade": "6",
             "subject": "Math",
             "topic": "Fractions",
+            "topic_en": "Fractions",
+            "topic_si": "භාග",
             "question_text_en": "What is 1/2 + 1/4?",
             "question_text_si": "1/2 + 1/4 කීයද?",
             "option_a_en": "1/2",
@@ -370,6 +383,8 @@ def create_questions() -> tuple:
             "grade": "6",
             "subject": "Math",
             "topic": "Decimals",
+            "topic_en": "Decimals",
+            "topic_si": "දශම",
             "question_text_en": "What is 3.5 + 2.4?",
             "question_text_si": "3.5 + 2.4 කීයද?",
             "option_a_en": "5.9",
@@ -388,6 +403,8 @@ def create_questions() -> tuple:
             "grade": "6",
             "subject": "Math",
             "topic": "Perimeter",
+            "topic_en": "Perimeter",
+            "topic_si": "පරිමිතිය",
             "question_text_en": "A rectangle has length 8 cm and width 3 cm. What is its perimeter?",
             "question_text_si": "දිග 8 cm සහ පළල 3 cm වන සෘජුකෝණාස්‍රයක පරිමාව කීයද?",
             "option_a_en": "11 cm",
@@ -406,6 +423,8 @@ def create_questions() -> tuple:
             "grade": "6",
             "subject": "Math",
             "topic": "Factors",
+            "topic_en": "Factors",
+            "topic_si": "ගුණක",
             "question_text_en": "Which number is a factor of 24?",
             "question_text_si": "24 හි ගුණකයක් වන්නේ කුමක්ද?",
             "option_a_en": "5",
@@ -424,6 +443,8 @@ def create_questions() -> tuple:
             "grade": "6",
             "subject": "Math",
             "topic": "Percentages",
+            "topic_en": "Percentages",
+            "topic_si": "ප්‍රතිශත",
             "question_text_en": "What is 10% of 150?",
             "question_text_si": "150 හි 10% කීයද?",
             "option_a_en": "10",
@@ -533,14 +554,17 @@ def submit_test() -> str:
     topic_stats = {}
 
     for q in questions:
-        topic_stats.setdefault(q.topic, {"total": 0, "correct": 0})
-        topic_stats[q.topic]["total"] += 1
+        topic_name = q.topic_en if selected_medium == "English" else q.topic_si
+        if not topic_name:
+            topic_name = q.topic
+        topic_stats.setdefault(topic_name, {"total": 0, "correct": 0})
+        topic_stats[topic_name]["total"] += 1
         student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
         correct_answer = q.correct_option.strip().upper()
 
         if student_answer == correct_answer:
             correct_answers += 1
-            topic_stats[q.topic]["correct"] += 1
+            topic_stats[topic_name]["correct"] += 1
             continue
 
         question_text = getattr(q, f"question_text_{medium_key}")
