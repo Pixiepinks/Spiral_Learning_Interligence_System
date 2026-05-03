@@ -1,10 +1,12 @@
 import os
 from datetime import datetime
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -95,6 +97,7 @@ class Student(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     mobile = db.Column(db.String(20), unique=True, nullable=False)
     medium = db.Column(db.String(20), nullable=False, default="English")
+    password_hash = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -206,6 +209,11 @@ def register_form() -> str:
             <input type="text" name="mobile" required>
           </label>
           <br><br>
+          <label>
+            Password:
+            <input type="password" name="password" required>
+          </label>
+          <br><br>
           <button type="submit">{t(selected_medium, "register")}</button>
         </form>
       </body>
@@ -227,7 +235,7 @@ def register_student():
             return "<h2>Error: Invalid or missing form data</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": "Invalid or missing JSON body"}), 400
 
-    required_fields = ["name", "grade", "email", "mobile", "medium"]
+    required_fields = ["name", "grade", "email", "mobile", "medium", "password"]
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
     if missing_fields:
         if is_form_submission:
@@ -272,6 +280,7 @@ def register_student():
         medium=medium,
         email=email,
         mobile=mobile,
+        password_hash=generate_password_hash(data["password"]),
     )
 
     db.session.add(student)
@@ -325,6 +334,69 @@ def get_students():
         ),
         200,
     )
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Student Login</title>
+          </head>
+          <body>
+            <h1>Student Login</h1>
+            <form method="post" action="/login">
+              <label>Email: <input type="email" name="email" required></label><br><br>
+              <label>Password: <input type="password" name="password" required></label><br><br>
+              <button type="submit">Login</button>
+            </form>
+          </body>
+        </html>
+        """
+
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+    student = Student.query.filter_by(email=email).first()
+    if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
+        return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
+
+    session["student_id"] = student.id
+    return redirect(url_for("student_dashboard"))
+
+
+@app.route("/student-dashboard", methods=["GET"])
+def student_dashboard():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    return f"<h1>Welcome, {student.name}</h1><p>Grade: {student.grade}</p><p><a href='/logout'>Logout</a></p>"
+
+
+@app.route("/logout", methods=["GET"])
+def logout():
+    session.pop("student_id", None)
+    return redirect(url_for("login"))
+
+
+@app.route("/update-login-db", methods=["GET"])
+def update_login_db() -> tuple:
+    try:
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)"))
+        db.session.commit()
+        return jsonify({"success": True, "message": "Login database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Login DB update failed: {exc}"}), 500
 
 
 @app.route("/update-db", methods=["GET"])
