@@ -47,6 +47,10 @@ UI_TEXT = {
         "topic": "Topic",
         "classification": "Classification",
         "recommended_next_steps": "Recommended Next Steps",
+        "practice_title": "Practice Mode",
+        "practice_score": "Score",
+        "back_to_dashboard": "Back to Dashboard",
+        "topic_name": "Topic",
     },
     "Sinhala": {
         "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
@@ -79,6 +83,10 @@ UI_TEXT = {
         "topic": "මාතෘකාව",
         "classification": "වර්ගීකරණය",
         "recommended_next_steps": "ඊළඟ පියවර නිර්දේශ",
+        "practice_title": "අභ්‍යාස මාදිලිය",
+        "practice_score": "ලකුණ",
+        "back_to_dashboard": "ඩෑෂ්බෝඩ් වෙත ආපසු",
+        "topic_name": "මාතෘකාව",
     },
 }
 
@@ -1187,6 +1195,162 @@ def submit_test() -> str:
         {recommendations_html}
         {wrong_answers_html}
         <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
+      </body>
+    </html>
+    """
+
+
+@app.route("/practice", methods=["GET"])
+def practice_page() -> str:
+    db.create_all()
+    grade = (request.args.get("grade") or "").strip()
+    subject = (request.args.get("subject") or "").strip()
+    topic = (request.args.get("topic") or "").strip()
+    selected_medium = resolve_medium(request.args.get("medium"))
+
+    medium_key = "en" if selected_medium == "English" else "si"
+    questions = (
+        Question.query.filter_by(grade=grade, subject=subject, topic=topic)
+        .order_by(Question.id.asc())
+        .all()
+    )
+
+    question_blocks = []
+    for q in questions:
+        question_text = getattr(q, f"question_text_{medium_key}")
+        option_a = getattr(q, f"option_a_{medium_key}")
+        option_b = getattr(q, f"option_b_{medium_key}")
+        option_c = getattr(q, f"option_c_{medium_key}")
+        option_d = getattr(q, f"option_d_{medium_key}")
+        question_blocks.append(
+            f"""
+            <div style='margin:16px 0;padding:12px;border:1px solid #ddd;'>
+              <p><strong>Q{q.id}.</strong> {question_text}</p>
+              <label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>
+            </div>
+            """
+        )
+
+    english_selected = "selected" if selected_medium == "English" else ""
+    sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+    display_topic = topic or "-"
+
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>{t(selected_medium, 'practice_title')}</title>
+      </head>
+      <body>
+        <h1>{t(selected_medium, 'practice_title')}</h1>
+        <p><strong>{t(selected_medium, 'topic_name')}:</strong> {display_topic}</p>
+        <form method='get' action='/practice' style='margin-bottom:20px;'>
+          <input type='hidden' name='grade' value='{grade}'>
+          <input type='hidden' name='subject' value='{subject}'>
+          <input type='hidden' name='topic' value='{topic}'>
+          <label>{t(selected_medium, 'language')}:
+            <select name='medium'>
+              <option value='English' {english_selected}>English</option>
+              <option value='Sinhala' {sinhala_selected}>Sinhala</option>
+            </select>
+          </label>
+          <button type='submit'>{t(selected_medium, 'change_language')}</button>
+        </form>
+        <form method='post' action='/submit-practice'>
+          <input type='hidden' name='grade' value='{grade}'>
+          <input type='hidden' name='subject' value='{subject}'>
+          <input type='hidden' name='topic' value='{topic}'>
+          <input type='hidden' name='medium' value='{selected_medium}'>
+          {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
+          <button type='submit'>{t(selected_medium, 'submit')}</button>
+        </form>
+        <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
+      </body>
+    </html>
+    """
+
+
+@app.route("/submit-practice", methods=["POST"])
+def submit_practice() -> str:
+    db.create_all()
+    selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
+    grade = (request.form.get("grade") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+    topic = (request.form.get("topic") or "").strip()
+    medium_key = "en" if selected_medium == "English" else "si"
+
+    questions = (
+        Question.query.filter_by(grade=grade, subject=subject, topic=topic)
+        .order_by(Question.id.asc())
+        .all()
+    )
+
+    total_questions = len(questions)
+    correct_answers = 0
+    option_label_key = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
+    answer_rows = []
+
+    for q in questions:
+        student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+        correct_answer = q.correct_option.strip().upper()
+        if student_answer == correct_answer:
+            correct_answers += 1
+
+        question_text = getattr(q, f"question_text_{medium_key}")
+        explanation_text = getattr(q, f"explanation_{medium_key}")
+        student_answer_text = (
+            getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
+            if student_answer in option_label_key
+            else t(selected_medium, "not_answered")
+        )
+        correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
+
+        answer_rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{question_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student_answer_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{correct_answer_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{explanation_text}</td>
+            </tr>
+            """
+        )
+
+    score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>{t(selected_medium, 'practice_title')}</title>
+      </head>
+      <body>
+        <h1>{t(selected_medium, 'practice_title')}</h1>
+        <p><strong>{t(selected_medium, 'topic_name')}:</strong> {topic or '-'}</p>
+        <p><strong>{t(selected_medium, 'practice_score')}:</strong> {score}%</p>
+        <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}/{total_questions}</p>
+        <h2>{t(selected_medium, 'wrong_answers')}</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'question')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'student_answer')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answer')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'explanation')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(answer_rows) if answer_rows else f"<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>{t(selected_medium, 'no_questions')}</td></tr>"}
+          </tbody>
+        </table>
+        <p><a href='/practice?grade={grade}&subject={subject}&topic={topic}&medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
+        <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
       </body>
     </html>
     """
