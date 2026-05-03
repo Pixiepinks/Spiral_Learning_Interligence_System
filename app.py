@@ -385,6 +385,52 @@ def student_dashboard():
         .all()
     )
     latest_result = result_history[0] if result_history else None
+    ui_text = {
+        "en": {
+            "dashboard": "Student Dashboard",
+            "name": "Name",
+            "grade": "Grade",
+            "medium": "Medium",
+            "latest_result": "Latest SkillScan Result",
+            "date": "Date",
+            "score": "Score",
+            "level": "Level",
+            "correct_answers": "Correct Answers",
+            "result_history": "Result History",
+            "topic_performance": "Topic-wise Performance (Latest Result)",
+            "take_test": "Take SkillScan Test",
+            "logout": "Logout",
+        },
+        "si": {
+            "dashboard": "ශිෂ්‍ය ඩෑෂ්බෝඩ්",
+            "name": "නම",
+            "grade": "ශ්‍රේණිය",
+            "medium": "මාධ්‍යය",
+            "latest_result": "අවසන් SkillScan ප්‍රතිඵලය",
+            "date": "දිනය",
+            "score": "ලකුණු",
+            "level": "මට්ටම",
+            "correct_answers": "නිවැරදි පිළිතුරු",
+            "result_history": "ප්‍රතිඵල ඉතිහාසය",
+            "topic_performance": "මාතෘකා අනුව ක්‍රියාකාරීත්වය",
+            "take_test": "SkillScan පරීක්ෂණය ආරම්භ කරන්න",
+            "logout": "ඉවත් වන්න",
+        },
+    }
+    language = "si" if student.medium == "Sinhala" else "en"
+    text = ui_text[language]
+    level_translations = {
+        "Foundation Weak": "පදනම දුර්වල",
+        "Basic Learner": "මූලික ඉගෙනුමකරු",
+        "Developing Learner": "වර්ධනය වන ඉගෙනුමකරු",
+        "Strong Learner": "ශක්තිමත් ඉගෙනුමකරු",
+        "Advanced Learner": "උසස් ඉගෙනුමකරු",
+    }
+
+    def display_level(level: str) -> str:
+        if language == "si":
+            return level_translations.get(level, level)
+        return level
 
     topic_rows = ""
     if latest_result:
@@ -411,7 +457,7 @@ def student_dashboard():
         <tr>
           <td style='border:1px solid #ccc;padding:8px;'>{result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{result.score}%</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{result.level}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{display_level(result.level)}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{result.correct_answers}/{result.total_questions}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{result.medium}</td>
         </tr>
@@ -422,40 +468,40 @@ def student_dashboard():
     latest_html = ""
     if latest_result:
         latest_html = f"""
-        <h2>Latest SkillScan Result</h2>
-        <p><strong>Date:</strong> {latest_result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
-        <p><strong>Score:</strong> {latest_result.score}%</p>
-        <p><strong>Level:</strong> {latest_result.level}</p>
-        <p><strong>Correct Answers:</strong> {latest_result.correct_answers}/{latest_result.total_questions}</p>
+        <h2>{text["latest_result"]}</h2>
+        <p><strong>{text["date"]}:</strong> {latest_result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p><strong>{text["score"]}:</strong> {latest_result.score}%</p>
+        <p><strong>{text["level"]}:</strong> {display_level(latest_result.level)}</p>
+        <p><strong>{text["correct_answers"]}:</strong> {latest_result.correct_answers}/{latest_result.total_questions}</p>
         """
     else:
-        latest_html = "<h2>Latest SkillScan Result</h2><p>No results yet.</p>"
+        latest_html = f"<h2>{text['latest_result']}</h2><p>No results yet.</p>"
 
     return f"""
     <!doctype html>
-    <html lang='en'>
+    <html lang='{'si' if language == 'si' else 'en'}'>
       <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <title>Student Dashboard</title>
+        <title>{text["dashboard"]}</title>
       </head>
       <body>
-        <h1>Student Dashboard</h1>
-        <p><strong>Name:</strong> {student.name}</p>
-        <p><strong>Grade:</strong> {student.grade}</p>
-        <p><strong>Medium:</strong> {student.medium}</p>
+        <h1>{text["dashboard"]}</h1>
+        <p><strong>{text["name"]}:</strong> {student.name}</p>
+        <p><strong>{text["grade"]}:</strong> {student.grade}</p>
+        <p><strong>{text["medium"]}:</strong> {student.medium}</p>
 
         {latest_html}
 
-        <h2>Result History</h2>
+        <h2>{text["result_history"]}</h2>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct/Total</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["date"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["score"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["level"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["correct_answers"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["medium"]}</th>
             </tr>
           </thead>
           <tbody>
@@ -463,7 +509,7 @@ def student_dashboard():
           </tbody>
         </table>
 
-        <h2>Topic-wise Performance (Latest Result)</h2>
+        <h2>{text["topic_performance"]}</h2>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -479,9 +525,9 @@ def student_dashboard():
         </table>
 
         <p>
-          <a href='/test'>Take SkillScan Test</a>
+          <a href='/test'>{text["take_test"]}</a>
           &nbsp;|&nbsp;
-          <a href='/logout'>Logout</a>
+          <a href='/logout'>{text["logout"]}</a>
         </p>
       </body>
     </html>
