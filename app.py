@@ -13,6 +13,74 @@ db = SQLAlchemy(app)
 
 SUPPORTED_MEDIA = {"English", "Sinhala"}
 
+UI_TEXT = {
+    "English": {
+        "student_registration": "Student Registration",
+        "name": "Name",
+        "grade": "Grade",
+        "medium": "Medium",
+        "email": "Email",
+        "mobile": "Mobile",
+        "register": "Register",
+        "language": "Language",
+        "change_language": "Change Language",
+        "selected_language": "Selected language",
+        "submit": "Submit",
+        "no_questions": "No Grade 6 Math questions available.",
+        "test_title": "SkillScan Test - Grade 6 Math",
+        "result_title": "SkillScan Test Result",
+        "total_questions": "Total questions",
+        "correct_answers": "Correct answers",
+        "percentage_score": "Percentage score",
+        "level": "Level",
+        "wrong_answers": "Wrong Answers",
+        "question": "Question",
+        "student_answer": "Student answer",
+        "correct_answer": "Correct answer",
+        "explanation": "Explanation",
+        "try_again": "Try Again",
+        "not_answered": "Not answered",
+        "excellent_no_wrong": "Excellent! No wrong answers.",
+    },
+    "Sinhala": {
+        "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
+        "name": "නම",
+        "grade": "ශ්‍රේණිය",
+        "medium": "මාධ්‍යය",
+        "email": "ඊමේල්",
+        "mobile": "ජංගම දුරකථන",
+        "register": "ලියාපදිංචි කරන්න",
+        "language": "භාෂාව",
+        "change_language": "භාෂාව මාරු කරන්න",
+        "selected_language": "තෝරාගත් භාෂාව",
+        "submit": "යවන්න",
+        "no_questions": "6 ශ්‍රේණියේ ගණිත ප්‍රශ්න නොමැත.",
+        "test_title": "SkillScan පරීක්ෂණය - 6 ශ්‍රේණිය ගණිතය",
+        "result_title": "SkillScan පරීක්ෂණ ප්‍රතිඵලය",
+        "total_questions": "මුළු ප්‍රශ්න ගණන",
+        "correct_answers": "නිවැරදි පිළිතුරු",
+        "percentage_score": "ප්‍රතිශත ලකුණු",
+        "level": "මට්ටම",
+        "wrong_answers": "වැරදි පිළිතුරු",
+        "question": "ප්‍රශ්නය",
+        "student_answer": "ඔබේ පිළිතුර",
+        "correct_answer": "නිවැරදි පිළිතුර",
+        "explanation": "විස්තරය",
+        "try_again": "නැවත උත්සාහ කරන්න",
+        "not_answered": "පිළිතුර ලබා නැත",
+        "excellent_no_wrong": "ඉතා හොඳයි! වැරදි පිළිතුරු නොමැත.",
+    },
+}
+
+
+def resolve_medium(value: str | None, default: str = "English") -> str:
+    medium = (value or default).strip()
+    return medium if medium in SUPPORTED_MEDIA else default
+
+
+def t(medium: str, key: str) -> str:
+    return UI_TEXT[resolve_medium(medium)][key]
+
 
 class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -58,46 +126,50 @@ def create_db() -> str:
 
 @app.route("/register-form", methods=["GET"])
 def register_form() -> str:
-    return """
+    selected_medium = resolve_medium(request.args.get("medium"))
+    english_selected = "selected" if selected_medium == "English" else ""
+    sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+
+    return f"""
     <!doctype html>
-    <html lang="en">
+    <html lang="{'si' if selected_medium == 'Sinhala' else 'en'}">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Student Registration</title>
+        <title>{t(selected_medium, "student_registration")}</title>
       </head>
       <body>
-        <h1>Student Registration</h1>
+        <h1>{t(selected_medium, "student_registration")}</h1>
         <form method="post" action="/register">
           <label>
-            Name:
+            {t(selected_medium, "name")}:
             <input type="text" name="name" required>
           </label>
           <br><br>
           <label>
-            Grade:
+            {t(selected_medium, "grade")}:
             <input type="text" name="grade" required>
           </label>
           <br><br>
           <label>
-            Medium:
+            {t(selected_medium, "medium")}:
             <select name="medium" required>
-              <option value="English">English</option>
-              <option value="Sinhala">Sinhala</option>
+              <option value="English" {english_selected}>English</option>
+              <option value="Sinhala" {sinhala_selected}>Sinhala</option>
             </select>
           </label>
           <br><br>
           <label>
-            Email:
+            {t(selected_medium, "email")}:
             <input type="email" name="email" required>
           </label>
           <br><br>
           <label>
-            Mobile:
+            {t(selected_medium, "mobile")}:
             <input type="text" name="mobile" required>
           </label>
           <br><br>
-          <button type="submit">Register</button>
+          <button type="submit">{t(selected_medium, "register")}</button>
         </form>
       </body>
     </html>
@@ -375,9 +447,7 @@ def create_questions() -> tuple:
 
 @app.route("/test", methods=["GET"])
 def test_page() -> str:
-    selected_medium = request.args.get("medium", "English")
-    if selected_medium not in SUPPORTED_MEDIA:
-        selected_medium = "English"
+    selected_medium = resolve_medium(request.args.get("medium"))
 
     questions = (
         Question.query.filter_by(grade="6", subject="Math")
@@ -411,28 +481,28 @@ def test_page() -> str:
 
     return f"""
     <!doctype html>
-    <html lang='en'>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
       <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
       </head>
       <body>
-        <h1>SkillScan Test - Grade 6 Math</h1>
+        <h1>{t(selected_medium, 'test_title')}</h1>
         <form method='get' action='/test' style='margin-bottom:20px;'>
-          <label>Language:
+          <label>{t(selected_medium, 'language')}:
             <select name='medium'>
               <option value='English' {english_selected}>English</option>
               <option value='Sinhala' {sinhala_selected}>Sinhala</option>
             </select>
           </label>
-          <button type='submit'>Change Language</button>
+          <button type='submit'>{t(selected_medium, 'change_language')}</button>
         </form>
         <form method='post' action='/submit-test'>
           <input type='hidden' name='medium' value='{selected_medium}'>
-          <p>Selected language: <strong>{selected_medium}</strong></p>
-          {''.join(question_blocks) if question_blocks else '<p>No Grade 6 Math questions available.</p>'}
-          <button type='submit'>Submit</button>
+          <p>{t(selected_medium, 'selected_language')}: <strong>{selected_medium}</strong></p>
+          {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
+          <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
       </body>
     </html>
@@ -441,9 +511,7 @@ def test_page() -> str:
 
 @app.route("/submit-test", methods=["POST"])
 def submit_test() -> str:
-    selected_medium = request.form.get("medium", "English")
-    if selected_medium not in SUPPORTED_MEDIA:
-        selected_medium = "English"
+    selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
 
     medium_key = "en" if selected_medium == "English" else "si"
     questions = (
@@ -471,7 +539,7 @@ def submit_test() -> str:
         if student_answer in option_label_key:
             student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
         else:
-            student_answer_text = "Not answered"
+            student_answer_text = t(selected_medium, "not_answered")
 
         correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
         wrong_answer_rows.append(
@@ -500,14 +568,14 @@ def submit_test() -> str:
 
     if wrong_answer_rows:
         wrong_answers_html = f"""
-        <h2>Wrong Answers</h2>
+        <h2>{t(selected_medium, 'wrong_answers')}</h2>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Question</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student answer</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct answer</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Explanation ({selected_medium})</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'question')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'student_answer')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answer')}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'explanation')}</th>
             </tr>
           </thead>
           <tbody>
@@ -516,24 +584,24 @@ def submit_test() -> str:
         </table>
         """
     else:
-        wrong_answers_html = "<p>Excellent! No wrong answers.</p>"
+        wrong_answers_html = f"<p>{t(selected_medium, 'excellent_no_wrong')}</p>"
 
     return f"""
     <!doctype html>
-    <html lang='en'>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
       <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>SkillScan Result</title>
       </head>
       <body>
-        <h1>SkillScan Test Result</h1>
-        <p><strong>Total questions:</strong> {total_questions}</p>
-        <p><strong>Correct answers:</strong> {correct_answers}</p>
-        <p><strong>Percentage score:</strong> {percentage_score}%</p>
-        <p><strong>Level:</strong> {level_name}</p>
+        <h1>{t(selected_medium, 'result_title')}</h1>
+        <p><strong>{t(selected_medium, 'total_questions')}:</strong> {total_questions}</p>
+        <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}</p>
+        <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {percentage_score}%</p>
+        <p><strong>{t(selected_medium, 'level')}:</strong> {level_name}</p>
         {wrong_answers_html}
-        <p><a href='/test?medium={selected_medium}'>Try Again</a></p>
+        <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
       </body>
     </html>
     """
