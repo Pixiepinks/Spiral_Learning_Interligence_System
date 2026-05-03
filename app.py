@@ -46,6 +46,7 @@ UI_TEXT = {
         "topic_analysis": "Topic Analysis",
         "topic": "Topic",
         "classification": "Classification",
+        "recommended_next_steps": "Recommended Next Steps",
     },
     "Sinhala": {
         "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
@@ -77,6 +78,7 @@ UI_TEXT = {
         "topic_analysis": "මාතෘකා විශ්ලේෂණය",
         "topic": "මාතෘකාව",
         "classification": "වර්ගීකරණය",
+        "recommended_next_steps": "ඊළඟ පියවර නිර්දේශ",
     },
 }
 
@@ -1044,20 +1046,39 @@ def submit_test() -> str:
     else:
         level_name = "Advanced Learner"
 
-    def classify_topic(score: float) -> str:
-        if score <= 40:
-            return "Weak" if selected_medium == "English" else "දුර්වල"
-        if score <= 70:
-            return "Needs Improvement" if selected_medium == "English" else "වැඩිදියුණු කළ යුතුය"
-        return "Strong" if selected_medium == "English" else "ශක්තිමත්"
+    def classify_topic(score: float) -> tuple[str, str]:
+        if score < 50:
+            return "Weak", "දුර්වල"
+        if score < 80:
+            return "Improving", "දියුණු වෙමින්"
+        return "Strong", "ශක්තිමත්"
 
     topic_rows = []
+    recommendations = []
     for topic_name, stats in topic_stats.items():
         topic_total = stats["total"]
         topic_correct = stats["correct"]
         topic_percentage = round((topic_correct / topic_total) * 100, 2) if topic_total else 0
-        status_en = classify_topic(topic_percentage)
-        status_si = "දුර්වල" if topic_percentage <= 40 else "වැඩිදියුණු කළ යුතුය" if topic_percentage <= 70 else "ශක්තිමත්"
+        status_en, status_si = classify_topic(topic_percentage)
+        classification_label = status_en if selected_medium == "English" else status_si
+
+        if status_en == "Weak":
+            if selected_medium == "Sinhala":
+                recommendations.append(f"{stats['topic_si']} සඳහා තවත් ප්‍රශ්න අභ්‍යාස කරන්න")
+                recommendations.append(f"{stats['topic_si']} හි මූලික සංකල්ප නැවත බලන්න")
+            else:
+                recommendations.append(f"Practice more questions on {stats['topic_en']}")
+                recommendations.append(f"Revise basic concepts of {stats['topic_en']}")
+        elif status_en == "Improving":
+            if selected_medium == "Sinhala":
+                recommendations.append(f"{stats['topic_si']} සඳහා අතරමැදි මට්ටමේ ප්‍රශ්න කරන්න")
+            else:
+                recommendations.append(f"Do intermediate level questions on {stats['topic_en']}")
+        else:
+            if selected_medium == "Sinhala":
+                recommendations.append(f"ඔබ {stats['topic_si']} තුළ ශක්තිමත්ය")
+            else:
+                recommendations.append(f"You are strong in {stats['topic_en']}")
 
         topic_rows.append(
             f"""
@@ -1066,7 +1087,7 @@ def submit_test() -> str:
               <td style='border:1px solid #ccc;padding:8px;'>{topic_total}</td>
               <td style='border:1px solid #ccc;padding:8px;'>{topic_correct}</td>
               <td style='border:1px solid #ccc;padding:8px;'>{topic_percentage}%</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{status_en}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{classification_label}</td>
             </tr>
             """
         )
@@ -1088,8 +1109,7 @@ def submit_test() -> str:
         topic_total = stats["total"]
         topic_correct = stats["correct"]
         topic_percentage = round((topic_correct / topic_total) * 100, 2) if topic_total else 0
-        status_en = "Weak" if topic_percentage <= 40 else "Needs Improvement" if topic_percentage <= 70 else "Strong"
-        status_si = "දුර්වල" if topic_percentage <= 40 else "වැඩිදියුණු කළ යුතුය" if topic_percentage <= 70 else "ශක්තිමත්"
+        status_en, status_si = classify_topic(topic_percentage)
         db.session.add(
             StudentTopicPerformance(
                 student_result_id=student_result.id,
@@ -1120,6 +1140,13 @@ def submit_test() -> str:
         {''.join(topic_rows)}
       </tbody>
     </table>
+    """
+
+    recommendations_html = f"""
+    <h2>{t(selected_medium, 'recommended_next_steps')}</h2>
+    <ul>
+      {''.join(f"<li>{item}</li>" for item in recommendations)}
+    </ul>
     """
 
     if wrong_answer_rows:
@@ -1157,6 +1184,7 @@ def submit_test() -> str:
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {percentage_score}%</p>
         <p><strong>{t(selected_medium, 'level')}:</strong> {level_name}</p>
         {topic_analysis_html}
+        {recommendations_html}
         {wrong_answers_html}
         <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
       </body>
