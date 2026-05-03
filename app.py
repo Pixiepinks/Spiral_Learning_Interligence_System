@@ -148,6 +148,20 @@ class StudentResult(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+
+
+class PracticeAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=True)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False)
+    topic_en = db.Column(db.String(150), nullable=False)
+    topic_si = db.Column(db.String(150), nullable=False)
+    medium = db.Column(db.String(20), nullable=False)
+    score = db.Column(db.Float, nullable=False, default=0)
+    total_questions = db.Column(db.Integer, nullable=False, default=0)
+    correct_answers = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 class StudentTopicPerformance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_result_id = db.Column(
@@ -396,6 +410,12 @@ def student_dashboard():
         .all()
     )
     latest_result = result_history[0] if result_history else None
+    practice_attempts = (
+        PracticeAttempt.query.filter_by(student_id=student.id)
+        .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
+        .limit(5)
+        .all()
+    )
     ui_text = {
         "en": {
             "dashboard": "Student Dashboard",
@@ -409,6 +429,7 @@ def student_dashboard():
             "correct_answers": "Correct Answers",
             "result_history": "Result History",
             "topic_performance": "Topic-wise Performance (Latest Result)",
+            "latest_practice_attempts": "Latest Practice Attempts",
             "take_test": "Take SkillScan Test",
             "logout": "Logout",
         },
@@ -424,6 +445,7 @@ def student_dashboard():
             "correct_answers": "නිවැරදි පිළිතුරු",
             "result_history": "ප්‍රතිඵල ඉතිහාසය",
             "topic_performance": "මාතෘකා අනුව ක්‍රියාකාරීත්වය",
+            "latest_practice_attempts": "අවසන් අභ්‍යාස උත්සාහ",
             "take_test": "SkillScan පරීක්ෂණය ආරම්භ කරන්න",
             "logout": "ඉවත් වන්න",
         },
@@ -474,6 +496,19 @@ def student_dashboard():
         </tr>
         """
         for result in result_history
+    )
+
+    practice_medium_key = "en" if student.medium == "English" else "si"
+    practice_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{getattr(attempt, f'topic_{practice_medium_key}')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.score}%</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.correct_answers}/{attempt.total_questions}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+        </tr>
+        """
+        for attempt in practice_attempts
     )
 
     latest_html = ""
@@ -532,6 +567,21 @@ def student_dashboard():
           </thead>
           <tbody>
             {topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic performance available.</td></tr>"}
+          </tbody>
+        </table>
+
+        <h2>{text["latest_practice_attempts"]}</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Topic</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["score"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["correct_answers"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["date"]}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
           </tbody>
         </table>
 
@@ -1340,6 +1390,25 @@ def submit_practice() -> str:
         )
 
     score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+
+    student_id = session.get("student_id")
+    topic_question = Question.query.filter_by(grade=grade, subject=subject, topic=topic).first()
+    topic_en = topic_question.topic_en if topic_question else topic
+    topic_si = topic_question.topic_si if topic_question else topic
+
+    practice_attempt = PracticeAttempt(
+        student_id=student_id,
+        grade=grade,
+        subject=subject,
+        topic_en=topic_en,
+        topic_si=topic_si,
+        medium=selected_medium,
+        score=score,
+        total_questions=total_questions,
+        correct_answers=correct_answers,
+    )
+    db.session.add(practice_attempt)
+    db.session.commit()
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
@@ -1372,6 +1441,17 @@ def submit_practice() -> str:
       </body>
     </html>
     """
+
+
+@app.route("/update-practice-db", methods=["GET"])
+def update_practice_db() -> tuple:
+    try:
+        db.create_all()
+        db.session.commit()
+        return jsonify({"success": True, "message": "Practice tables ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Practice DB update failed: {exc}"}), 500
 
 
 if __name__ == "__main__":
