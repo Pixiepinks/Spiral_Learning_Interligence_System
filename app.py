@@ -379,7 +379,113 @@ def student_dashboard():
         session.pop("student_id", None)
         return redirect(url_for("login"))
 
-    return f"<h1>Welcome, {student.name}</h1><p>Grade: {student.grade}</p><p><a href='/logout'>Logout</a></p>"
+    result_history = (
+        StudentResult.query.filter_by(student_id=student.id)
+        .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+        .all()
+    )
+    latest_result = result_history[0] if result_history else None
+
+    topic_rows = ""
+    if latest_result:
+        latest_topics = (
+            StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id)
+            .order_by(StudentTopicPerformance.id.asc())
+            .all()
+        )
+        medium_key = "en" if student.medium == "English" else "si"
+        topic_rows = "".join(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{getattr(topic, f'topic_{medium_key}')}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic.correct_count}/{topic.total_count}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{getattr(topic, f'status_{medium_key}')}</td>
+            </tr>
+            """
+            for topic in latest_topics
+        )
+
+    history_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.score}%</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.level}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.correct_answers}/{result.total_questions}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.medium}</td>
+        </tr>
+        """
+        for result in result_history
+    )
+
+    latest_html = ""
+    if latest_result:
+        latest_html = f"""
+        <h2>Latest SkillScan Result</h2>
+        <p><strong>Date:</strong> {latest_result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p><strong>Score:</strong> {latest_result.score}%</p>
+        <p><strong>Level:</strong> {latest_result.level}</p>
+        <p><strong>Correct Answers:</strong> {latest_result.correct_answers}/{latest_result.total_questions}</p>
+        """
+    else:
+        latest_html = "<h2>Latest SkillScan Result</h2><p>No results yet.</p>"
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>Student Dashboard</title>
+      </head>
+      <body>
+        <h1>Student Dashboard</h1>
+        <p><strong>Name:</strong> {student.name}</p>
+        <p><strong>Grade:</strong> {student.grade}</p>
+        <p><strong>Medium:</strong> {student.medium}</p>
+
+        {latest_html}
+
+        <h2>Result History</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct/Total</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history_rows if history_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No results found.</td></tr>"}
+          </tbody>
+        </table>
+
+        <h2>Topic-wise Performance (Latest Result)</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Topic</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct/Total</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Percentage</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic performance available.</td></tr>"}
+          </tbody>
+        </table>
+
+        <p>
+          <a href='/test'>Take SkillScan Test</a>
+          &nbsp;|&nbsp;
+          <a href='/logout'>Logout</a>
+        </p>
+      </body>
+    </html>
+    """
 
 
 @app.route("/logout", methods=["GET"])
@@ -782,7 +888,7 @@ def submit_test() -> str:
         )
 
     student_result = StudentResult(
-        student_id=None,
+        student_id=session.get('student_id'),
         grade="6",
         subject="Math",
         medium=selected_medium,
