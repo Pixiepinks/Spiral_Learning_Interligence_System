@@ -375,14 +375,15 @@ def create_questions() -> tuple:
 
 @app.route("/test", methods=["GET"])
 def test_page() -> str:
-    student_id = request.args.get("student_id", type=int)
-    selected_medium = request.args.get("medium")
-    student = Student.query.get(student_id) if student_id else None
-
+    selected_medium = request.args.get("medium", "English")
     if selected_medium not in SUPPORTED_MEDIA:
-        selected_medium = student.medium if student else "English"
+        selected_medium = "English"
 
-    questions = Question.query.order_by(Question.id.asc()).all()
+    questions = (
+        Question.query.filter_by(grade="6", subject="Math")
+        .order_by(Question.id.asc())
+        .all()
+    )
     medium_key = "en" if selected_medium == "English" else "si"
 
     question_blocks = []
@@ -405,11 +406,6 @@ def test_page() -> str:
             """
         )
 
-    student_options = ["<option value=''>Select student (optional)</option>"]
-    for s in Student.query.order_by(Student.name.asc()).all():
-        selected = "selected" if student_id == s.id else ""
-        student_options.append(f"<option value='{s.id}' {selected}>{s.name} ({s.medium})</option>")
-
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
 
@@ -422,24 +418,35 @@ def test_page() -> str:
         <title>Test Page</title>
       </head>
       <body>
-        <h1>Test Page</h1>
+        <h1>SkillScan Test - Grade 6 Math</h1>
         <form method='get' action='/test' style='margin-bottom:20px;'>
-          <label>Student:
-            <select name='student_id'>{''.join(student_options)}</select>
-          </label>
-          <label style='margin-left:10px;'>Medium:
+          <label>Language:
             <select name='medium'>
               <option value='English' {english_selected}>English</option>
               <option value='Sinhala' {sinhala_selected}>Sinhala</option>
             </select>
           </label>
-          <button type='submit'>Load Questions</button>
+          <button type='submit'>Change Language</button>
         </form>
-        <p>Selected medium: <strong>{selected_medium}</strong></p>
-        {''.join(question_blocks) if question_blocks else '<p>No questions available.</p>'}
+        <form method='post' action='/submit-test'>
+          <input type='hidden' name='medium' value='{selected_medium}'>
+          <p>Selected language: <strong>{selected_medium}</strong></p>
+          {''.join(question_blocks) if question_blocks else '<p>No Grade 6 Math questions available.</p>'}
+          <button type='submit'>Submit</button>
+        </form>
       </body>
     </html>
     """
+
+
+@app.route("/submit-test", methods=["POST"])
+def submit_test() -> str:
+    submitted_answers = {k: v for k, v in request.form.items() if k.startswith("q_")}
+    return (
+        "<h2>Test submitted successfully.</h2>"
+        f"<p>Received {len(submitted_answers)} answer(s).</p>"
+        "<p><a href='/test'>Back to test</a></p>"
+    )
 
 
 if __name__ == "__main__":
