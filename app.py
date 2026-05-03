@@ -121,6 +121,35 @@ class Question(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class StudentResult(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=True)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False)
+    medium = db.Column(db.String(20), nullable=False)
+    score = db.Column(db.Float, nullable=False, default=0)
+    level = db.Column(db.String(50), nullable=False)
+    total_questions = db.Column(db.Integer, nullable=False, default=0)
+    correct_answers = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentTopicPerformance(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_result_id = db.Column(
+        db.Integer,
+        db.ForeignKey("student_result.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    topic_en = db.Column(db.String(150), nullable=False)
+    topic_si = db.Column(db.String(150), nullable=False)
+    correct_count = db.Column(db.Integer, nullable=False, default=0)
+    total_count = db.Column(db.Integer, nullable=False, default=0)
+    percentage = db.Column(db.Float, nullable=False, default=0)
+    status_en = db.Column(db.String(50), nullable=False)
+    status_si = db.Column(db.String(50), nullable=False)
+
+
 @app.route("/")
 def home() -> str:
     return "Spiral Learning System Running"
@@ -345,6 +374,17 @@ def update_question_topics_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Question topic column update failed: {exc}"}), 500
+
+
+@app.route("/update-results-db", methods=["GET"])
+def update_results_db() -> tuple:
+    try:
+        db.create_all()
+        db.session.commit()
+        return jsonify({"success": True, "message": "Result tables ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Results DB update failed: {exc}"}), 500
 
 
 @app.route("/questions", methods=["POST"])
@@ -591,7 +631,15 @@ def submit_test() -> str:
         topic_name = q.topic_en if selected_medium == "English" else q.topic_si
         if not topic_name:
             topic_name = q.topic
-        topic_stats.setdefault(topic_name, {"total": 0, "correct": 0})
+        topic_stats.setdefault(
+            topic_name,
+            {
+                "total": 0,
+                "correct": 0,
+                "topic_en": q.topic_en or q.topic,
+                "topic_si": q.topic_si or q.topic,
+            },
+        )
         topic_stats[topic_name]["total"] += 1
         student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
         correct_answer = q.correct_option.strip().upper()
@@ -646,6 +694,9 @@ def submit_test() -> str:
         topic_total = stats["total"]
         topic_correct = stats["correct"]
         topic_percentage = round((topic_correct / topic_total) * 100, 2) if topic_total else 0
+        status_en = classify_topic(topic_percentage)
+        status_si = "දුර්වල" if topic_percentage <= 40 else "වැඩිදියුණු කළ යුතුය" if topic_percentage <= 70 else "ශක්තිමත්"
+
         topic_rows.append(
             f"""
             <tr>
@@ -653,10 +704,43 @@ def submit_test() -> str:
               <td style='border:1px solid #ccc;padding:8px;'>{topic_total}</td>
               <td style='border:1px solid #ccc;padding:8px;'>{topic_correct}</td>
               <td style='border:1px solid #ccc;padding:8px;'>{topic_percentage}%</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{classify_topic(topic_percentage)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{status_en}</td>
             </tr>
             """
         )
+
+    student_result = StudentResult(
+        student_id=None,
+        grade="6",
+        subject="Math",
+        medium=selected_medium,
+        score=percentage_score,
+        level=level_name,
+        total_questions=total_questions,
+        correct_answers=correct_answers,
+    )
+    db.session.add(student_result)
+    db.session.flush()
+
+    for topic_name, stats in topic_stats.items():
+        topic_total = stats["total"]
+        topic_correct = stats["correct"]
+        topic_percentage = round((topic_correct / topic_total) * 100, 2) if topic_total else 0
+        status_en = "Weak" if topic_percentage <= 40 else "Needs Improvement" if topic_percentage <= 70 else "Strong"
+        status_si = "දුර්වල" if topic_percentage <= 40 else "වැඩිදියුණු කළ යුතුය" if topic_percentage <= 70 else "ශක්තිමත්"
+        db.session.add(
+            StudentTopicPerformance(
+                student_result_id=student_result.id,
+                topic_en=stats["topic_en"],
+                topic_si=stats["topic_si"],
+                correct_count=topic_correct,
+                total_count=topic_total,
+                percentage=topic_percentage,
+                status_en=status_en,
+                status_si=status_si,
+            )
+        )
+    db.session.commit()
 
     topic_analysis_html = f"""
     <h2>{t(selected_medium, 'topic_analysis')}</h2>
