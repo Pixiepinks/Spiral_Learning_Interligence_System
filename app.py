@@ -41,6 +41,9 @@ UI_TEXT = {
         "try_again": "Try Again",
         "not_answered": "Not answered",
         "excellent_no_wrong": "Excellent! No wrong answers.",
+        "topic_analysis": "Topic Analysis",
+        "topic": "Topic",
+        "classification": "Classification",
     },
     "Sinhala": {
         "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
@@ -69,6 +72,9 @@ UI_TEXT = {
         "try_again": "නැවත උත්සාහ කරන්න",
         "not_answered": "පිළිතුර ලබා නැත",
         "excellent_no_wrong": "ඉතා හොඳයි! වැරදි පිළිතුරු නොමැත.",
+        "topic_analysis": "මාතෘකා විශ්ලේෂණය",
+        "topic": "මාතෘකාව",
+        "classification": "වර්ගීකරණය",
     },
 }
 
@@ -524,13 +530,17 @@ def submit_test() -> str:
     correct_answers = 0
     wrong_answer_rows = []
     option_label_key = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
+    topic_stats = {}
 
     for q in questions:
+        topic_stats.setdefault(q.topic, {"total": 0, "correct": 0})
+        topic_stats[q.topic]["total"] += 1
         student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
         correct_answer = q.correct_option.strip().upper()
 
         if student_answer == correct_answer:
             correct_answers += 1
+            topic_stats[q.topic]["correct"] += 1
             continue
 
         question_text = getattr(q, f"question_text_{medium_key}")
@@ -566,6 +576,48 @@ def submit_test() -> str:
     else:
         level_name = "Advanced Learner"
 
+    def classify_topic(score: float) -> str:
+        if score <= 40:
+            return "Weak" if selected_medium == "English" else "දුර්වල"
+        if score <= 70:
+            return "Needs Improvement" if selected_medium == "English" else "වැඩිදියුණු කළ යුතුය"
+        return "Strong" if selected_medium == "English" else "ශක්තිමත්"
+
+    topic_rows = []
+    for topic_name, stats in topic_stats.items():
+        topic_total = stats["total"]
+        topic_correct = stats["correct"]
+        topic_percentage = round((topic_correct / topic_total) * 100, 2) if topic_total else 0
+        topic_rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic_name}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic_total}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic_correct}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic_percentage}%</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{classify_topic(topic_percentage)}</td>
+            </tr>
+            """
+        )
+
+    topic_analysis_html = f"""
+    <h2>{t(selected_medium, 'topic_analysis')}</h2>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead>
+        <tr>
+          <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'topic')}</th>
+          <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'total_questions')}</th>
+          <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answers')}</th>
+          <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'percentage_score')}</th>
+          <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'classification')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(topic_rows)}
+      </tbody>
+    </table>
+    """
+
     if wrong_answer_rows:
         wrong_answers_html = f"""
         <h2>{t(selected_medium, 'wrong_answers')}</h2>
@@ -600,6 +652,7 @@ def submit_test() -> str:
         <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}</p>
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {percentage_score}%</p>
         <p><strong>{t(selected_medium, 'level')}:</strong> {level_name}</p>
+        {topic_analysis_html}
         {wrong_answers_html}
         <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
       </body>
