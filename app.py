@@ -315,6 +315,38 @@ def update_db() -> tuple:
 
 
 
+@app.route("/update-question-topics-db", methods=["GET"])
+def update_question_topics_db() -> tuple:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
+        db.session.execute(db.text("UPDATE question SET topic_en = topic WHERE topic_en IS NULL OR topic_en = ''"))
+
+        topic_mapping = {
+            "Fractions": "භාග",
+            "Decimals": "දශම",
+            "Perimeter": "පරිමිතිය",
+            "Factors": "සාධක",
+            "Percentages": "ප්‍රතිශත",
+        }
+        for topic_en, topic_si in topic_mapping.items():
+            db.session.execute(
+                db.text(
+                    "UPDATE question "
+                    "SET topic_si = :topic_si "
+                    "WHERE topic = :topic_en AND (topic_si IS NULL OR topic_si = '')"
+                ),
+                {"topic_en": topic_en, "topic_si": topic_si},
+            )
+
+        db.session.execute(db.text("UPDATE question SET topic_si = topic WHERE topic_si IS NULL OR topic_si = ''"))
+        db.session.commit()
+        return "Question topic columns updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Question topic column update failed: {exc}"}), 500
+
+
 @app.route("/questions", methods=["POST"])
 def create_question():
     data = request.get_json(silent=True) or {}
@@ -474,6 +506,7 @@ def create_questions() -> tuple:
 
 @app.route("/test", methods=["GET"])
 def test_page() -> str:
+    db.create_all()
     selected_medium = resolve_medium(request.args.get("medium"))
 
     questions = (
@@ -538,6 +571,7 @@ def test_page() -> str:
 
 @app.route("/submit-test", methods=["POST"])
 def submit_test() -> str:
+    db.create_all()
     selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
 
     medium_key = "en" if selected_medium == "English" else "si"
