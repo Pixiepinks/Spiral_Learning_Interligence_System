@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from urllib.parse import quote_plus
 
 from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -1063,6 +1064,7 @@ def submit_test() -> str:
 
     topic_rows = []
     recommendations = []
+    recommendation_practice_links = []
     for topic_name, stats in topic_stats.items():
         topic_total = stats["total"]
         topic_correct = stats["correct"]
@@ -1088,6 +1090,21 @@ def submit_test() -> str:
             else:
                 recommendations.append(f"You are strong in {stats['topic_en']}")
 
+
+        if status_en in {"Weak", "Improving"}:
+            topic_en_encoded = quote_plus(stats["topic_en"])
+            medium_encoded = quote_plus(selected_medium)
+            practice_href = f"/practice?grade=6&subject=Math&topic={topic_en_encoded}&medium={medium_encoded}"
+            button_text = (
+                f"{stats['topic_si']} පුහුණුව ආරම්භ කරන්න"
+                if selected_medium == "Sinhala"
+                else f"Start {stats['topic_en']} Practice"
+            )
+            recommendation_practice_links.append(
+                f"<p><a href='{practice_href}' style='display:inline-block;padding:8px 12px;"
+                "background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;'>"
+                f"{button_text}</a></p>"
+            )
         topic_rows.append(
             f"""
             <tr>
@@ -1155,6 +1172,7 @@ def submit_test() -> str:
     <ul>
       {''.join(f"<li>{item}</li>" for item in recommendations)}
     </ul>
+    {''.join(recommendation_practice_links)}
     """
 
     if wrong_answer_rows:
