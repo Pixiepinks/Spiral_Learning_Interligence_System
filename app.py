@@ -215,6 +215,19 @@ def get_students():
     )
 
 
+@app.route("/update-db", methods=["GET"])
+def update_db() -> tuple:
+    try:
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS medium VARCHAR(20)"))
+        db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
+        db.session.commit()
+        return jsonify({"success": True, "message": "Database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Database update failed: {exc}"}), 500
+
+
+
 @app.route("/questions", methods=["POST"])
 def create_question():
     data = request.get_json(silent=True) or {}
