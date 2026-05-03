@@ -430,6 +430,10 @@ def student_dashboard():
             "result_history": "Result History",
             "topic_performance": "Topic-wise Performance (Latest Result)",
             "latest_practice_attempts": "Latest Practice Attempts",
+            "improvement": "Improvement",
+            "improved": "Improved",
+            "same": "Same",
+            "dropped": "Dropped",
             "take_test": "Take SkillScan Test",
             "logout": "Logout",
         },
@@ -446,6 +450,10 @@ def student_dashboard():
             "result_history": "ප්‍රතිඵල ඉතිහාසය",
             "topic_performance": "මාතෘකා අනුව ක්‍රියාකාරීත්වය",
             "latest_practice_attempts": "අවසන් අභ්‍යාස උත්සාහ",
+            "improvement": "ප්‍රගතිය",
+            "improved": "වැඩිදියුණු වී ඇත",
+            "same": "වෙනසක් නැත",
+            "dropped": "අඩු වී ඇත",
             "take_test": "SkillScan පරීක්ෂණය ආරම්භ කරන්න",
             "logout": "ඉවත් වන්න",
         },
@@ -499,6 +507,29 @@ def student_dashboard():
     )
 
     practice_medium_key = "en" if student.medium == "English" else "si"
+    topic_history: dict[str, list[PracticeAttempt]] = {}
+    all_practice_attempts = (
+        PracticeAttempt.query.filter_by(student_id=student.id)
+        .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
+        .all()
+    )
+    for attempt in all_practice_attempts:
+        topic_key = attempt.topic_en
+        topic_history.setdefault(topic_key, []).append(attempt)
+
+    improvement_by_attempt: dict[int, str] = {}
+    for attempts_for_topic in topic_history.values():
+        if len(attempts_for_topic) < 2:
+            continue
+        latest_attempt = attempts_for_topic[0]
+        previous_attempt = attempts_for_topic[1]
+        if latest_attempt.score > previous_attempt.score:
+            improvement_by_attempt[latest_attempt.id] = text["improved"]
+        elif latest_attempt.score < previous_attempt.score:
+            improvement_by_attempt[latest_attempt.id] = text["dropped"]
+        else:
+            improvement_by_attempt[latest_attempt.id] = text["same"]
+
     practice_rows = "".join(
         f"""
         <tr>
@@ -506,6 +537,7 @@ def student_dashboard():
           <td style='border:1px solid #ccc;padding:8px;'>{attempt.score}%</td>
           <td style='border:1px solid #ccc;padding:8px;'>{attempt.correct_answers}/{attempt.total_questions}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{attempt.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{improvement_by_attempt.get(attempt.id, '-')}</td>
         </tr>
         """
         for attempt in practice_attempts
@@ -578,10 +610,11 @@ def student_dashboard():
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["score"]}</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["correct_answers"]}</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["date"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["improvement"]}</th>
             </tr>
           </thead>
           <tbody>
-            {practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
+            {practice_rows if practice_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
           </tbody>
         </table>
 
