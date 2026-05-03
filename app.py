@@ -540,6 +540,144 @@ def logout():
     return redirect(url_for("login"))
 
 
+def get_admin_credentials() -> tuple[str, str]:
+    return (
+        os.environ.get("ADMIN_EMAIL", "admin@spiral.com"),
+        os.environ.get("ADMIN_PASSWORD", "admin123"),
+    )
+
+
+@app.route("/admin-login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "GET":
+        return """
+        <!doctype html>
+        <html lang="en">
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title></head>
+          <body>
+            <h1>Admin Login</h1>
+            <form method="post" action="/admin-login">
+              <label>Email: <input type="email" name="email" required></label><br><br>
+              <label>Password: <input type="password" name="password" required></label><br><br>
+              <button type="submit">Login</button>
+            </form>
+          </body>
+        </html>
+        """
+
+    admin_email, admin_password = get_admin_credentials()
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+
+    if email != admin_email or password != admin_password:
+        return "<h2>Invalid admin credentials</h2><p><a href='/admin-login'>Try again</a></p>", 401
+
+    session["admin_logged_in"] = True
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin-dashboard", methods=["GET"])
+def admin_dashboard():
+    if session.get("admin_logged_in") is not True:
+        return redirect(url_for("admin_login"))
+
+    total_students = Student.query.count()
+    total_attempts = StudentResult.query.count()
+    average_score = db.session.query(db.func.avg(StudentResult.score)).scalar()
+    average_score = round(float(average_score or 0), 2)
+
+    latest_results = (
+        StudentResult.query.order_by(StudentResult.created_at.desc(), StudentResult.id.desc()).limit(10).all()
+    )
+    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+
+    result_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.student_id or '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.grade}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.score}%</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.correct_answers}/{result.total_questions}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{result.level}</td>
+        </tr>
+        """
+        for result in latest_results
+    )
+
+    student_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+        </tr>
+        """
+        for student in students
+    )
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>Admin Dashboard</title>
+      </head>
+      <body>
+        <h1>Admin Dashboard</h1>
+        <p><strong>Total students:</strong> {total_students}</p>
+        <p><strong>Total SkillScan attempts:</strong> {total_attempts}</p>
+        <p><strong>Average score:</strong> {average_score}%</p>
+        <p><a href='/admin-logout'>Logout</a></p>
+
+        <h2>Latest 10 Test Results</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student ID</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result_rows if result_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No test results found.</td></tr>"}
+          </tbody>
+        </table>
+
+        <h2>Student List</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Name</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Email</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Mobile</th>
+            </tr>
+          </thead>
+          <tbody>
+            {student_rows if student_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}
+          </tbody>
+        </table>
+      </body>
+    </html>
+    """
+
+
+@app.route("/admin-logout", methods=["GET"])
+def admin_logout():
+    session.pop("admin_logged_in", None)
+    return redirect(url_for("admin_login"))
+
+
 @app.route("/update-login-db", methods=["GET"])
 def update_login_db() -> tuple:
     try:
