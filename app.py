@@ -441,12 +441,102 @@ def test_page() -> str:
 
 @app.route("/submit-test", methods=["POST"])
 def submit_test() -> str:
-    submitted_answers = {k: v for k, v in request.form.items() if k.startswith("q_")}
-    return (
-        "<h2>Test submitted successfully.</h2>"
-        f"<p>Received {len(submitted_answers)} answer(s).</p>"
-        "<p><a href='/test'>Back to test</a></p>"
+    selected_medium = request.form.get("medium", "English")
+    if selected_medium not in SUPPORTED_MEDIA:
+        selected_medium = "English"
+
+    medium_key = "en" if selected_medium == "English" else "si"
+    questions = (
+        Question.query.filter_by(grade="6", subject="Math")
+        .order_by(Question.id.asc())
+        .all()
     )
+
+    total_questions = len(questions)
+    correct_answers = 0
+    wrong_answer_rows = []
+    option_label_key = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
+
+    for q in questions:
+        student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+        correct_answer = q.correct_option.strip().upper()
+
+        if student_answer == correct_answer:
+            correct_answers += 1
+            continue
+
+        question_text = getattr(q, f"question_text_{medium_key}")
+        explanation_text = getattr(q, f"explanation_{medium_key}")
+
+        if student_answer in option_label_key:
+            student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
+        else:
+            student_answer_text = "Not answered"
+
+        correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
+        wrong_answer_rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{question_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student_answer_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{correct_answer_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{explanation_text}</td>
+            </tr>
+            """
+        )
+
+    percentage_score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+
+    if percentage_score <= 20:
+        level_name = "Foundation Weak"
+    elif percentage_score <= 40:
+        level_name = "Basic Learner"
+    elif percentage_score <= 60:
+        level_name = "Developing Learner"
+    elif percentage_score <= 80:
+        level_name = "Strong Learner"
+    else:
+        level_name = "Advanced Learner"
+
+    if wrong_answer_rows:
+        wrong_answers_html = f"""
+        <h2>Wrong Answers</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Question</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student answer</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct answer</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Explanation ({selected_medium})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(wrong_answer_rows)}
+          </tbody>
+        </table>
+        """
+    else:
+        wrong_answers_html = "<p>Excellent! No wrong answers.</p>"
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>SkillScan Result</title>
+      </head>
+      <body>
+        <h1>SkillScan Test Result</h1>
+        <p><strong>Total questions:</strong> {total_questions}</p>
+        <p><strong>Correct answers:</strong> {correct_answers}</p>
+        <p><strong>Percentage score:</strong> {percentage_score}%</p>
+        <p><strong>Level:</strong> {level_name}</p>
+        {wrong_answers_html}
+        <p><a href='/test?medium={selected_medium}'>Try Again</a></p>
+      </body>
+    </html>
+    """
 
 
 if __name__ == "__main__":
