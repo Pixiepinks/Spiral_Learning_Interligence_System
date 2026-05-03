@@ -26,6 +26,9 @@ class Student(db.Model):
 
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False)
+    topic = db.Column(db.String(150), nullable=False)
     question_text_en = db.Column(db.Text, nullable=False)
     question_text_si = db.Column(db.Text, nullable=False)
     option_a_en = db.Column(db.Text, nullable=False)
@@ -232,6 +235,9 @@ def update_db() -> tuple:
 def create_question():
     data = request.get_json(silent=True) or {}
     required_fields = [
+        "grade",
+        "subject",
+        "topic",
         "question_text_en",
         "question_text_si",
         "option_a_en",
@@ -259,6 +265,112 @@ def create_question():
     db.session.commit()
 
     return jsonify({"success": True, "question_id": question.id}), 201
+
+
+@app.route("/create-questions", methods=["GET"])
+def create_questions() -> tuple:
+    sample_questions = [
+        {
+            "grade": "6",
+            "subject": "Math",
+            "topic": "Fractions",
+            "question_text_en": "What is 1/2 + 1/4?",
+            "question_text_si": "1/2 + 1/4 කීයද?",
+            "option_a_en": "1/2",
+            "option_a_si": "1/2",
+            "option_b_en": "3/4",
+            "option_b_si": "3/4",
+            "option_c_en": "2/6",
+            "option_c_si": "2/6",
+            "option_d_en": "1",
+            "option_d_si": "1",
+            "correct_option": "B",
+            "explanation_en": "Convert to a common denominator: 1/2 = 2/4, then 2/4 + 1/4 = 3/4.",
+            "explanation_si": "එකම හරණයට මාරු කරන්න: 1/2 = 2/4, එවිට 2/4 + 1/4 = 3/4.",
+        },
+        {
+            "grade": "6",
+            "subject": "Math",
+            "topic": "Decimals",
+            "question_text_en": "What is 3.5 + 2.4?",
+            "question_text_si": "3.5 + 2.4 කීයද?",
+            "option_a_en": "5.9",
+            "option_a_si": "5.9",
+            "option_b_en": "6.0",
+            "option_b_si": "6.0",
+            "option_c_en": "5.7",
+            "option_c_si": "5.7",
+            "option_d_en": "6.9",
+            "option_d_si": "6.9",
+            "correct_option": "A",
+            "explanation_en": "Add the decimals by place value: 3.5 + 2.4 = 5.9.",
+            "explanation_si": "ස්ථාන අගය අනුව දශම එකතු කළാൽ: 3.5 + 2.4 = 5.9.",
+        },
+        {
+            "grade": "6",
+            "subject": "Math",
+            "topic": "Perimeter",
+            "question_text_en": "A rectangle has length 8 cm and width 3 cm. What is its perimeter?",
+            "question_text_si": "දිග 8 cm සහ පළල 3 cm වන සෘජුකෝණාස්‍රයක පරිමාව කීයද?",
+            "option_a_en": "11 cm",
+            "option_a_si": "11 cm",
+            "option_b_en": "16 cm",
+            "option_b_si": "16 cm",
+            "option_c_en": "22 cm",
+            "option_c_si": "22 cm",
+            "option_d_en": "24 cm",
+            "option_d_si": "24 cm",
+            "correct_option": "C",
+            "explanation_en": "Perimeter of a rectangle is 2(l+w) = 2(8+3) = 22 cm.",
+            "explanation_si": "සෘජුකෝණාස්‍රයක පරිමාව 2(දිග+පළල) = 2(8+3) = 22 cm.",
+        },
+        {
+            "grade": "6",
+            "subject": "Math",
+            "topic": "Factors",
+            "question_text_en": "Which number is a factor of 24?",
+            "question_text_si": "24 හි ගුණකයක් වන්නේ කුමක්ද?",
+            "option_a_en": "5",
+            "option_a_si": "5",
+            "option_b_en": "7",
+            "option_b_si": "7",
+            "option_c_en": "9",
+            "option_c_si": "9",
+            "option_d_en": "6",
+            "option_d_si": "6",
+            "correct_option": "D",
+            "explanation_en": "24 ÷ 6 = 4 with no remainder, so 6 is a factor.",
+            "explanation_si": "24 ÷ 6 = 4 ඉතිරියක් නැති නිසා 6 ගුණකයකි.",
+        },
+        {
+            "grade": "6",
+            "subject": "Math",
+            "topic": "Percentages",
+            "question_text_en": "What is 10% of 150?",
+            "question_text_si": "150 හි 10% කීයද?",
+            "option_a_en": "10",
+            "option_a_si": "10",
+            "option_b_en": "12",
+            "option_b_si": "12",
+            "option_c_en": "15",
+            "option_c_si": "15",
+            "option_d_en": "20",
+            "option_d_si": "20",
+            "correct_option": "C",
+            "explanation_en": "10% means one-tenth: 150 ÷ 10 = 15.",
+            "explanation_si": "10% යනු දහයෙන් එකක්: 150 ÷ 10 = 15.",
+        },
+    ]
+
+    created_ids = []
+    for data in sample_questions:
+        question = Question(**data)
+        db.session.add(question)
+        db.session.flush()
+        created_ids.append(question.id)
+
+    db.session.commit()
+    return jsonify({"success": True, "created_count": len(created_ids), "question_ids": created_ids}), 201
 
 
 @app.route("/test", methods=["GET"])
