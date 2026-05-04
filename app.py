@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import datetime
+from fractions import Fraction
 from html import escape
 from urllib.parse import quote_plus
 
@@ -223,40 +224,92 @@ def get_topic_sinhala(topic_en: str) -> str:
     return topic_map.get(topic_en, topic_en)
 
 
-def _fraction_pair() -> tuple[int, int, int, int]:
-    denominators = [2, 3, 4, 5, 6, 8, 10]
+
+def _fraction_pair(same_denominator: bool = False) -> tuple[int, int, int, int]:
+    denominators = [2, 3, 4, 5, 6, 8, 10, 12]
     d1 = random.choice(denominators)
-    d2 = random.choice(denominators)
+    d2 = d1 if same_denominator else random.choice(denominators)
     n1 = random.randint(1, d1 - 1)
     n2 = random.randint(1, d2 - 1)
     return n1, d1, n2, d2
 
 
-def build_generated_question(grade: str, subject: str, topic: str) -> dict:
+def _format_fraction(value: Fraction) -> str:
+    return f"{value.numerator}/{value.denominator}" if value.denominator != 1 else str(value.numerator)
+
+
+def _build_fraction_options(correct: Fraction) -> tuple[list[str], str]:
+    distractors = {
+        correct + Fraction(1, max(2, correct.denominator)),
+        correct - Fraction(1, max(2, correct.denominator)),
+        Fraction(correct.numerator + 1, correct.denominator),
+    }
+    distractors = [d for d in distractors if d > 0 and d != correct]
+    while len(distractors) < 3:
+        delta = Fraction(random.randint(1, 3), random.choice([2, 3, 4, 5]))
+        candidate = correct + delta if random.choice([True, False]) else correct - delta
+        if candidate > 0 and candidate != correct and candidate not in distractors:
+            distractors.append(candidate)
+    choices = [_format_fraction(correct)] + [_format_fraction(d) for d in distractors[:3]]
+    random.shuffle(choices)
+    correct_option = "ABCD"[choices.index(_format_fraction(correct))]
+    return choices, correct_option
+
+
+def build_generated_question(grade: str, subject: str, topic: str, difficulty_level: int) -> dict:
     topic_clean = (topic or "Fractions").strip() or "Fractions"
     topic_lower = topic_clean.lower()
 
     if "fraction" in topic_lower or "භාග" in topic_lower:
-        n1, d1, n2, d2 = _fraction_pair()
         operator = random.choice(["+", "-"])
-        if operator == "-" and (n1 / d1) < (n2 / d2):
-            n1, d1, n2, d2 = n2, d2, n1, d1
-        question_en = f"What is {n1}/{d1} {operator} {n2}/{d2}?"
-        question_si = f"{n1}/{d1} {operator} {n2}/{d2} කීයද?"
-        explanation_en = "Find a common denominator and simplify the answer."
-        explanation_si = "එකම හරණයක් සොයා පිළිතුර සරල කරන්න."
+        if difficulty_level in {1, 2}:
+            n1, d1, n2, d2 = _fraction_pair(same_denominator=True)
+            if operator == "-" and n1 < n2:
+                n1, n2 = n2, n1
+            question_en = f"What is {n1}/{d1} {operator} {n2}/{d2}?"
+            question_si = f"{n1}/{d1} {operator} {n2}/{d2} කීයද?"
+        elif difficulty_level == 3:
+            n1, d1, n2, d2 = _fraction_pair(same_denominator=False)
+            while d1 == d2:
+                n1, d1, n2, d2 = _fraction_pair(same_denominator=False)
+            if operator == "-" and Fraction(n1, d1) < Fraction(n2, d2):
+                n1, d1, n2, d2 = n2, d2, n1, d1
+            question_en = f"What is {n1}/{d1} {operator} {n2}/{d2}?"
+            question_si = f"{n1}/{d1} {operator} {n2}/{d2} කීයද?"
+        else:
+            whole1 = random.randint(1, 4)
+            whole2 = random.randint(1, 4)
+            fn1, fd1, fn2, fd2 = _fraction_pair(same_denominator=False)
+            while fd1 == fd2:
+                fn1, fd1, fn2, fd2 = _fraction_pair(same_denominator=False)
+            f1 = Fraction(whole1 * fd1 + fn1, fd1)
+            f2 = Fraction(whole2 * fd2 + fn2, fd2)
+            if operator == "-" and f1 < f2:
+                f1, f2 = f2, f1
+                whole1, whole2, fn1, fd1, fn2, fd2 = whole2, whole1, fn2, fd2, fn1, fd1
+            question_en = f"What is {whole1} {fn1}/{fd1} {operator} {whole2} {fn2}/{fd2}?"
+            question_si = f"{whole1} {fn1}/{fd1} {operator} {whole2} {fn2}/{fd2} කීයද?"
+            n1, d1, n2, d2 = f1.numerator, f1.denominator, f2.numerator, f2.denominator
+
+        result = Fraction(n1, d1) + Fraction(n2, d2) if operator == "+" else Fraction(n1, d1) - Fraction(n2, d2)
+        options, correct_option = _build_fraction_options(result)
+        explanation_en = f"Compute {n1}/{d1} {operator} {n2}/{d2} and simplify to {_format_fraction(result)}."
+        explanation_si = f"{n1}/{d1} {operator} {n2}/{d2} ගණනය කර {_format_fraction(result)} ලෙස සරල කරන්න."
     else:
         a = random.randint(1, 40)
         b = random.randint(1, 40)
         operator = random.choice(["+", "-"])
         if operator == "-" and a < b:
             a, b = b, a
+        result = a + b if operator == "+" else a - b
         question_en = f"What is {a} {operator} {b}?"
         question_si = f"{a} {operator} {b} කීයද?"
+        options = [str(result), str(result + 1), str(max(0, result - 1)), str(result + 2)]
+        random.shuffle(options)
+        correct_option = "ABCD"[options.index(str(result))]
         explanation_en = "Solve the arithmetic operation."
         explanation_si = "ගණිත ක්‍රියාව විසඳන්න."
 
-    options = ["Option A", "Option B", "Option C", "Option D"]
     return {
         "grade": grade,
         "subject": subject,
@@ -273,10 +326,10 @@ def build_generated_question(grade: str, subject: str, topic: str) -> dict:
         "option_c_si": options[2],
         "option_d_en": options[3],
         "option_d_si": options[3],
-        "correct_option": "A",
+        "correct_option": correct_option,
         "explanation_en": explanation_en,
         "explanation_si": explanation_si,
-        "difficulty_level": 1,
+        "difficulty_level": difficulty_level,
     }
 
 
@@ -1717,6 +1770,7 @@ def admin_generate_questions():
           <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
           <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
           <label>Number of questions: <input type='number' name='question_count' min='1' max='200' value='10' required></label><br><br>
+          <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
           <button type='submit'>Generate</button>
         </form>
         <p><a href='/admin/questions'>Back to Questions</a></p>
@@ -1730,19 +1784,26 @@ def admin_generate_questions():
     except ValueError:
         return "<h3>Number of questions must be a valid number.</h3>", 400
 
+    try:
+        difficulty_level = int((request.form.get("difficulty_level") or "0").strip())
+    except ValueError:
+        return "<h3>Difficulty level must be between 1 and 5.</h3>", 400
+
     if not grade or not subject or not topic:
         return "<h3>Grade, Subject, and Topic are required.</h3>", 400
     if question_count < 1 or question_count > 200:
         return "<h3>Number of questions must be between 1 and 200.</h3>", 400
+    if difficulty_level < 1 or difficulty_level > 5:
+        return "<h3>Difficulty level must be between 1 and 5.</h3>", 400
 
     for _ in range(question_count):
-        db.session.add(Question(**build_generated_question(grade, subject, topic)))
+        db.session.add(Question(**build_generated_question(grade, subject, topic, difficulty_level)))
 
     db.session.commit()
     return jsonify(
         {
             "success": True,
-            "message": f"{question_count} questions created successfully",
+            "message": f"{question_count} questions generated successfully",
             "created_count": question_count,
         }
     ), 201
