@@ -1,3 +1,4 @@
+import json
 import os
 import random
 from datetime import datetime
@@ -7,6 +8,7 @@ from urllib.parse import quote_plus
 
 from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
+from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
@@ -1278,6 +1280,43 @@ def get_admin_credentials() -> tuple[str, str]:
     )
 
 
+def parse_ai_questions_payload(content: str) -> list[dict]:
+    payload = (content or "").strip()
+    if payload.startswith("```"):
+        lines = payload.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        payload = "\n".join(lines).strip()
+
+    questions = json.loads(payload)
+    if not isinstance(questions, list):
+        raise ValueError("AI response must be a JSON array")
+
+    required_fields = [
+        "question_en", "question_si",
+        "option_a_en", "option_a_si",
+        "option_b_en", "option_b_si",
+        "option_c_en", "option_c_si",
+        "option_d_en", "option_d_si",
+        "correct_option",
+        "explanation_en", "explanation_si",
+    ]
+
+    for idx, item in enumerate(questions, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Question #{idx} is invalid")
+        for field in required_fields:
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Missing field '{field}' in question #{idx}")
+        if item["correct_option"].strip().upper() not in {"A", "B", "C", "D"}:
+            raise ValueError(f"Invalid correct_option in question #{idx}")
+
+    return questions
+
+
 def admin_session_required():
     if session.get("admin_logged_in") is not True:
         return redirect(url_for("admin_login"))
@@ -1633,7 +1672,7 @@ def admin_questions():
 
     return f"""
     <h1>Manage Questions</h1>
-    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/add-question'>Add New Question</a> | <a href='/admin/generate-questions'>Generate Questions (Bulk)</a></p>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/add-question'>Add New Question</a> | <a href='/admin/generate-questions'>Generate Questions (Bulk)</a> | <a href='/admin/ai-generate'>Generate Questions (AI)</a></p>
     <form method='get' action='/admin/questions'>
       <label>Grade:
         <select name='grade'>{build_options(grades, selected_grade)}</select>
@@ -1807,6 +1846,122 @@ def admin_generate_questions():
             "created_count": question_count,
         }
     ), 201
+
+
+@app.route("/admin/ai-generate", methods=["GET", "POST"])
+def admin_ai_generate_questions():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    if request.method == "GET":
+        return """
+        <h2>AI Question Generator</h2>
+        <form method='post' action='/admin/ai-generate'>
+          <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
+          <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
+          <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
+          <label>Number of questions: <input type='number' name='question_count' min='1' max='100' value='10' required></label><br><br>
+          <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
+          <button type='submit'>Generate with AI</button>
+        </form>
+        <p><a href='/admin/questions'>Back to Questions</a></p>
+        """
+
+    grade = (request.form.get("grade") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+    topic = (request.form.get("topic") or "").strip()
+    try:
+        question_count = int((request.form.get("question_count") or "0").strip())
+    except ValueError:
+        return "<h3>Number of questions must be a valid number.</h3>", 400
+
+    try:
+        difficulty_level = int((request.form.get("difficulty_level") or "0").strip())
+    except ValueError:
+        return "<h3>Difficulty level must be between 1 and 5.</h3>", 400
+
+    if not grade or not subject or not topic:
+        return "<h3>Grade, Subject, and Topic are required.</h3>", 400
+    if question_count < 1 or question_count > 100:
+        return "<h3>Number of questions must be between 1 and 100.</h3>", 400
+    if difficulty_level < 1 or difficulty_level > 5:
+        return "<h3>Difficulty level must be between 1 and 5.</h3>", 400
+
+    api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        return jsonify({"success": False, "message": "OpenAI API key is not configured"}), 500
+
+    prompt = (
+        f"Generate {question_count} multiple choice questions for Grade {grade} {subject} on topic {topic}.\n"
+        f"Difficulty level: {difficulty_level}.\n\n"
+        "Return JSON format:\n"
+        "[\n"
+        "{\n"
+        "question_en: \"...\",\n"
+        "question_si: \"...\",\n"
+        "option_a_en: \"...\",\n"
+        "option_a_si: \"...\",\n"
+        "option_b_en: \"...\",\n"
+        "option_b_si: \"...\",\n"
+        "option_c_en: \"...\",\n"
+        "option_c_si: \"...\",\n"
+        "option_d_en: \"...\",\n"
+        "option_d_si: \"...\",\n"
+        "correct_option: \"A/B/C/D\",\n"
+        "explanation_en: \"...\",\n"
+        "explanation_si: \"...\"\n"
+        "}\n"
+        "]\n\n"
+        "Ensure:\n"
+        "- Correct answers are accurate\n"
+        "- Sinhala is simple and correct\n"
+        "- Questions are unique\n"
+        "- No repetition\n"
+    )
+
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+            input=prompt,
+            temperature=0.2,
+        )
+        questions = parse_ai_questions_payload(response.output_text)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Failed to generate AI questions safely: {exc}"}), 502
+
+    if len(questions) != question_count:
+        return jsonify({"success": False, "message": f"AI returned {len(questions)} questions, expected {question_count}"}), 400
+
+    for item in questions:
+        db.session.add(
+            Question(
+                grade=grade,
+                subject=subject,
+                topic=topic,
+                topic_en=topic,
+                topic_si=topic,
+                question_text_en=item["question_en"].strip(),
+                question_text_si=item["question_si"].strip(),
+                option_a_en=item["option_a_en"].strip(),
+                option_a_si=item["option_a_si"].strip(),
+                option_b_en=item["option_b_en"].strip(),
+                option_b_si=item["option_b_si"].strip(),
+                option_c_en=item["option_c_en"].strip(),
+                option_c_si=item["option_c_si"].strip(),
+                option_d_en=item["option_d_en"].strip(),
+                option_d_si=item["option_d_si"].strip(),
+                correct_option=item["correct_option"].strip().upper(),
+                explanation_en=item["explanation_en"].strip(),
+                explanation_si=item["explanation_si"].strip(),
+                difficulty_level=difficulty_level,
+            )
+        )
+
+    db.session.commit()
+    return jsonify({"success": True, "message": f"{question_count} AI questions created successfully"}), 201
 
 
 @app.route("/admin-logout", methods=["GET"])
