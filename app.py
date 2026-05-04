@@ -36,6 +36,9 @@ UI_TEXT = {
         "correct_answers": "Correct answers",
         "percentage_score": "Percentage score",
         "level": "Level",
+        "xp": "XP",
+        "xp_sinhala": "ලකුණු",
+        "progress_to_next_level": "Progress to next level",
         "wrong_answers": "Wrong Answers",
         "question": "Question",
         "student_answer": "Student answer",
@@ -72,6 +75,9 @@ UI_TEXT = {
         "correct_answers": "නිවැරදි පිළිතුරු",
         "percentage_score": "ප්‍රතිශත ලකුණු",
         "level": "මට්ටම",
+        "xp": "XP",
+        "xp_sinhala": "ලකුණු",
+        "progress_to_next_level": "ඊළඟ මට්ටමට ප්‍රගතිය",
         "wrong_answers": "වැරදි පිළිතුරු",
         "question": "ප්‍රශ්නය",
         "student_answer": "ඔබේ පිළිතුර",
@@ -110,6 +116,8 @@ class Student(db.Model):
     mobile = db.Column(db.String(20), unique=True, nullable=False)
     medium = db.Column(db.String(20), nullable=False, default="English")
     password_hash = db.Column(db.String(255), nullable=True)
+    xp = db.Column(db.Integer, nullable=False, default=0)
+    level = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -437,6 +445,9 @@ def student_dashboard():
             "date": "Date",
             "score": "Score",
             "level": "Level",
+            "xp": "XP",
+            "xp_sinhala": "ලකුණු",
+            "progress_to_next_level": "Progress to next level",
             "correct_answers": "Correct Answers",
             "result_history": "Result History",
             "topic_performance": "Topic-wise Performance (Latest Result)",
@@ -457,6 +468,9 @@ def student_dashboard():
             "date": "දිනය",
             "score": "ලකුණු",
             "level": "මට්ටම",
+            "xp": "XP",
+            "xp_sinhala": "ලකුණු",
+            "progress_to_next_level": "ඊළඟ මට්ටමට ප්‍රගතිය",
             "correct_answers": "නිවැරදි පිළිතුරු",
             "result_history": "ප්‍රතිඵල ඉතිහාසය",
             "topic_performance": "මාතෘකා අනුව ක්‍රියාකාරීත්වය",
@@ -579,6 +593,9 @@ def student_dashboard():
         <p><strong>{text["name"]}:</strong> {student.name}</p>
         <p><strong>{text["grade"]}:</strong> {student.grade}</p>
         <p><strong>{text["medium"]}:</strong> {student.medium}</p>
+        <p><strong>{text['xp']} ({text['xp_sinhala']}):</strong> {student.xp}</p>
+        <p><strong>{text['level']}:</strong> {student.level}</p>
+        <p><strong>{text['progress_to_next_level']}:</strong> {student.xp % 100}%</p>
 
         {latest_html}
 
@@ -1115,6 +1132,10 @@ def update_parent_link_db() -> tuple:
 def update_db() -> tuple:
     try:
         db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS medium VARCHAR(20)"))
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS xp INTEGER"))
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS level INTEGER"))
+        db.session.execute(db.text("UPDATE student SET xp = 0 WHERE xp IS NULL"))
+        db.session.execute(db.text("UPDATE student SET level = 1 WHERE level IS NULL"))
         db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
@@ -1409,6 +1430,21 @@ def test_page() -> str:
     </html>
     """
 
+def update_student_xp_and_level(student_id: int | None, earned_xp: int) -> tuple[int, int]:
+    if not student_id:
+        return 0, 1
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        return 0, 1
+
+    student.xp = (student.xp or 0) + earned_xp
+    student.level = (student.xp // 100) + 1
+    return student.xp, student.level
+
+
+
+
 
 @app.route("/submit-test", methods=["POST"])
 def submit_test() -> str:
@@ -1545,8 +1581,12 @@ def submit_test() -> str:
             """
         )
 
+    student_id = session.get("student_id")
+    earned_xp = correct_answers * 15
+    student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
+
     student_result = StudentResult(
-        student_id=session.get('student_id'),
+        student_id=student_id,
         grade="6",
         subject="Math",
         medium=selected_medium,
@@ -1637,6 +1677,7 @@ def submit_test() -> str:
         <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}</p>
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {percentage_score}%</p>
         <p><strong>{t(selected_medium, 'level')}:</strong> {level_name}</p>
+        <p><strong>{t(selected_medium, 'xp')} ({t(selected_medium, 'xp_sinhala')}):</strong> +{earned_xp} | Total: {student_xp}</p>
         {topic_analysis_html}
         {recommendations_html}
         {wrong_answers_html}
@@ -1794,6 +1835,9 @@ def submit_practice() -> str:
     topic_en = topic_question.topic_en if topic_question else topic
     topic_si = topic_question.topic_si if topic_question else topic
 
+    earned_xp = correct_answers * 10
+    student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
+
     practice_attempt = PracticeAttempt(
         student_id=student_id,
         grade=grade,
@@ -1820,6 +1864,7 @@ def submit_practice() -> str:
         <p><strong>{t(selected_medium, 'topic_name')}:</strong> {topic or '-'}</p>
         <p><strong>{t(selected_medium, 'practice_score')}:</strong> {score}%</p>
         <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}/{total_questions}</p>
+        <p><strong>{t(selected_medium, 'xp')} ({t(selected_medium, 'xp_sinhala')}):</strong> +{earned_xp} | Total: {student_xp}</p>
         <h2>{t(selected_medium, 'wrong_answers')}</h2>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
