@@ -2995,6 +2995,16 @@ def submit_test() -> str:
         )
 
     student_id = session.get("student_id")
+    previous_result = (
+        StudentResult.query.filter_by(student_id=student_id)
+        .order_by(StudentResult.created_at.desc())
+        .first()
+    )
+    if previous_result:
+        improved = percentage_score > previous_result.score
+    else:
+        improved = False
+
     earned_xp = correct_answers * 15
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
     streak_feedback = get_streak_feedback(student_id)
@@ -3043,7 +3053,7 @@ def submit_test() -> str:
         topic_en=(primary_topic or {}).get("topic_en", "Math"),
         topic_si=(primary_topic or {}).get("topic_si", "ගණිතය"),
         score=percentage_score,
-        improved=bool(previous_result and percentage_score > previous_result.score),
+        improved=improved,
         streak_increased=bool(streak_feedback.get("increased")),
     )
     db.session.commit()
