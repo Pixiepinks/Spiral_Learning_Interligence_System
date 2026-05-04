@@ -22,6 +22,40 @@ db = SQLAlchemy(app)
 
 SUPPORTED_MEDIA = {"English", "Sinhala"}
 
+VALID_GRADES = [str(n) for n in range(1, 11)] + ["OL", "AL"]
+GRADE_LABELS_EN = {"OL": "O/L", "AL": "A/L"}
+GRADE_LABELS_SI = {"OL": "සාමාන්‍ය පෙළ", "AL": "උසස් පෙළ"}
+
+
+def normalize_grade(value: str | None) -> str:
+    raw = (value or "").strip().upper().replace(" ", "")
+    if raw in {"O/L", "O-L", "OL"}:
+        return "OL"
+    if raw in {"A/L", "A-L", "AL"}:
+        return "AL"
+    return raw
+
+
+def is_valid_grade(value: str | None) -> bool:
+    return normalize_grade(value) in VALID_GRADES
+
+
+def display_grade(value: str | None, medium: str = "English") -> str:
+    grade = normalize_grade(value)
+    if medium == "Sinhala":
+        return GRADE_LABELS_SI.get(grade, grade)
+    return GRADE_LABELS_EN.get(grade, grade)
+
+
+def grade_options_html(selected: str = "") -> str:
+    selected_grade = normalize_grade(selected)
+    options = []
+    for grade in VALID_GRADES:
+        label = GRADE_LABELS_EN.get(grade, grade)
+        sel = " selected" if grade == selected_grade else ""
+        options.append(f"<option value=\"{grade}\"{sel}>{label}</option>")
+    return "".join(options)
+
 UI_TEXT = {
     "English": {
         "student_registration": "Student Registration",
@@ -237,6 +271,17 @@ def ensure_gamification_columns() -> None:
     db.session.commit()
 
 
+
+
+def normalize_existing_grade_data() -> None:
+    grade_updates = {"O/L": "OL", "A/L": "AL", "O-L": "OL", "A-L": "AL"}
+    for source, target in grade_updates.items():
+        db.session.execute(db.text("UPDATE student SET grade = :target WHERE grade = :source"), {"target": target, "source": source})
+        db.session.execute(db.text("UPDATE question SET grade = :target WHERE grade = :source"), {"target": target, "source": source})
+        db.session.execute(db.text("UPDATE student_result SET grade = :target WHERE grade = :source"), {"target": target, "source": source})
+        db.session.execute(db.text("UPDATE practice_attempt SET grade = :target WHERE grade = :source"), {"target": target, "source": source})
+        db.session.execute(db.text("UPDATE student_topic_progress SET grade = :target WHERE grade = :source"), {"target": target, "source": source})
+    db.session.commit()
 
 
 def ensure_streak_columns() -> None:
@@ -456,7 +501,7 @@ def register_form() -> str:
           <br><br>
           <label>
             {t(selected_medium, "grade")}:
-            <input type="text" name="grade" required>
+            <select name="grade" required>{grade_options_html()}</select>
           </label>
           <br><br>
           <label>
@@ -534,6 +579,13 @@ def register_student():
             return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": msg}), 400
 
+    grade = normalize_grade(data.get("grade"))
+    if not is_valid_grade(grade):
+        msg = "Invalid grade. Use one of: 1-10, OL, AL"
+        if is_form_submission:
+            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
+        return jsonify({"success": False, "message": msg}), 400
+
     email = data["email"].strip()
     parent_email = data["parent_email"].strip()
     mobile = data["mobile"].strip()
@@ -550,7 +602,7 @@ def register_student():
 
     student = Student(
         name=data["name"].strip(),
-        grade=data["grade"].strip(),
+        grade=grade,
         medium=medium,
         email=email,
         parent_email=parent_email,
@@ -1714,6 +1766,10 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
+    grade = normalize_grade(grade)
+    if not is_valid_grade(grade):
+        return {}, "Grade must be one of: 1-10, OL, AL."
+
     if correct_option not in {"A", "B", "C", "D"}:
         return {}, "Correct answer must be one of A, B, C, or D."
     try:
@@ -1749,7 +1805,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         <h1>{page_title}</h1>
         {error_html}
         <form method="post" action="{action}">
-          <label>Grade: <input type="text" name="grade" value="{escape(data.get('grade', ''))}" required></label><br><br>
+          <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
           <label>Subject: <input type="text" name="subject" value="{escape(data.get('subject', ''))}" required></label><br><br>
           <label>Topic: <input type="text" name="topic" value="{escape(data.get('topic', ''))}" required></label><br><br>
           <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
@@ -3143,7 +3199,8 @@ def retest_weak() -> str:
 
 
 @app.route("/leaderboard", methods=["GET"])
-def leaderboard() -> str:
+@app.route("/leaderboard/grade/<grade>", methods=["GET"])
+def leaderboard(grade: str | None = None) -> str:
     student_id = session.get("student_id")
     if not student_id:
         return redirect(url_for("login"))
@@ -3165,19 +3222,36 @@ def leaderboard() -> str:
         "back": "ඩෑෂ්බෝඩ් වෙත ආපසු" if is_si else "Back to Dashboard",
     }
 
-    students = Student.query.order_by(Student.level.desc(), Student.xp.desc(), Student.current_streak.desc(), Student.id.asc()).limit(50).all()
+    selected_grade = normalize_grade(grade)
+    if selected_grade and selected_grade not in VALID_GRADES:
+        selected_grade = ""
+
+    tabs = []
+    for g in VALID_GRADES:
+        if g == selected_grade:
+            tabs.append(f"<strong>{display_grade(g, 'Sinhala' if is_si else 'English')}</strong>")
+        else:
+            tabs.append(f"<a href='/leaderboard/grade/{g}'>{display_grade(g, 'Sinhala' if is_si else 'English')}</a>")
+
+    query = Student.query
+    if selected_grade:
+        query = query.filter(Student.grade == selected_grade)
+
+    students = query.order_by(Student.level.desc(), Student.xp.desc(), Student.current_streak.desc(), Student.id.asc()).limit(50).all()
     rows = "".join(
-        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{idx}</td><td style='border:1px solid #ccc;padding:8px;'>{s.name}</td><td style='border:1px solid #ccc;padding:8px;'>{s.grade}</td><td style='border:1px solid #ccc;padding:8px;'>{s.xp or 0}</td><td style='border:1px solid #ccc;padding:8px;'>{s.level or 1}</td><td style='border:1px solid #ccc;padding:8px;'>{s.current_streak or 0}</td></tr>"
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{idx}</td><td style='border:1px solid #ccc;padding:8px;'>{s.name}</td><td style='border:1px solid #ccc;padding:8px;'>{display_grade(s.grade, 'Sinhala' if is_si else 'English')}</td><td style='border:1px solid #ccc;padding:8px;'>{s.xp or 0}</td><td style='border:1px solid #ccc;padding:8px;'>{s.level or 1}</td><td style='border:1px solid #ccc;padding:8px;'>{s.current_streak or 0}</td></tr>"
         for idx, s in enumerate(students, start=1)
     )
 
     return f"""
     <!doctype html><html lang='{'si' if is_si else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head><body>
     <h1>{labels['title']}</h1>
+    <p><a href='/leaderboard'>{'All Grades' if not is_si else 'සියලු ශ්‍රේණි'}</a> | {' | '.join(tabs)}</p>
     <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['rank']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['name']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['grade']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['xp']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['level']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['current_streak']}</th></tr></thead><tbody>{rows}</tbody></table>
     <p><a href='/student-dashboard'>{labels['back']}</a></p>
     </body></html>
     """
+
 
 @app.route("/result/<int:result_id>", methods=["GET"])
 def view_result(result_id: int) -> str:
@@ -3504,5 +3578,8 @@ def update_question_attempt_db() -> tuple:
 
 
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+        normalize_existing_grade_data()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
