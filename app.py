@@ -3592,49 +3592,7 @@ def retest_weak() -> str:
           {''.join(question_blocks)}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
+        <p><a href='/student-dashboard?medium={selected_medium}'>{t(selected_medium, 'back_to_dashboard')}</a></p>
       </body>
     </html>
     """
