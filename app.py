@@ -2,7 +2,7 @@ import json
 import os
 import random
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from fractions import Fraction
 from html import escape
 from urllib.parse import quote_plus
@@ -130,6 +130,9 @@ class Student(db.Model):
     password_hash = db.Column(db.String(255), nullable=True)
     xp = db.Column(db.Integer, nullable=False, default=0)
     level = db.Column(db.Integer, nullable=False, default=1)
+    current_streak = db.Column(db.Integer, nullable=False, default=0)
+    longest_streak = db.Column(db.Integer, nullable=False, default=0)
+    last_activity_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -233,6 +236,40 @@ def ensure_gamification_columns() -> None:
     db.session.execute(db.text("UPDATE student SET level = 1 WHERE level IS NULL"))
     db.session.commit()
 
+
+
+
+def ensure_streak_columns() -> None:
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS current_streak INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS longest_streak INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS last_activity_date DATE"))
+    db.session.execute(db.text("UPDATE student SET current_streak = 0 WHERE current_streak IS NULL"))
+    db.session.execute(db.text("UPDATE student SET longest_streak = 0 WHERE longest_streak IS NULL"))
+    db.session.commit()
+
+
+def update_student_streak(student_id: int | None) -> tuple[int, int]:
+    if not student_id:
+        return 0, 0
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        return 0, 0
+
+    today = date.today()
+    last_date = student.last_activity_date
+
+    if last_date == today:
+        current = student.current_streak or 0
+    elif last_date == today - timedelta(days=1):
+        current = (student.current_streak or 0) + 1
+    else:
+        current = 1
+
+    student.current_streak = current
+    student.longest_streak = max(student.longest_streak or 0, current)
+    student.last_activity_date = today
+    return student.current_streak, student.longest_streak
 
 def get_topic_sinhala(topic_en: str) -> str:
     topic_map = {
@@ -616,6 +653,7 @@ def login():
 
     try:
         ensure_gamification_columns()
+        ensure_streak_columns()
     except Exception:
         db.session.rollback()
 
@@ -679,6 +717,9 @@ def student_dashboard():
             "last_score": "Last Score",
             "previous_score": "Previous Score",
             "trend": "Trend",
+            "current_streak": "Current streak",
+            "longest_streak": "Longest streak",
+            "leaderboard": "Leaderboard",
         },
         "si": {
             "dashboard": "ශිෂ්‍ය ඩෑෂ්බෝඩ්",
@@ -708,6 +749,9 @@ def student_dashboard():
             "last_score": "අවසාන ලකුණ",
             "previous_score": "පෙර ලකුණ",
             "trend": "ප්‍රවණතාවය",
+            "current_streak": "වත්මන් අඛණ්ඩ දින",
+            "longest_streak": "දිගම අඛණ්ඩ දින",
+            "leaderboard": "ප්‍රමුඛ ලැයිස්තුව",
         },
     }
     language = "si" if student.medium == "Sinhala" else "en"
@@ -873,6 +917,8 @@ def student_dashboard():
         <p><strong>{text["medium"]}:</strong> {student.medium}</p>
         <p><strong>{text['xp']} ({text['xp_sinhala']}):</strong> {student.xp}</p>
         <p><strong>{text['level']}:</strong> {student.level}</p>
+        <p><strong>{text['current_streak']}:</strong> {student.current_streak or 0}</p>
+        <p><strong>{text['longest_streak']}:</strong> {student.longest_streak or 0}</p>
         <p><strong>{text['progress_to_next_level']}:</strong> {student.xp % 100}%</p>
 
         {latest_html}
@@ -962,6 +1008,8 @@ def student_dashboard():
           <a href='/learning-path'>{text["my_learning_path"]}</a>
           &nbsp;|&nbsp;
           <a href='/test'>{text["take_test"]}</a>
+          &nbsp;|&nbsp;
+          <a href='/leaderboard'>{text['leaderboard']}</a>
           &nbsp;|&nbsp;
           <a href='/logout'>{text["logout"]}</a>
         </p>
@@ -2764,6 +2812,17 @@ def update_gamification_db() -> tuple[str, int]:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Gamification DB update failed: {exc}"}), 500
 
+
+
+@app.route("/update-streak-db", methods=["GET"])
+def update_streak_db() -> tuple[str, int]:
+    try:
+        ensure_streak_columns()
+        return "Streak columns updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Streak DB update failed: {exc}"}), 500
+
 @app.route("/update-db", methods=["GET"])
 def update_db() -> tuple:
     try:
@@ -3274,6 +3333,7 @@ def submit_test() -> str:
     student_id = session.get("student_id")
     earned_xp = correct_answers * 15
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
+    update_student_streak(student_id)
 
     student_result = StudentResult(
         student_id=student_id,
@@ -3513,6 +3573,7 @@ def retest_weak() -> str:
         level_name = "Retest Weak Topics"
         earned_xp = correct_answers * 12
         update_student_xp_and_level(student_id, earned_xp)
+        update_student_streak(student_id)
         student_result = StudentResult(
             student_id=student_id,
             grade=latest_result.grade,
@@ -3621,6 +3682,45 @@ def retest_weak() -> str:
     </html>
     """
 
+
+
+
+@app.route("/leaderboard", methods=["GET"])
+def leaderboard() -> str:
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+
+    current_student = db.session.get(Student, student_id)
+    if not current_student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    is_si = current_student.medium == "Sinhala"
+    labels = {
+        "title": "ප්‍රමුඛ ලැයිස්තුව" if is_si else "Leaderboard",
+        "rank": "ස්ථානය" if is_si else "Rank",
+        "name": "නම" if is_si else "Student name",
+        "grade": "ශ්‍රේණිය" if is_si else "Grade",
+        "xp": "ලකුණු" if is_si else "XP",
+        "level": "මට්ටම" if is_si else "Level",
+        "current_streak": "වත්මන් අඛණ්ඩ දින" if is_si else "Current streak",
+        "back": "ඩෑෂ්බෝඩ් වෙත ආපසු" if is_si else "Back to Dashboard",
+    }
+
+    students = Student.query.order_by(Student.level.desc(), Student.xp.desc(), Student.current_streak.desc(), Student.id.asc()).limit(50).all()
+    rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{idx}</td><td style='border:1px solid #ccc;padding:8px;'>{s.name}</td><td style='border:1px solid #ccc;padding:8px;'>{s.grade}</td><td style='border:1px solid #ccc;padding:8px;'>{s.xp or 0}</td><td style='border:1px solid #ccc;padding:8px;'>{s.level or 1}</td><td style='border:1px solid #ccc;padding:8px;'>{s.current_streak or 0}</td></tr>"
+        for idx, s in enumerate(students, start=1)
+    )
+
+    return f"""
+    <!doctype html><html lang='{'si' if is_si else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head><body>
+    <h1>{labels['title']}</h1>
+    <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['rank']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['name']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['grade']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['xp']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['level']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['current_streak']}</th></tr></thead><tbody>{rows}</tbody></table>
+    <p><a href='/student-dashboard'>{labels['back']}</a></p>
+    </body></html>
+    """
 
 @app.route("/result/<int:result_id>", methods=["GET"])
 def view_result(result_id: int) -> str:
