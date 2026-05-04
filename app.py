@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 from datetime import datetime
 from fractions import Fraction
 from html import escape
@@ -1317,6 +1318,15 @@ def parse_ai_questions_payload(content: str) -> list[dict]:
     return questions
 
 
+def normalize_fraction_text(text: str) -> str:
+    normalized = text or ""
+    normalized = re.sub(r"\\\(\s*", "", normalized)
+    normalized = re.sub(r"\s*\\\)", "", normalized)
+    normalized = re.sub(r"\\frac\s*\{\s*([^{}]+?)\s*\}\s*\{\s*([^{}]+?)\s*\}", r"\1/\2", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
 def admin_session_required():
     if session.get("admin_logged_in") is not True:
         return redirect(url_for("admin_login"))
@@ -1918,6 +1928,8 @@ def admin_ai_generate_questions():
         "- Sinhala is simple and correct\n"
         "- Questions are unique\n"
         "- No repetition\n"
+        "- Use plain fractions only (examples: 3/4, 8/9, 1/6)\n"
+        "- Do not use \\( \\), \\frac{}, or any LaTeX formatting\n"
     )
 
     try:
@@ -1936,6 +1948,18 @@ def admin_ai_generate_questions():
         return jsonify({"success": False, "message": f"AI returned {len(questions)} questions, expected {question_count}"}), 400
 
     for item in questions:
+        question_en = normalize_fraction_text(item["question_en"])
+        question_si = normalize_fraction_text(item["question_si"])
+        option_a_en = normalize_fraction_text(item["option_a_en"])
+        option_a_si = normalize_fraction_text(item["option_a_si"])
+        option_b_en = normalize_fraction_text(item["option_b_en"])
+        option_b_si = normalize_fraction_text(item["option_b_si"])
+        option_c_en = normalize_fraction_text(item["option_c_en"])
+        option_c_si = normalize_fraction_text(item["option_c_si"])
+        option_d_en = normalize_fraction_text(item["option_d_en"])
+        option_d_si = normalize_fraction_text(item["option_d_si"])
+        explanation_en = normalize_fraction_text(item["explanation_en"])
+        explanation_si = normalize_fraction_text(item["explanation_si"])
         db.session.add(
             Question(
                 grade=grade,
@@ -1943,19 +1967,19 @@ def admin_ai_generate_questions():
                 topic=topic,
                 topic_en=topic,
                 topic_si=topic,
-                question_text_en=item["question_en"].strip(),
-                question_text_si=item["question_si"].strip(),
-                option_a_en=item["option_a_en"].strip(),
-                option_a_si=item["option_a_si"].strip(),
-                option_b_en=item["option_b_en"].strip(),
-                option_b_si=item["option_b_si"].strip(),
-                option_c_en=item["option_c_en"].strip(),
-                option_c_si=item["option_c_si"].strip(),
-                option_d_en=item["option_d_en"].strip(),
-                option_d_si=item["option_d_si"].strip(),
+                question_text_en=question_en,
+                question_text_si=question_si,
+                option_a_en=option_a_en,
+                option_a_si=option_a_si,
+                option_b_en=option_b_en,
+                option_b_si=option_b_si,
+                option_c_en=option_c_en,
+                option_c_si=option_c_si,
+                option_d_en=option_d_en,
+                option_d_si=option_d_si,
                 correct_option=item["correct_option"].strip().upper(),
-                explanation_en=item["explanation_en"].strip(),
-                explanation_si=item["explanation_si"].strip(),
+                explanation_en=explanation_en,
+                explanation_si=explanation_si,
                 difficulty_level=difficulty_level,
             )
         )
