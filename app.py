@@ -106,6 +106,7 @@ class Student(db.Model):
     name = db.Column(db.String(120), nullable=False)
     grade = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    parent_email = db.Column(db.String(120), nullable=True)
     mobile = db.Column(db.String(20), unique=True, nullable=False)
     medium = db.Column(db.String(20), nullable=False, default="English")
     password_hash = db.Column(db.String(255), nullable=True)
@@ -231,6 +232,11 @@ def register_form() -> str:
           </label>
           <br><br>
           <label>
+            Parent Email:
+            <input type="email" name="parent_email" required>
+          </label>
+          <br><br>
+          <label>
             {t(selected_medium, "mobile")}:
             <input type="text" name="mobile" required>
           </label>
@@ -261,7 +267,7 @@ def register_student():
             return "<h2>Error: Invalid or missing form data</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": "Invalid or missing JSON body"}), 400
 
-    required_fields = ["name", "grade", "email", "mobile", "medium", "password"]
+    required_fields = ["name", "grade", "email", "parent_email", "mobile", "medium", "password"]
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
     if missing_fields:
         if is_form_submission:
@@ -288,6 +294,7 @@ def register_student():
         return jsonify({"success": False, "message": msg}), 400
 
     email = data["email"].strip()
+    parent_email = data["parent_email"].strip()
     mobile = data["mobile"].strip()
 
     if Student.query.filter_by(email=email).first():
@@ -305,6 +312,7 @@ def register_student():
         grade=data["grade"].strip(),
         medium=medium,
         email=email,
+        parent_email=parent_email,
         mobile=mobile,
         password_hash=generate_password_hash(data["password"]),
     )
@@ -330,6 +338,7 @@ def register_student():
                     "grade": student.grade,
                     "medium": student.medium,
                     "email": student.email,
+                    "parent_email": student.parent_email,
                     "mobile": student.mobile,
                 },
             }
@@ -352,6 +361,7 @@ def get_students():
                         "grade": student.grade,
                         "medium": student.medium,
                         "email": student.email,
+                        "parent_email": student.parent_email,
                         "mobile": student.mobile,
                     }
                     for student in students
@@ -685,7 +695,15 @@ def parent_dashboard():
     if session.get("parent_logged_in") is not True:
         return redirect(url_for("parent_login"))
 
-    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    logged_in_parent_email = os.environ.get("PARENT_EMAIL", "").strip()
+    if not logged_in_parent_email:
+        return "<h2>Parent email is not configured.</h2>", 500
+
+    students = (
+        Student.query.filter_by(parent_email=logged_in_parent_email)
+        .order_by(Student.created_at.desc(), Student.id.desc())
+        .all()
+    )
 
     rows: list[str] = []
     for student in students:
@@ -750,7 +768,7 @@ def parent_dashboard():
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Latest Practice Attempt</th>
             </tr>
           </thead>
-          <tbody>{table_rows if table_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+          <tbody>{table_rows if table_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No student linked to this parent account yet.</td></tr>"}</tbody>
         </table>
       </body>
     </html>
@@ -1080,6 +1098,18 @@ def update_login_db() -> tuple:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Login DB update failed: {exc}"}), 500
 
+
+
+
+@app.route("/update-parent-link-db", methods=["GET"])
+def update_parent_link_db() -> tuple:
+    try:
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS parent_email VARCHAR(120)"))
+        db.session.commit()
+        return jsonify({"success": True, "message": "Parent link database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Parent link DB update failed: {exc}"}), 500
 
 @app.route("/update-db", methods=["GET"])
 def update_db() -> tuple:
