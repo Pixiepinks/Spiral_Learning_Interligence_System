@@ -271,6 +271,26 @@ def update_student_streak(student_id: int | None) -> tuple[int, int]:
     student.last_activity_date = today
     return student.current_streak, student.longest_streak
 
+
+def get_streak_feedback(student_id: int | None) -> dict[str, int | bool]:
+    if not student_id:
+        return {"increased": False, "restarted": False, "current": 0}
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        return {"increased": False, "restarted": False, "current": 0}
+
+    previous_streak = student.current_streak or 0
+    previous_last_date = student.last_activity_date
+    today = date.today()
+    was_reset = bool(previous_last_date and previous_last_date < today - timedelta(days=1) and previous_streak > 0)
+    current_streak, _ = update_student_streak(student_id)
+    return {
+        "increased": current_streak > previous_streak,
+        "restarted": was_reset and current_streak == 1,
+        "current": current_streak,
+    }
+
 def get_topic_sinhala(topic_en: str) -> str:
     topic_map = {
         "Fractions": "භාග",
@@ -407,6 +427,16 @@ def register_form() -> str:
     selected_medium = resolve_medium(request.args.get("medium"))
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+
+    streak_message = ""
+    if streak_feedback["increased"]:
+        streak_message = (
+            f"ඔබේ අඛණ්ඩ දින {streak_feedback['current']} දක්වා වැඩිවුණා"
+            if selected_medium == "Sinhala"
+            else f"Your streak increased to {streak_feedback['current']} days"
+        )
+    elif streak_feedback["restarted"]:
+        streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
 
     return f"""
     <!doctype html>
@@ -677,6 +707,8 @@ def student_dashboard():
             "current_streak": "Current streak",
             "longest_streak": "Longest streak",
             "leaderboard": "Leaderboard",
+            "goal_completed_today": "Goal Completed Today",
+            "complete_one_activity_today": "Complete 1 activity today",
         },
         "si": {
             "dashboard": "ශිෂ්‍ය ඩෑෂ්බෝඩ්",
@@ -709,10 +741,25 @@ def student_dashboard():
             "current_streak": "වත්මන් අඛණ්ඩ දින",
             "longest_streak": "දිගම අඛණ්ඩ දින",
             "leaderboard": "ප්‍රමුඛ ලැයිස්තුව",
+            "goal_completed_today": "අද ඉලක්කය සම්පූර්ණයි",
+            "complete_one_activity_today": "අද එක ක්‍රියාවක් සම්පූර්ණ කරන්න",
         },
     }
     language = "si" if student.medium == "Sinhala" else "en"
     text = ui_text[language]
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    completed_activity_today = (
+        StudentResult.query.filter(
+            StudentResult.student_id == student.id,
+            StudentResult.created_at >= today_start,
+        ).first()
+        is not None
+        or PracticeAttempt.query.filter(
+            PracticeAttempt.student_id == student.id,
+            PracticeAttempt.created_at >= today_start,
+        ).first()
+        is not None
+    )
     level_translations = {
         "Foundation Weak": "පදනම දුර්වල",
         "Basic Learner": "මූලික ඉගෙනුමකරු",
@@ -874,8 +921,9 @@ def student_dashboard():
         <p><strong>{text["medium"]}:</strong> {student.medium}</p>
         <p><strong>{text['xp']} ({text['xp_sinhala']}):</strong> {student.xp}</p>
         <p><strong>{text['level']}:</strong> {student.level}</p>
-        <p><strong>{text['current_streak']}:</strong> {student.current_streak or 0}</p>
-        <p><strong>{text['longest_streak']}:</strong> {student.longest_streak or 0}</p>
+        <p><strong>🔥 {text['current_streak']}:</strong> {student.current_streak or 0}</p>
+        <p><strong>🏆 {text['longest_streak']}:</strong> {student.longest_streak or 0}</p>
+        <p><strong>{text['goal_completed_today'] if completed_activity_today else text['complete_one_activity_today']}</strong></p>
         <p><strong>{text['progress_to_next_level']}:</strong> {student.xp % 100}%</p>
 
         {latest_html}
@@ -2817,7 +2865,7 @@ def submit_test() -> str:
     student_id = session.get("student_id")
     earned_xp = correct_answers * 15
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
-    update_student_streak(student_id)
+    streak_feedback = get_streak_feedback(student_id)
 
     student_result = StudentResult(
         student_id=student_id,
@@ -2920,6 +2968,7 @@ def submit_test() -> str:
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {percentage_score}%</p>
         <p><strong>{t(selected_medium, 'level')}:</strong> {level_name}</p>
         <p><strong>{t(selected_medium, 'xp')} ({t(selected_medium, 'xp_sinhala')}):</strong> +{earned_xp} | Total: {student_xp}</p>
+        {f"<p><strong>{streak_message}</strong></p>" if streak_message else ""}
         {topic_analysis_html}
         {recommendations_html}
         {wrong_answers_html}
@@ -3014,7 +3063,7 @@ def retest_weak() -> str:
         level_name = "Retest Weak Topics"
         earned_xp = correct_answers * 12
         update_student_xp_and_level(student_id, earned_xp)
-        update_student_streak(student_id)
+        streak_feedback = get_streak_feedback(student_id)
         student_result = StudentResult(
             student_id=student_id,
             grade=latest_result.grade,
@@ -3049,7 +3098,16 @@ def retest_weak() -> str:
                 score=topic_percentage,
             )
         db.session.commit()
-        return redirect(url_for("view_result", result_id=student_result.id))
+        streak_status = "increased" if streak_feedback["increased"] else "restarted" if streak_feedback["restarted"] else ""
+        return redirect(
+            url_for(
+                "view_result",
+                result_id=student_result.id,
+                medium=selected_medium,
+                streak_status=streak_status,
+                streak_current=streak_feedback["current"],
+            )
+        )
 
     question_blocks = []
     for q in questions:
@@ -3127,6 +3185,17 @@ def view_result(result_id: int) -> str:
     if not student_result:
         return redirect(url_for("student_dashboard"))
     selected_medium = resolve_medium(request.args.get("medium") or student_result.medium)
+    streak_status = (request.args.get("streak_status") or "").strip()
+    streak_current = (request.args.get("streak_current") or "").strip()
+    streak_message = ""
+    if streak_status == "increased":
+        streak_message = (
+            f"ඔබේ අඛණ්ඩ දින {streak_current} දක්වා වැඩිවුණා"
+            if selected_medium == "Sinhala"
+            else f"Your streak increased to {streak_current} days"
+        )
+    elif streak_status == "restarted":
+        streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
     topics = StudentTopicPerformance.query.filter_by(student_result_id=student_result.id).order_by(StudentTopicPerformance.id.asc()).all()
     topic_rows = "".join(
         f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_si if selected_medium == 'Sinhala' else topic.topic_en}</td>"
@@ -3143,6 +3212,7 @@ def view_result(result_id: int) -> str:
         <p><strong>{t(selected_medium, 'total_questions')}:</strong> {student_result.total_questions}</p>
         <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {student_result.correct_answers}</p>
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {student_result.score}%</p>
+        {f"<p><strong>{streak_message}</strong></p>" if streak_message else ""}
         <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'topic')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answers')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'percentage_score')}</th></tr></thead><tbody>{topic_rows}</tbody></table>
         <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
       </body>
@@ -3331,6 +3401,7 @@ def submit_practice() -> str:
 
     earned_xp = correct_answers * 10
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
+    streak_feedback = get_streak_feedback(student_id)
 
     practice_attempt = PracticeAttempt(
         student_id=student_id,
@@ -3353,6 +3424,16 @@ def submit_practice() -> str:
         score=score,
     )
     db.session.commit()
+    streak_message = ""
+    if streak_feedback["increased"]:
+        streak_message = (
+            f"ඔබේ අඛණ්ඩ දින {streak_feedback['current']} දක්වා වැඩිවුණා"
+            if selected_medium == "Sinhala"
+            else f"Your streak increased to {streak_feedback['current']} days"
+        )
+    elif streak_feedback["restarted"]:
+        streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
+
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
@@ -3367,6 +3448,7 @@ def submit_practice() -> str:
         <p><strong>{t(selected_medium, 'practice_score')}:</strong> {score}%</p>
         <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {correct_answers}/{total_questions}</p>
         <p><strong>{t(selected_medium, 'xp')} ({t(selected_medium, 'xp_sinhala')}):</strong> +{earned_xp} | Total: {student_xp}</p>
+        {f"<p><strong>{streak_message}</strong></p>" if streak_message else ""}
         <h2>{t(selected_medium, 'wrong_answers')}</h2>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
