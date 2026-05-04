@@ -62,6 +62,8 @@ UI_TEXT = {
         "back_to_dashboard": "Back to Dashboard",
         "topic_name": "Topic",
         "difficulty_label": "Difficulty",
+        "retest_weak_topics": "Retest Weak Topics",
+        "no_weak_topics_retest": "No weak topics to retest",
     },
     "Sinhala": {
         "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
@@ -102,6 +104,8 @@ UI_TEXT = {
         "back_to_dashboard": "ඩෑෂ්බෝඩ් වෙත ආපසු",
         "topic_name": "මාතෘකාව",
         "difficulty_label": "අපහසුතා මට්ටම",
+        "retest_weak_topics": "දුර්වල කොටස් නැවත පරීක්ෂා කරන්න",
+        "no_weak_topics_retest": "නැවත පරීක්ෂා කිරීමට දුර්වල කොටස් නොමැත",
     },
 }
 
@@ -822,6 +826,14 @@ def get_latest_student_result(student_id: int):
         .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
         .first()
     )
+
+
+def classify_topic(score: float) -> tuple[str, str]:
+    if score < 50:
+        return "Weak", "දුර්වල"
+    if score < 80:
+        return "Improving", "දියුණු වෙමින්"
+    return "Strong", "ශක්තිමත්"
 
 
 @app.route("/learning-path", methods=["GET"])
@@ -2437,13 +2449,6 @@ def submit_test() -> str:
     else:
         level_name = "Advanced Learner"
 
-    def classify_topic(score: float) -> tuple[str, str]:
-        if score < 50:
-            return "Weak", "දුර්වල"
-        if score < 80:
-            return "Improving", "දියුණු වෙමින්"
-        return "Strong", "ශක්තිමත්"
-
     topic_rows = []
     recommendations = []
     recommendation_practice_links = []
@@ -2599,7 +2604,179 @@ def submit_test() -> str:
         {topic_analysis_html}
         {recommendations_html}
         {wrong_answers_html}
+        <p><a href='/retest-weak?medium={selected_medium}'>{t(selected_medium, 'retest_weak_topics')}</a></p>
         <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
+      </body>
+    </html>
+    """
+
+
+@app.route("/retest-weak", methods=["GET", "POST"])
+def retest_weak() -> str:
+    db.create_all()
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    selected_medium = resolve_medium(request.values.get("medium") or student.medium)
+    medium_key = "en" if selected_medium == "English" else "si"
+    latest_result = get_latest_student_result(student_id)
+
+    if not latest_result:
+        return f"<p>{t(selected_medium, 'no_weak_topics_retest')}</p><p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>"
+
+    weak_topics = (
+        StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id)
+        .filter(StudentTopicPerformance.percentage < 50)
+        .all()
+    )
+    if not weak_topics:
+        return f"<p>{t(selected_medium, 'no_weak_topics_retest')}</p><p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>"
+
+    weak_topic_names = [topic.topic_en for topic in weak_topics]
+    last_score = min(topic.percentage for topic in weak_topics)
+    if last_score < 50:
+        target_difficulties = [1, 2]
+    elif last_score < 80:
+        target_difficulties = [3]
+    else:
+        target_difficulties = [4, 5]
+
+    base_query = Question.query.filter(
+        Question.grade == latest_result.grade,
+        Question.subject == latest_result.subject,
+        Question.topic_en.in_(weak_topic_names),
+    )
+    effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
+    questions = base_query.filter(effective_difficulty.in_(target_difficulties)).order_by(Question.id.asc()).all()
+    if not questions:
+        questions = base_query.order_by(Question.id.asc()).all()
+
+    attempted_ids = [
+        row[0]
+        for row in db.session.query(StudentQuestionAttempt.question_id)
+        .join(Question, Question.id == StudentQuestionAttempt.question_id)
+        .filter(
+            StudentQuestionAttempt.student_id == student_id,
+            Question.grade == latest_result.grade,
+            Question.subject == latest_result.subject,
+            Question.topic_en.in_(weak_topic_names),
+        )
+        .distinct()
+        .all()
+    ]
+    unattempted_questions = [q for q in questions if q.id not in attempted_ids]
+    if unattempted_questions:
+        questions = unattempted_questions + [q for q in questions if q.id in attempted_ids]
+
+    mini_count = min(10, max(5, len(questions)))
+    questions = questions[:mini_count]
+
+    if request.method == "POST":
+        total_questions = len(questions)
+        correct_answers = 0
+        topic_stats = {}
+        for q in questions:
+            topic_stats.setdefault(q.topic_en, {"topic_en": q.topic_en, "topic_si": q.topic_si, "total": 0, "correct": 0})
+            topic_stats[q.topic_en]["total"] += 1
+            student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+            is_correct = student_answer == q.correct_option.strip().upper()
+            if is_correct:
+                correct_answers += 1
+                topic_stats[q.topic_en]["correct"] += 1
+            db.session.add(StudentQuestionAttempt(student_id=student_id, question_id=q.id, source_type="RetestWeak", is_correct=is_correct))
+
+        percentage_score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+        level_name = "Retest Weak Topics"
+        earned_xp = correct_answers * 12
+        update_student_xp_and_level(student_id, earned_xp)
+        student_result = StudentResult(
+            student_id=student_id,
+            grade=latest_result.grade,
+            subject=latest_result.subject,
+            medium=selected_medium,
+            score=percentage_score,
+            level=level_name,
+            total_questions=total_questions,
+            correct_answers=correct_answers,
+        )
+        db.session.add(student_result)
+        db.session.flush()
+        for stats in topic_stats.values():
+            topic_percentage = round((stats["correct"] / stats["total"]) * 100, 2) if stats["total"] else 0
+            status_en, status_si = classify_topic(topic_percentage)
+            db.session.add(StudentTopicPerformance(
+                student_result_id=student_result.id,
+                topic_en=stats["topic_en"],
+                topic_si=stats["topic_si"],
+                correct_count=stats["correct"],
+                total_count=stats["total"],
+                percentage=topic_percentage,
+                status_en=status_en,
+                status_si=status_si,
+            ))
+        db.session.commit()
+        return redirect(url_for("view_result", result_id=student_result.id))
+
+    question_blocks = []
+    for q in questions:
+        question_blocks.append(
+            f"""
+            <div style='margin:16px 0;padding:12px;border:1px solid #ddd;'>
+              <p><strong>Q{q.id}.</strong> {getattr(q, f"question_text_{medium_key}")}</p>
+              <label><input type='radio' name='q_{q.id}' value='A'> A. {getattr(q, f"option_a_{medium_key}")}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='B'> B. {getattr(q, f"option_b_{medium_key}")}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='C'> C. {getattr(q, f"option_c_{medium_key}")}</label><br>
+              <label><input type='radio' name='q_{q.id}' value='D'> D. {getattr(q, f"option_d_{medium_key}")}</label>
+            </div>
+            """
+        )
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'retest_weak_topics')}</title></head>
+      <body>
+        <h1>{t(selected_medium, 'retest_weak_topics')}</h1>
+        <p><strong>{t(selected_medium, 'total_questions')}:</strong> {len(questions)}</p>
+        <form method='post' action='/retest-weak'>
+          <input type='hidden' name='medium' value='{selected_medium}'>
+          {''.join(question_blocks)}
+          <button type='submit'>{t(selected_medium, 'submit')}</button>
+        </form>
+      </body>
+    </html>
+    """
+
+
+@app.route("/result/<int:result_id>", methods=["GET"])
+def view_result(result_id: int) -> str:
+    student_result = db.session.get(StudentResult, result_id)
+    if not student_result:
+        return redirect(url_for("student_dashboard"))
+    selected_medium = resolve_medium(request.args.get("medium") or student_result.medium)
+    topics = StudentTopicPerformance.query.filter_by(student_result_id=student_result.id).order_by(StudentTopicPerformance.id.asc()).all()
+    topic_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_si if selected_medium == 'Sinhala' else topic.topic_en}</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{topic.correct_count}/{topic.total_count}</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td></tr>"
+        for topic in topics
+    )
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'result_title')}</title></head>
+      <body>
+        <h1>{t(selected_medium, 'result_title')}</h1>
+        <p><strong>{t(selected_medium, 'total_questions')}:</strong> {student_result.total_questions}</p>
+        <p><strong>{t(selected_medium, 'correct_answers')}:</strong> {student_result.correct_answers}</p>
+        <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {student_result.score}%</p>
+        <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'topic')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answers')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'percentage_score')}</th></tr></thead><tbody>{topic_rows}</tbody></table>
+        <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
       </body>
     </html>
     """
