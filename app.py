@@ -459,49 +459,6 @@ def register_form() -> str:
           <br><br>
           <button type="submit">{t(selected_medium, "register")}</button>
         </form>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -3746,49 +3703,6 @@ def view_result(result_id: int) -> str:
         <p><strong>{t(selected_medium, 'percentage_score')}:</strong> {student_result.score}%</p>
         <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'topic')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'correct_answers')}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{t(selected_medium, 'percentage_score')}</th></tr></thead><tbody>{topic_rows}</tbody></table>
         <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -3907,49 +3821,6 @@ def practice_page() -> str:
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
         <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
