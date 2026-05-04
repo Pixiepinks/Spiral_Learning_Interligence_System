@@ -57,6 +57,7 @@ UI_TEXT = {
         "practice_score": "Score",
         "back_to_dashboard": "Back to Dashboard",
         "topic_name": "Topic",
+        "difficulty_label": "Difficulty",
     },
     "Sinhala": {
         "student_registration": "ශිෂ්‍ය ලියාපදිංචිය",
@@ -96,6 +97,7 @@ UI_TEXT = {
         "practice_score": "ලකුණ",
         "back_to_dashboard": "ඩෑෂ්බෝඩ් වෙත ආපසු",
         "topic_name": "මාතෘකාව",
+        "difficulty_label": "අපහසුතා මට්ටම",
     },
 }
 
@@ -143,7 +145,7 @@ class Question(db.Model):
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
     explanation_si = db.Column(db.Text, nullable=False)
-    difficulty_level = db.Column(db.Integer, nullable=False, default=3)
+    difficulty_level = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -174,6 +176,16 @@ class PracticeAttempt(db.Model):
     total_questions = db.Column(db.Integer, nullable=False, default=0)
     correct_answers = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentQuestionAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=True)
+    question_id = db.Column(db.Integer, nullable=False)
+    source_type = db.Column(db.String(20), nullable=False)
+    is_correct = db.Column(db.Boolean, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
 class StudentTopicPerformance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_result_id = db.Column(
@@ -1230,6 +1242,7 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = (request.form.get("correct_option") or "").strip().upper()
+    difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
     required_values = [
         grade,
@@ -1248,6 +1261,12 @@ def parse_question_form_data() -> tuple[dict, str | None]:
 
     if correct_option not in {"A", "B", "C", "D"}:
         return {}, "Correct answer must be one of A, B, C, or D."
+    try:
+        difficulty_level = int(difficulty_level_raw)
+    except ValueError:
+        return {}, "Difficulty level must be a number between 1 and 5."
+    if difficulty_level not in {1, 2, 3, 4, 5}:
+        return {}, "Difficulty level must be between 1 and 5."
 
     return {
         "grade": grade,
@@ -1260,11 +1279,13 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         "option_c": option_c,
         "option_d": option_d,
         "correct_option": correct_option,
+        "difficulty_level": difficulty_level,
     }, None
 
 
 def render_question_form(action: str, data: dict, page_title: str, submit_label: str, error: str = "") -> str:
     error_html = f"<p style='color:red;'>{escape(error)}</p>" if error else ""
+    difficulty_level = str(data.get("difficulty_level", "1"))
     return f"""
     <!doctype html>
     <html lang="en">
@@ -1283,6 +1304,15 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <label>Option C: <input type="text" name="option_c" value="{escape(data.get('option_c', ''))}" required></label><br><br>
           <label>Option D: <input type="text" name="option_d" value="{escape(data.get('option_d', ''))}" required></label><br><br>
           <label>Correct Answer (A/B/C/D): <input type="text" name="correct_option" maxlength="1" value="{escape(data.get('correct_option', ''))}" required></label><br><br>
+          <label>Difficulty Level:
+            <select name="difficulty_level" required>
+              <option value="1" {"selected" if difficulty_level == "1" else ""}>1 Easy</option>
+              <option value="2" {"selected" if difficulty_level == "2" else ""}>2 Easy</option>
+              <option value="3" {"selected" if difficulty_level == "3" else ""}>3 Medium</option>
+              <option value="4" {"selected" if difficulty_level == "4" else ""}>4 Hard</option>
+              <option value="5" {"selected" if difficulty_level == "5" else ""}>5 Hard</option>
+            </select>
+          </label><br><br>
           <button type="submit">{submit_label}</button>
         </form>
         <p><a href="/admin/questions">Back to Questions</a></p>
@@ -1541,6 +1571,7 @@ def admin_questions():
           <td style='border:1px solid #ccc;padding:8px;'>{escape(q.topic_en)}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{escape(q.question_text_en)}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{escape(q.question_text_si)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{q.difficulty_level or 1}</td>
           <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/edit-question/{q.id}'>Edit</a> | <a href='/admin/delete-question/{q.id}' onclick="return confirm('Delete this question?');">Delete</a></td>
         </tr>
         """
@@ -1565,8 +1596,8 @@ def admin_questions():
     </form>
     <br>
     <table style='border-collapse:collapse;width:100%;'>
-      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Subject</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Question (EN)</th><th style='border:1px solid #ccc;padding:8px;'>Question (SI)</th><th style='border:1px solid #ccc;padding:8px;'>Actions</th></tr></thead>
-      <tbody>{rows if rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No questions found.</td></tr>"}</tbody>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Subject</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Question (EN)</th><th style='border:1px solid #ccc;padding:8px;'>Question (SI)</th><th style='border:1px solid #ccc;padding:8px;'>Difficulty</th><th style='border:1px solid #ccc;padding:8px;'>Actions</th></tr></thead>
+      <tbody>{rows if rows else "<tr><td colspan='8' style='border:1px solid #ccc;padding:8px;'>No questions found.</td></tr>"}</tbody>
     </table>
     """
 
@@ -1602,6 +1633,7 @@ def admin_add_question():
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
         explanation_si="N/A",
+        difficulty_level=form_data["difficulty_level"],
     )
     db.session.add(question)
     db.session.commit()
@@ -1629,6 +1661,7 @@ def admin_edit_question(question_id: int):
                 "option_c": question.option_c_en,
                 "option_d": question.option_d_en,
                 "correct_option": question.correct_option,
+                "difficulty_level": question.difficulty_level or 1,
             },
             "Edit Question",
             "Update Question",
@@ -1654,6 +1687,7 @@ def admin_edit_question(question_id: int):
     question.option_d_en = form_data["option_d"]
     question.option_d_si = form_data["option_d"]
     question.correct_option = form_data["correct_option"]
+    question.difficulty_level = form_data["difficulty_level"]
     db.session.commit()
     return redirect("/admin/questions")
 
@@ -1762,10 +1796,10 @@ def update_db() -> tuple:
         db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
-        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS difficulty_level INTEGER DEFAULT 3"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS difficulty_level INTEGER DEFAULT 1"))
         db.session.execute(db.text("UPDATE question SET topic_en = topic WHERE topic_en IS NULL"))
         db.session.execute(db.text("UPDATE question SET topic_si = topic WHERE topic_si IS NULL"))
-        db.session.execute(db.text("UPDATE question SET difficulty_level = 3 WHERE difficulty_level IS NULL"))
+        db.session.execute(db.text("UPDATE question SET difficulty_level = 1 WHERE difficulty_level IS NULL"))
         db.session.commit()
         return jsonify({"success": True, "message": "Database updated successfully"}), 200
     except Exception as exc:
@@ -1786,6 +1820,18 @@ def update_difficulty_db() -> tuple[str, int]:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Difficulty column update failed: {exc}"}), 500
+
+
+@app.route("/update-question-difficulty-db", methods=["GET"])
+def update_question_difficulty_db() -> tuple[str, int]:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS difficulty_level INTEGER DEFAULT 1"))
+        db.session.execute(db.text("UPDATE question SET difficulty_level = 1 WHERE difficulty_level IS NULL"))
+        db.session.commit()
+        return "Question difficulty column updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Question difficulty DB update failed: {exc}"}), 500
 @app.route("/update-question-topics-db", methods=["GET"])
 def update_question_topics_db() -> tuple:
     try:
@@ -1861,7 +1907,7 @@ def create_question():
         return jsonify({"success": False, "message": "correct_option must be one of A, B, C, D"}), 400
 
     payload = {field: data[field].strip() for field in required_fields if field != "correct_option"}
-    difficulty_level = int(data.get("difficulty_level", 3))
+    difficulty_level = int(data.get("difficulty_level", 1))
     if difficulty_level < 1 or difficulty_level > 5:
         return jsonify({"success": False, "message": "difficulty_level must be between 1 and 5"}), 400
     if not payload.get("topic"):
@@ -2107,6 +2153,15 @@ def submit_test() -> str:
         if student_answer == correct_answer:
             correct_answers += 1
             topic_stats[topic_name]["correct"] += 1
+        db.session.add(
+            StudentQuestionAttempt(
+                student_id=session.get("student_id"),
+                question_id=q.id,
+                source_type="SkillScan",
+                is_correct=(student_answer == correct_answer),
+            )
+        )
+        if student_answer == correct_answer:
             continue
 
         question_text = getattr(q, f"question_text_{medium_key}")
@@ -2323,14 +2378,14 @@ def practice_page() -> str:
     last_attempt = None
     if student_id:
         last_attempt = (
-            PracticeAttempt.query.filter_by(student_id=student_id, grade=grade, subject=subject)
+            PracticeAttempt.query.filter_by(student_id=student_id, grade=grade, subject=subject, topic_en=topic)
             .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
             .first()
         )
 
     if not last_attempt or last_attempt.score < 50:
         target_difficulties = [1, 2]
-    elif last_attempt.score <= 80:
+    elif last_attempt.score < 80:
         target_difficulties = [3]
     else:
         target_difficulties = [4, 5]
@@ -2344,6 +2399,28 @@ def practice_page() -> str:
     )
     if not questions:
         questions = base_query.order_by(Question.id.asc()).all()
+    selected_question_difficulty = (
+        ", ".join(str(level) for level in target_difficulties) if questions and any((q.difficulty_level or 1) in target_difficulties for q in questions) else "1-5"
+    )
+    if student_id and questions:
+        attempted_ids = [
+            row[0]
+            for row in db.session.query(StudentQuestionAttempt.question_id)
+            .join(Question, Question.id == StudentQuestionAttempt.question_id)
+            .filter(
+                StudentQuestionAttempt.student_id == student_id,
+                Question.grade == grade,
+                Question.subject == subject,
+                Question.topic == topic,
+            )
+            .distinct()
+            .all()
+        ]
+        unattempted_questions = [q for q in questions if q.id not in attempted_ids]
+        if len(unattempted_questions) >= len(questions):
+            questions = unattempted_questions
+        elif unattempted_questions:
+            questions = unattempted_questions + [q for q in questions if q.id in attempted_ids]
 
     question_blocks = []
     for q in questions:
@@ -2379,6 +2456,7 @@ def practice_page() -> str:
       <body>
         <h1>{t(selected_medium, 'practice_title')}</h1>
         <p><strong>{t(selected_medium, 'topic_name')}:</strong> {display_topic}</p>
+        <p><strong>{t(selected_medium, 'difficulty_label')}:</strong> {selected_question_difficulty}</p>
         <form method='get' action='/practice' style='margin-bottom:20px;'>
           <input type='hidden' name='grade' value='{grade}'>
           <input type='hidden' name='subject' value='{subject}'>
@@ -2424,12 +2502,21 @@ def submit_practice() -> str:
     correct_answers = 0
     option_label_key = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
     answer_rows = []
+    student_id = session.get("student_id")
 
     for q in questions:
         student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
         correct_answer = q.correct_option.strip().upper()
         if student_answer == correct_answer:
             correct_answers += 1
+        db.session.add(
+            StudentQuestionAttempt(
+                student_id=student_id,
+                question_id=q.id,
+                source_type="Practice",
+                is_correct=(student_answer == correct_answer),
+            )
+        )
 
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
@@ -2453,7 +2540,6 @@ def submit_practice() -> str:
 
     score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
 
-    student_id = session.get("student_id")
     topic_question = Question.query.filter_by(grade=grade, subject=subject, topic=topic).first()
     topic_en = topic_question.topic_en if topic_question else topic
     topic_si = topic_question.topic_si if topic_question else topic
@@ -2518,6 +2604,17 @@ def update_practice_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Practice DB update failed: {exc}"}), 500
+
+
+@app.route("/update-question-attempt-db", methods=["GET"])
+def update_question_attempt_db() -> tuple:
+    try:
+        db.create_all()
+        db.session.commit()
+        return jsonify({"success": True, "message": "Student question attempt table ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Question attempt DB update failed: {exc}"}), 500
 
 
 if __name__ == "__main__":
