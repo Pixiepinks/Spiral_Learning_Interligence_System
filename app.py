@@ -803,6 +803,18 @@ def update_db() -> tuple:
 
 
 
+
+
+@app.route("/update-difficulty-db", methods=["GET"])
+def update_difficulty_db() -> tuple[str, int]:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS difficulty_level INTEGER"))
+        db.session.execute(db.text("UPDATE question SET difficulty_level = 1 WHERE difficulty_level IS NULL"))
+        db.session.commit()
+        return "Difficulty column updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Difficulty column update failed: {exc}"}), 500
 @app.route("/update-question-topics-db", methods=["GET"])
 def update_question_topics_db() -> tuple:
     try:
@@ -1333,8 +1345,9 @@ def practice_page() -> str:
         target_difficulties = [4, 5]
 
     base_query = Question.query.filter_by(grade=grade, subject=subject, topic=topic)
+    effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
     questions = (
-        base_query.filter(Question.difficulty_level.in_(target_difficulties))
+        base_query.filter(effective_difficulty.in_(target_difficulties))
         .order_by(Question.id.asc())
         .all()
     )
