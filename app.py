@@ -188,6 +188,16 @@ class StudentTopicPerformance(db.Model):
     status_si = db.Column(db.String(50), nullable=False)
 
 
+
+
+def ensure_gamification_columns() -> None:
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS xp INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS level INTEGER"))
+    db.session.execute(db.text("UPDATE student SET xp = 0 WHERE xp IS NULL"))
+    db.session.execute(db.text("UPDATE student SET level = 1 WHERE level IS NULL"))
+    db.session.commit()
+
+
 @app.route("/")
 def home() -> str:
     return "Spiral Learning System Running"
@@ -404,6 +414,12 @@ def login():
 
     email = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
+
+    try:
+        ensure_gamification_columns()
+    except Exception:
+        db.session.rollback()
+
     student = Student.query.filter_by(email=email).first()
     if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
         return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
@@ -1128,14 +1144,22 @@ def update_parent_link_db() -> tuple:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Parent link DB update failed: {exc}"}), 500
 
+
+
+@app.route("/update-gamification-db", methods=["GET"])
+def update_gamification_db() -> tuple[str, int]:
+    try:
+        ensure_gamification_columns()
+        return "Gamification columns updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Gamification DB update failed: {exc}"}), 500
+
 @app.route("/update-db", methods=["GET"])
 def update_db() -> tuple:
     try:
         db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS medium VARCHAR(20)"))
-        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS xp INTEGER"))
-        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS level INTEGER"))
-        db.session.execute(db.text("UPDATE student SET xp = 0 WHERE xp IS NULL"))
-        db.session.execute(db.text("UPDATE student SET level = 1 WHERE level IS NULL"))
+        ensure_gamification_columns()
         db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
