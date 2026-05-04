@@ -639,13 +639,45 @@ def get_latest_student_result(student_id: int):
     )
 
 
+def get_teacher_credentials() -> tuple[str, str]:
+    return (
+        os.environ.get("TEACHER_EMAIL", "teacher@spiral.com"),
+        os.environ.get("TEACHER_PASSWORD", "teacher123"),
+    )
+
+
+@app.route("/teacher-login", methods=["GET", "POST"])
+def teacher_login():
+    if request.method == "GET":
+        return """        <!doctype html>
+        <html lang='en'>
+          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Login</title></head>
+          <body>
+            <h1>Teacher Login</h1>
+            <form method="post" action="/teacher-login">
+              <label>Email: <input type="email" name="email" required></label><br><br>
+              <label>Password: <input type="password" name="password" required></label><br><br>
+              <button type="submit">Login</button>
+            </form>
+          </body>
+        </html>
+        """
+
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    teacher_email, teacher_password = get_teacher_credentials()
+
+    if email != teacher_email or password != teacher_password:
+        return "<h2>Invalid teacher credentials</h2><p><a href='/teacher-login'>Try again</a></p>", 401
+
+    session["teacher_logged_in"] = True
+    return redirect(url_for("teacher_dashboard"))
+
+
 @app.route("/teacher-dashboard", methods=["GET"])
 def teacher_dashboard():
-    role = request.args.get("role") or session.get("role")
-    if role != "teacher":
-        return "<h2>Unauthorized</h2><p>Use role=teacher</p>", 403
-
-    session["role"] = "teacher"
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
     students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
 
     rows = []
@@ -685,6 +717,7 @@ def teacher_dashboard():
           </thead>
           <tbody>{student_rows if student_rows else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
         </table>
+        <p><a href='/teacher-logout'>Logout</a></p>
       </body>
     </html>
     """
@@ -692,11 +725,8 @@ def teacher_dashboard():
 
 @app.route("/teacher/student/<int:student_id>", methods=["GET"])
 def teacher_student_details(student_id: int):
-    role = request.args.get("role") or session.get("role")
-    if role != "teacher":
-        return "<h2>Unauthorized</h2><p>Use role=teacher</p>", 403
-
-    session["role"] = "teacher"
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
     student = db.session.get(Student, student_id)
     if not student:
         return "<h2>Student not found</h2>", 404
@@ -765,6 +795,12 @@ def teacher_student_details(student_id: int):
         <h2>{labels['weak_topics']}</h2><p>{weak_topic_html}</p><p><a href='/teacher-dashboard'>{labels['back']}</a></p>
       </body></html>
     """
+
+@app.route("/teacher-logout", methods=["GET"])
+def teacher_logout():
+    session.pop("teacher_logged_in", None)
+    return redirect(url_for("teacher_login"))
+
 
 @app.route("/logout", methods=["GET"])
 def logout():
