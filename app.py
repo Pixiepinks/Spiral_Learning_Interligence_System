@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from html import escape
 from urllib.parse import quote_plus
 
 from flask import Flask, jsonify, redirect, request, session, url_for
@@ -996,6 +997,78 @@ def admin_session_required():
     return None
 
 
+def parse_question_form_data() -> tuple[dict, str | None]:
+    grade = (request.form.get("grade") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+    topic = (request.form.get("topic") or "").strip()
+    question_text_en = (request.form.get("question_text_en") or "").strip()
+    question_text_si = (request.form.get("question_text_si") or "").strip()
+    option_a = (request.form.get("option_a") or "").strip()
+    option_b = (request.form.get("option_b") or "").strip()
+    option_c = (request.form.get("option_c") or "").strip()
+    option_d = (request.form.get("option_d") or "").strip()
+    correct_option = (request.form.get("correct_option") or "").strip().upper()
+
+    required_values = [
+        grade,
+        subject,
+        topic,
+        question_text_en,
+        question_text_si,
+        option_a,
+        option_b,
+        option_c,
+        option_d,
+        correct_option,
+    ]
+    if any(value == "" for value in required_values):
+        return {}, "All fields are required."
+
+    if correct_option not in {"A", "B", "C", "D"}:
+        return {}, "Correct answer must be one of A, B, C, or D."
+
+    return {
+        "grade": grade,
+        "subject": subject,
+        "topic": topic,
+        "question_text_en": question_text_en,
+        "question_text_si": question_text_si,
+        "option_a": option_a,
+        "option_b": option_b,
+        "option_c": option_c,
+        "option_d": option_d,
+        "correct_option": correct_option,
+    }, None
+
+
+def render_question_form(action: str, data: dict, page_title: str, submit_label: str, error: str = "") -> str:
+    error_html = f"<p style='color:red;'>{escape(error)}</p>" if error else ""
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title></head>
+      <body>
+        <h1>{page_title}</h1>
+        {error_html}
+        <form method="post" action="{action}">
+          <label>Grade: <input type="text" name="grade" value="{escape(data.get('grade', ''))}" required></label><br><br>
+          <label>Subject: <input type="text" name="subject" value="{escape(data.get('subject', ''))}" required></label><br><br>
+          <label>Topic: <input type="text" name="topic" value="{escape(data.get('topic', ''))}" required></label><br><br>
+          <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
+          <label>Question text SI:<br><textarea name="question_text_si" rows="4" cols="80" required>{escape(data.get('question_text_si', ''))}</textarea></label><br><br>
+          <label>Option A: <input type="text" name="option_a" value="{escape(data.get('option_a', ''))}" required></label><br><br>
+          <label>Option B: <input type="text" name="option_b" value="{escape(data.get('option_b', ''))}" required></label><br><br>
+          <label>Option C: <input type="text" name="option_c" value="{escape(data.get('option_c', ''))}" required></label><br><br>
+          <label>Option D: <input type="text" name="option_d" value="{escape(data.get('option_d', ''))}" required></label><br><br>
+          <label>Correct Answer (A/B/C/D): <input type="text" name="correct_option" maxlength="1" value="{escape(data.get('correct_option', ''))}" required></label><br><br>
+          <button type="submit">{submit_label}</button>
+        </form>
+        <p><a href="/admin/questions">Back to Questions</a></p>
+      </body>
+    </html>
+    """
+
+
 @app.route("/admin-login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "GET":
@@ -1201,6 +1274,177 @@ def admin_student_details(student_id: int):
     <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
     <h2>Weak Topics (Percentage &lt; 50)</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th></tr></thead><tbody>{weak_rows if weak_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No weak topics found.</td></tr>"}</tbody></table>
     """
+
+
+@app.route("/admin/questions", methods=["GET"])
+def admin_questions():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    selected_grade = (request.args.get("grade") or "").strip()
+    selected_subject = (request.args.get("subject") or "").strip()
+    selected_topic = (request.args.get("topic") or "").strip()
+
+    filters = []
+    if selected_grade:
+        filters.append(Question.grade == selected_grade)
+    if selected_subject:
+        filters.append(Question.subject == selected_subject)
+    if selected_topic:
+        filters.append(Question.topic_en == selected_topic)
+
+    questions_query = Question.query
+    if filters:
+        questions_query = questions_query.filter(*filters)
+    questions = questions_query.order_by(Question.id.desc()).all()
+
+    grades = [row[0] for row in db.session.query(Question.grade).distinct().order_by(Question.grade.asc()).all()]
+    subjects = [row[0] for row in db.session.query(Question.subject).distinct().order_by(Question.subject.asc()).all()]
+    topics = [row[0] for row in db.session.query(Question.topic_en).distinct().order_by(Question.topic_en.asc()).all()]
+
+    def build_options(values: list[str], current: str) -> str:
+        options = "<option value=''>All</option>"
+        for value in values:
+            selected = "selected" if value == current else ""
+            options += f"<option value='{escape(value)}' {selected}>{escape(value)}</option>"
+        return options
+
+    rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{q.id}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(q.grade)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(q.subject)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(q.topic_en)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(q.question_text_en)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(q.question_text_si)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/edit-question/{q.id}'>Edit</a> | <a href='/admin/delete-question/{q.id}' onclick="return confirm('Delete this question?');">Delete</a></td>
+        </tr>
+        """
+        for q in questions
+    )
+
+    return f"""
+    <h1>Manage Questions</h1>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/add-question'>Add New Question</a></p>
+    <form method='get' action='/admin/questions'>
+      <label>Grade:
+        <select name='grade'>{build_options(grades, selected_grade)}</select>
+      </label>
+      <label>Subject:
+        <select name='subject'>{build_options(subjects, selected_subject)}</select>
+      </label>
+      <label>Topic:
+        <select name='topic'>{build_options(topics, selected_topic)}</select>
+      </label>
+      <button type='submit'>Filter</button>
+      <a href='/admin/questions'>Reset</a>
+    </form>
+    <br>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Subject</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Question (EN)</th><th style='border:1px solid #ccc;padding:8px;'>Question (SI)</th><th style='border:1px solid #ccc;padding:8px;'>Actions</th></tr></thead>
+      <tbody>{rows if rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No questions found.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/add-question", methods=["GET", "POST"])
+def admin_add_question():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    if request.method == "GET":
+        return render_question_form("/admin/add-question", {}, "Add New Question", "Save Question")
+
+    form_data, error = parse_question_form_data()
+    if error:
+        return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", error), 400
+
+    question = Question(
+        grade=form_data["grade"],
+        subject=form_data["subject"],
+        topic=form_data["topic"],
+        topic_en=form_data["topic"],
+        topic_si=form_data["topic"],
+        question_text_en=form_data["question_text_en"],
+        question_text_si=form_data["question_text_si"],
+        option_a_en=form_data["option_a"],
+        option_a_si=form_data["option_a"],
+        option_b_en=form_data["option_b"],
+        option_b_si=form_data["option_b"],
+        option_c_en=form_data["option_c"],
+        option_c_si=form_data["option_c"],
+        option_d_en=form_data["option_d"],
+        option_d_si=form_data["option_d"],
+        correct_option=form_data["correct_option"],
+        explanation_en="N/A",
+        explanation_si="N/A",
+    )
+    db.session.add(question)
+    db.session.commit()
+    return redirect("/admin/questions")
+
+
+@app.route("/admin/edit-question/<int:question_id>", methods=["GET", "POST"])
+def admin_edit_question(question_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    question = Question.query.get_or_404(question_id)
+
+    if request.method == "GET":
+        return render_question_form(
+            f"/admin/edit-question/{question_id}",
+            {
+                "grade": question.grade,
+                "subject": question.subject,
+                "topic": question.topic_en,
+                "question_text_en": question.question_text_en,
+                "question_text_si": question.question_text_si,
+                "option_a": question.option_a_en,
+                "option_b": question.option_b_en,
+                "option_c": question.option_c_en,
+                "option_d": question.option_d_en,
+                "correct_option": question.correct_option,
+            },
+            "Edit Question",
+            "Update Question",
+        )
+
+    form_data, error = parse_question_form_data()
+    if error:
+        return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", error), 400
+
+    question.grade = form_data["grade"]
+    question.subject = form_data["subject"]
+    question.topic = form_data["topic"]
+    question.topic_en = form_data["topic"]
+    question.topic_si = form_data["topic"]
+    question.question_text_en = form_data["question_text_en"]
+    question.question_text_si = form_data["question_text_si"]
+    question.option_a_en = form_data["option_a"]
+    question.option_a_si = form_data["option_a"]
+    question.option_b_en = form_data["option_b"]
+    question.option_b_si = form_data["option_b"]
+    question.option_c_en = form_data["option_c"]
+    question.option_c_si = form_data["option_c"]
+    question.option_d_en = form_data["option_d"]
+    question.option_d_si = form_data["option_d"]
+    question.correct_option = form_data["correct_option"]
+    db.session.commit()
+    return redirect("/admin/questions")
+
+
+@app.route("/admin/delete-question/<int:question_id>", methods=["GET"])
+def admin_delete_question(question_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    question = Question.query.get_or_404(question_id)
+    db.session.delete(question)
+    db.session.commit()
+    return redirect("/admin/questions")
 
 
 @app.route("/admin-logout", methods=["GET"])
