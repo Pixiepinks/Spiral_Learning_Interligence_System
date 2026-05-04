@@ -990,6 +990,12 @@ def get_admin_credentials() -> tuple[str, str]:
     )
 
 
+def admin_session_required():
+    if session.get("admin_logged_in") is not True:
+        return redirect(url_for("admin_login"))
+    return None
+
+
 @app.route("/admin-login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "GET":
@@ -1021,20 +1027,26 @@ def admin_login():
 
 @app.route("/admin-dashboard", methods=["GET"])
 def admin_dashboard():
-    if session.get("admin_logged_in") is not True:
-        return redirect(url_for("admin_login"))
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
 
     total_students = Student.query.count()
-    total_attempts = StudentResult.query.count()
-    average_score = db.session.query(db.func.avg(StudentResult.score)).scalar()
-    average_score = round(float(average_score or 0), 2)
+    total_skillscan_attempts = StudentResult.query.count()
+    total_practice_attempts = PracticeAttempt.query.count()
+    average_skillscan_score = db.session.query(db.func.avg(StudentResult.score)).scalar()
+    average_practice_score = db.session.query(db.func.avg(PracticeAttempt.score)).scalar()
+    average_skillscan_score = round(float(average_skillscan_score or 0), 2)
+    average_practice_score = round(float(average_practice_score or 0), 2)
 
-    latest_results = (
+    latest_skillscan_results = (
         StudentResult.query.order_by(StudentResult.created_at.desc(), StudentResult.id.desc()).limit(10).all()
     )
-    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    latest_practice_attempts = (
+        PracticeAttempt.query.order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc()).limit(10).all()
+    )
 
-    result_rows = "".join(
+    skillscan_rows = "".join(
         f"""
         <tr>
           <td style='border:1px solid #ccc;padding:8px;'>{result.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
@@ -1046,20 +1058,22 @@ def admin_dashboard():
           <td style='border:1px solid #ccc;padding:8px;'>{result.level}</td>
         </tr>
         """
-        for result in latest_results
+        for result in latest_skillscan_results
     )
 
-    student_rows = "".join(
+    practice_rows = "".join(
         f"""
         <tr>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.student_id or '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.grade}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.topic_en}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.score}%</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{attempt.correct_answers}/{attempt.total_questions}</td>
         </tr>
         """
-        for student in students
+        for attempt in latest_practice_attempts
     )
 
     return f"""
@@ -1072,12 +1086,19 @@ def admin_dashboard():
       </head>
       <body>
         <h1>Admin Dashboard</h1>
+        <h2>System Overview</h2>
         <p><strong>Total students:</strong> {total_students}</p>
-        <p><strong>Total SkillScan attempts:</strong> {total_attempts}</p>
-        <p><strong>Average score:</strong> {average_score}%</p>
+        <p><strong>Total SkillScan attempts:</strong> {total_skillscan_attempts}</p>
+        <p><strong>Total practice attempts:</strong> {total_practice_attempts}</p>
+        <p><strong>Average SkillScan score:</strong> {average_skillscan_score}%</p>
+        <p><strong>Average practice score:</strong> {average_practice_score}%</p>
+        <h2>Quick Links</h2>
+        <p><a href='/admin/students'>Manage Students</a></p>
+        <p><a href='/admin/questions'>Manage Questions</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 
-        <h2>Latest 10 Test Results</h2>
+        <h2>Latest Activity</h2>
+        <h3>Latest 10 SkillScan Results</h3>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -1091,27 +1112,94 @@ def admin_dashboard():
             </tr>
           </thead>
           <tbody>
-            {result_rows if result_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No test results found.</td></tr>"}
+            {skillscan_rows if skillscan_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No SkillScan results found.</td></tr>"}
           </tbody>
         </table>
 
-        <h2>Student List</h2>
+        <h3>Latest 10 Practice Attempts</h3>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Name</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student ID</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Topic</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Email</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Mobile</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct</th>
             </tr>
           </thead>
           <tbody>
-            {student_rows if student_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}
+            {practice_rows if practice_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
           </tbody>
         </table>
       </body>
     </html>
+    """
+
+
+@app.route("/admin/students", methods=["GET"])
+def admin_students():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    student_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.xp}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.level}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/student/{student.id}'>View Details</a></td>
+        </tr>
+        """
+        for student in students
+    )
+    return f"""
+    <h1>Manage Students</h1>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>Mobile</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
+      <tbody>{student_rows if student_rows else "<tr><td colspan='11' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/student/<int:student_id>", methods=["GET"])
+def admin_student_details(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    student = Student.query.get_or_404(student_id)
+    skillscan_results = StudentResult.query.filter_by(student_id=student.id).order_by(StudentResult.created_at.desc(), StudentResult.id.desc()).all()
+    practice_attempts = PracticeAttempt.query.filter_by(student_id=student.id).order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc()).all()
+    latest_result = skillscan_results[0] if skillscan_results else None
+    latest_topic_performance = []
+    weak_topics = []
+    if latest_result:
+        latest_topic_performance = StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id).order_by(StudentTopicPerformance.percentage.asc()).all()
+        weak_topics = [topic for topic in latest_topic_performance if topic.percentage < 50]
+    skillscan_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td><td style='border:1px solid #ccc;padding:8px;'>{item.score}%</td><td style='border:1px solid #ccc;padding:8px;'>{item.correct_answers}/{item.total_questions}</td><td style='border:1px solid #ccc;padding:8px;'>{item.level}</td></tr>" for item in skillscan_results)
+    practice_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td><td style='border:1px solid #ccc;padding:8px;'>{item.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.score}%</td><td style='border:1px solid #ccc;padding:8px;'>{item.correct_answers}/{item.total_questions}</td></tr>" for item in practice_attempts)
+    topic_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.correct_count}/{topic.total_count}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td><td style='border:1px solid #ccc;padding:8px;'>{topic.status_en}</td></tr>" for topic in latest_topic_performance)
+    weak_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td></tr>" for topic in weak_topics)
+    return f"""
+    <h1>Student Details: {student.name}</h1>
+    <p><a href='/admin/students'>Back to Manage Students</a></p>
+    <h2>Student Profile</h2>
+    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.email}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Mobile</td><td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
+    <h2>SkillScan Result History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Level</th></tr></thead><tbody>{skillscan_rows if skillscan_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No SkillScan results found.</td></tr>"}</tbody></table>
+    <h2>Practice Attempt History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}</tbody></table>
+    <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
+    <h2>Weak Topics (Percentage &lt; 50)</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th></tr></thead><tbody>{weak_rows if weak_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No weak topics found.</td></tr>"}</tbody></table>
     """
 
 
