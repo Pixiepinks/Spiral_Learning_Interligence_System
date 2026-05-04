@@ -1180,49 +1180,6 @@ def learning_path() -> str:
             <h1>{labels["title"]}</h1>
             <p>{labels["no_result"]}</p>
             <p><a href='/student-dashboard'>{labels["back"]}</a></p>
-            <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
         </html>
         """
@@ -1301,49 +1258,6 @@ def learning_path() -> str:
           </tbody>
         </table>
         <p><a href='/student-dashboard'>{labels["back"]}</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -1376,49 +1290,6 @@ def parent_login():
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
             </form>
-            <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
         </html>
         """
@@ -1513,49 +1384,6 @@ def parent_dashboard():
           </thead>
           <tbody>{table_rows if table_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No student linked to this parent account yet.</td></tr>"}</tbody>
         </table>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -1587,49 +1415,6 @@ def teacher_login():
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
             </form>
-            <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
         </html>
         """
@@ -1689,49 +1474,6 @@ def teacher_dashboard():
           <tbody>{student_rows if student_rows else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
         </table>
         <p><a href='/teacher-logout'>Logout</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -1822,49 +1564,6 @@ def teacher_student_details(student_id: int):
         <h2>{labels['weak_topics']}</h2><p>{weak_topic_html}</p><p><a href='/teacher-dashboard'>{labels['back']}</a></p>
         <h2>{"මාතෘකා ප්‍රගතිය" if is_sinhala else "Student Topic Progress"}</h2>
         <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['topic']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['score']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['status']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"උත්සාහ ගණන" if is_sinhala else "Attempts Count"}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"අවසන් යාවත්කාලීන" if is_sinhala else "Last Updated"}</th></tr></thead><tbody>{progress_rows_html if progress_rows_html else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}</tbody></table>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body></html>
     """
 
@@ -2024,49 +1723,6 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <button type="submit">{submit_label}</button>
         </form>
         <p><a href="/admin/questions">Back to Questions</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -2086,49 +1742,6 @@ def admin_login():
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
             </form>
-            <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
         </html>
         """
@@ -2252,49 +1865,6 @@ def admin_dashboard():
             {practice_rows if practice_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
           </tbody>
         </table>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -3087,49 +2657,6 @@ def test_page() -> str:
           {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -3398,49 +2925,6 @@ def submit_test() -> str:
         {wrong_answers_html}
         <p><a href='/retest-weak?medium={selected_medium}'>{t(selected_medium, 'retest_weak_topics')}</a></p>
         <p><a href='/test?medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
@@ -3899,49 +3383,6 @@ def submit_practice() -> str:
         </table>
         <p><a href='/practice?grade={grade}&subject={subject}&topic={topic}&medium={selected_medium}'>{t(selected_medium, 'try_again')}</a></p>
         <p><a href='/student-dashboard'>{t(selected_medium, 'back_to_dashboard')}</a></p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
       </body>
     </html>
     """
