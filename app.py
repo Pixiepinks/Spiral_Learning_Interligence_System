@@ -639,6 +639,130 @@ def get_latest_student_result(student_id: int):
     )
 
 
+
+
+def get_parent_credentials() -> tuple[str, str]:
+    return (
+        os.environ.get("PARENT_EMAIL", "parent@spiral.com"),
+        os.environ.get("PARENT_PASSWORD", "parent123"),
+    )
+
+
+@app.route("/parent-login", methods=["GET", "POST"])
+def parent_login():
+    if request.method == "GET":
+        return """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Parent Login</title>
+          </head>
+          <body>
+            <h1>Parent Login</h1>
+            <form method="post" action="/parent-login">
+              <label>Email: <input type="email" name="email" required></label><br><br>
+              <label>Password: <input type="password" name="password" required></label><br><br>
+              <button type="submit">Login</button>
+            </form>
+          </body>
+        </html>
+        """
+
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+    parent_email, parent_password = get_parent_credentials()
+    if email != parent_email or password != parent_password:
+        return "<h2>Invalid parent credentials</h2><p><a href='/parent-login'>Try again</a></p>", 401
+
+    session["parent_logged_in"] = True
+    return redirect(url_for("parent_dashboard"))
+
+
+@app.route("/parent-dashboard", methods=["GET"])
+def parent_dashboard():
+    if session.get("parent_logged_in") is not True:
+        return redirect(url_for("parent_login"))
+
+    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+
+    rows: list[str] = []
+    for student in students:
+        latest_result = get_latest_student_result(student.id)
+        weak_topics = "-"
+        if latest_result:
+            weak_topic_records = (
+                StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id)
+                .filter(StudentTopicPerformance.status_en.in_(["Weak", "Improving"]))
+                .order_by(StudentTopicPerformance.id.asc())
+                .all()
+            )
+            if weak_topic_records:
+                topic_attr = "topic_en" if student.medium == "English" else "topic_si"
+                weak_topics = ", ".join(getattr(topic, topic_attr) for topic in weak_topic_records)
+
+        latest_attempt = (
+            PracticeAttempt.query.filter_by(student_id=student.id)
+            .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
+            .first()
+        )
+        attempt_text = "-"
+        if latest_attempt:
+            topic_name = latest_attempt.topic_en if student.medium == "English" else latest_attempt.topic_si
+            attempt_text = f"{topic_name} ({latest_attempt.score}%, {latest_attempt.correct_answers}/{latest_attempt.total_questions})"
+
+        rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{f'{latest_result.score}%' if latest_result else '-'}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{latest_result.level if latest_result else '-'}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{weak_topics}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{attempt_text}</td>
+            </tr>
+            """
+        )
+
+    table_rows = "".join(rows)
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Parent Dashboard</title>
+      </head>
+      <body>
+        <h1>Parent Dashboard</h1>
+        <p><a href='/parent-logout'><button type='button'>Logout</button></a></p>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student Name</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Latest SkillScan Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Weak Topics</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Latest Practice Attempt</th>
+            </tr>
+          </thead>
+          <tbody>{table_rows if table_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+        </table>
+      </body>
+    </html>
+    """
+
+
+@app.route("/parent-logout", methods=["GET"])
+def parent_logout():
+    session.pop("parent_logged_in", None)
+    return redirect(url_for("parent_login"))
+
+
 def get_teacher_credentials() -> tuple[str, str]:
     return (
         os.environ.get("TEACHER_EMAIL", "teacher@spiral.com"),
