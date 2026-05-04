@@ -458,6 +458,7 @@ def student_dashboard():
             "name": "Name",
             "grade": "Grade",
             "medium": "Medium",
+            "my_learning_path": "My Learning Path",
             "latest_result": "Latest SkillScan Result",
             "date": "Date",
             "score": "Score",
@@ -481,6 +482,7 @@ def student_dashboard():
             "name": "නම",
             "grade": "ශ්‍රේණිය",
             "medium": "මාධ්‍යය",
+            "my_learning_path": "මගේ ඉගෙනුම් මාර්ගය",
             "latest_result": "අවසන් SkillScan ප්‍රතිඵලය",
             "date": "දිනය",
             "score": "ලකුණු",
@@ -664,6 +666,8 @@ def student_dashboard():
         </table>
 
         <p>
+          <a href='/learning-path'>{text["my_learning_path"]}</a>
+          &nbsp;|&nbsp;
           <a href='/test'>{text["take_test"]}</a>
           &nbsp;|&nbsp;
           <a href='/logout'>{text["logout"]}</a>
@@ -681,6 +685,155 @@ def get_latest_student_result(student_id: int):
         .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
         .first()
     )
+
+
+@app.route("/learning-path", methods=["GET"])
+def learning_path() -> str:
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    latest_result = (
+        StudentResult.query.filter_by(student_id=student.id)
+        .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+        .first()
+    )
+
+    language = "si" if student.medium == "Sinhala" else "en"
+    labels = {
+        "en": {
+            "title": "My Learning Path",
+            "student_name": "Student Name",
+            "latest_score": "Latest SkillScan Score",
+            "topic": "Topic",
+            "percentage": "Percentage",
+            "status": "Status",
+            "recommendation": "Personalized Next Step",
+            "practice": "Practice",
+            "no_result": "No SkillScan result found. Please complete a SkillScan test first.",
+            "back": "Back to Dashboard",
+            "weak": "Weak",
+            "improving": "Improving",
+            "strong": "Strong",
+            "weak_actions": "Practice topic → Review explanation → Retake topic after practice",
+            "improving_actions": "Do intermediate practice for this topic",
+            "strong_actions": "Do challenge practice for this topic",
+        },
+        "si": {
+            "title": "මගේ ඉගෙනුම් මාර්ගය",
+            "student_name": "ශිෂ්‍ය නම",
+            "latest_score": "අවසන් SkillScan ලකුණ",
+            "topic": "මාතෘකාව",
+            "percentage": "ප්‍රතිශතය",
+            "status": "තත්ත්වය",
+            "recommendation": "පුද්ගලීකරණය කළ ඊළඟ පියවර",
+            "practice": "පුහුණුව",
+            "no_result": "SkillScan ප්‍රතිඵල නොමැත. කරුණාකර පළමුව SkillScan පරීක්ෂණයක් අවසන් කරන්න.",
+            "back": "ඩෑෂ්බෝඩ් වෙත ආපසු",
+            "weak": "දුර්වල",
+            "improving": "වැඩිදියුණු වෙමින්",
+            "strong": "ශක්තිමත්",
+            "weak_actions": "මාතෘකාව පුහුණු කරන්න → විස්තරය නැවත සමාලෝචනය කරන්න → පුහුණුවෙන් පසු නැවත උත්සාහ කරන්න",
+            "improving_actions": "මෙම මාතෘකාව සඳහා මධ්‍යම මට්ටමේ පුහුණුව කරන්න",
+            "strong_actions": "මෙම මාතෘකාව සඳහා අභියෝගාත්මක පුහුණුව කරන්න",
+        },
+    }[language]
+
+    if not latest_result:
+        return f"""
+        <!doctype html>
+        <html lang='{'si' if language == 'si' else 'en'}'>
+          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels["title"]}</title></head>
+          <body>
+            <h1>{labels["title"]}</h1>
+            <p>{labels["no_result"]}</p>
+            <p><a href='/student-dashboard'>{labels["back"]}</a></p>
+          </body>
+        </html>
+        """
+
+    topic_performance = (
+        StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id)
+        .order_by(StudentTopicPerformance.id.asc())
+        .all()
+    )
+    medium_key = "si" if language == "si" else "en"
+
+    topic_rows = []
+    next_steps = []
+    for topic in topic_performance:
+        if topic.percentage < 50:
+            status_en, status_si = "Weak", "දුර්වල"
+            action_text = labels["weak_actions"]
+        elif topic.percentage < 80:
+            status_en, status_si = "Improving", "වැඩිදියුණු වෙමින්"
+            action_text = labels["improving_actions"]
+        else:
+            status_en, status_si = "Strong", "ශක්තිමත්"
+            action_text = labels["strong_actions"]
+
+        status_text = status_si if language == "si" else status_en
+        topic_name = getattr(topic, f"topic_{medium_key}")
+        practice_label = f"{topic.topic_si} පුහුණුව ආරම්භ කරන්න" if language == "si" else f"Start {topic.topic_en} Practice"
+        practice_href = (
+            f"/practice?grade={latest_result.grade}&subject={latest_result.subject}"
+            f"&topic={quote_plus(topic.topic_en)}&medium={quote_plus(student.medium)}"
+        )
+
+        topic_rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic_name}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{status_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{action_text}</td>
+              <td style='border:1px solid #ccc;padding:8px;'><a href='{practice_href}'>{practice_label}</a></td>
+            </tr>
+            """
+        )
+        next_steps.append(f"<li><strong>{topic_name}:</strong> {action_text}</li>")
+
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if language == 'si' else 'en'}'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>{labels["title"]}</title>
+      </head>
+      <body>
+        <h1>{labels["title"]}</h1>
+        <p><strong>{labels["student_name"]}:</strong> {student.name}</p>
+        <p><strong>{labels["latest_score"]}:</strong> {latest_result.score}%</p>
+
+        <h2>{labels["recommendation"]}</h2>
+        <ul>
+          {''.join(next_steps) if next_steps else "<li>-</li>"}
+        </ul>
+
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["topic"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["percentage"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["status"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["recommendation"]}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["practice"]}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(topic_rows) if topic_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}
+          </tbody>
+        </table>
+        <p><a href='/student-dashboard'>{labels["back"]}</a></p>
+      </body>
+    </html>
+    """
 
 
 
