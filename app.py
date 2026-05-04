@@ -1,4 +1,5 @@
 import os
+import random
 from datetime import datetime
 from html import escape
 from urllib.parse import quote_plus
@@ -197,6 +198,74 @@ def ensure_gamification_columns() -> None:
     db.session.execute(db.text("UPDATE student SET xp = 0 WHERE xp IS NULL"))
     db.session.execute(db.text("UPDATE student SET level = 1 WHERE level IS NULL"))
     db.session.commit()
+
+
+def get_topic_sinhala(topic_en: str) -> str:
+    topic_map = {
+        "Fractions": "භාග",
+        "Decimals": "දශම",
+        "Perimeter": "පරිමිතිය",
+        "Factors": "සාධක",
+        "Percentages": "ප්‍රතිශත",
+    }
+    return topic_map.get(topic_en, topic_en)
+
+
+def _fraction_pair() -> tuple[int, int, int, int]:
+    denominators = [2, 3, 4, 5, 6, 8, 10]
+    d1 = random.choice(denominators)
+    d2 = random.choice(denominators)
+    n1 = random.randint(1, d1 - 1)
+    n2 = random.randint(1, d2 - 1)
+    return n1, d1, n2, d2
+
+
+def build_generated_question(grade: str, subject: str, topic: str) -> dict:
+    topic_clean = (topic or "Fractions").strip() or "Fractions"
+    topic_lower = topic_clean.lower()
+
+    if "fraction" in topic_lower or "භාග" in topic_lower:
+        n1, d1, n2, d2 = _fraction_pair()
+        operator = random.choice(["+", "-"])
+        if operator == "-" and (n1 / d1) < (n2 / d2):
+            n1, d1, n2, d2 = n2, d2, n1, d1
+        question_en = f"What is {n1}/{d1} {operator} {n2}/{d2}?"
+        question_si = f"{n1}/{d1} {operator} {n2}/{d2} කීයද?"
+        explanation_en = "Find a common denominator and simplify the answer."
+        explanation_si = "එකම හරණයක් සොයා පිළිතුර සරල කරන්න."
+    else:
+        a = random.randint(1, 40)
+        b = random.randint(1, 40)
+        operator = random.choice(["+", "-"])
+        if operator == "-" and a < b:
+            a, b = b, a
+        question_en = f"What is {a} {operator} {b}?"
+        question_si = f"{a} {operator} {b} කීයද?"
+        explanation_en = "Solve the arithmetic operation."
+        explanation_si = "ගණිත ක්‍රියාව විසඳන්න."
+
+    options = ["Option A", "Option B", "Option C", "Option D"]
+    return {
+        "grade": grade,
+        "subject": subject,
+        "topic": topic_clean,
+        "topic_en": topic_clean,
+        "topic_si": get_topic_sinhala(topic_clean),
+        "question_text_en": question_en,
+        "question_text_si": question_si,
+        "option_a_en": options[0],
+        "option_a_si": options[0],
+        "option_b_en": options[1],
+        "option_b_si": options[1],
+        "option_c_en": options[2],
+        "option_c_si": options[2],
+        "option_d_en": options[3],
+        "option_d_si": options[3],
+        "correct_option": "A",
+        "explanation_en": explanation_en,
+        "explanation_si": explanation_si,
+        "difficulty_level": 1,
+    }
 
 
 @app.route("/")
@@ -1480,7 +1549,7 @@ def admin_questions():
 
     return f"""
     <h1>Manage Questions</h1>
-    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/add-question'>Add New Question</a></p>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/add-question'>Add New Question</a> | <a href='/admin/generate-questions'>Generate Questions (Bulk)</a></p>
     <form method='get' action='/admin/questions'>
       <label>Grade:
         <select name='grade'>{build_options(grades, selected_grade)}</select>
@@ -1598,6 +1667,51 @@ def admin_delete_question(question_id: int):
     db.session.delete(question)
     db.session.commit()
     return redirect("/admin/questions")
+
+
+@app.route("/admin/generate-questions", methods=["GET", "POST"])
+def admin_generate_questions():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    if request.method == "GET":
+        return """
+        <h2>Generate Questions (Bulk)</h2>
+        <form method='post' action='/admin/generate-questions'>
+          <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
+          <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
+          <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
+          <label>Number of questions: <input type='number' name='question_count' min='1' max='200' value='10' required></label><br><br>
+          <button type='submit'>Generate</button>
+        </form>
+        <p><a href='/admin/questions'>Back to Questions</a></p>
+        """
+
+    grade = (request.form.get("grade") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+    topic = (request.form.get("topic") or "").strip()
+    try:
+        question_count = int((request.form.get("question_count") or "0").strip())
+    except ValueError:
+        return "<h3>Number of questions must be a valid number.</h3>", 400
+
+    if not grade or not subject or not topic:
+        return "<h3>Grade, Subject, and Topic are required.</h3>", 400
+    if question_count < 1 or question_count > 200:
+        return "<h3>Number of questions must be between 1 and 200.</h3>", 400
+
+    for _ in range(question_count):
+        db.session.add(Question(**build_generated_question(grade, subject, topic)))
+
+    db.session.commit()
+    return jsonify(
+        {
+            "success": True,
+            "message": f"{question_count} questions created successfully",
+            "created_count": question_count,
+        }
+    ), 201
 
 
 @app.route("/admin-logout", methods=["GET"])
