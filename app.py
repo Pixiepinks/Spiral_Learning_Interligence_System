@@ -629,6 +629,143 @@ def student_dashboard():
     """
 
 
+
+
+def get_latest_student_result(student_id: int):
+    return (
+        StudentResult.query.filter_by(student_id=student_id)
+        .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+        .first()
+    )
+
+
+@app.route("/teacher-dashboard", methods=["GET"])
+def teacher_dashboard():
+    role = request.args.get("role") or session.get("role")
+    if role != "teacher":
+        return "<h2>Unauthorized</h2><p>Use role=teacher</p>", 403
+
+    session["role"] = "teacher"
+    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+
+    rows = []
+    for student in students:
+        latest_result = get_latest_student_result(student.id)
+        latest_score = f"{latest_result.score}%" if latest_result else "-"
+        latest_level = latest_result.level if latest_result else "-"
+        rows.append(f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{latest_score}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{latest_level}</td>
+              <td style='border:1px solid #ccc;padding:8px;'><a href='/teacher/student/{student.id}'>View Details</a></td>
+            </tr>
+            """)
+
+    student_rows = "".join(rows)
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Dashboard</title></head>
+      <body>
+        <h1>Teacher Dashboard</h1>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Name</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Latest Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Action</th>
+            </tr>
+          </thead>
+          <tbody>{student_rows if student_rows else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+        </table>
+      </body>
+    </html>
+    """
+
+
+@app.route("/teacher/student/<int:student_id>", methods=["GET"])
+def teacher_student_details(student_id: int):
+    role = request.args.get("role") or session.get("role")
+    if role != "teacher":
+        return "<h2>Unauthorized</h2><p>Use role=teacher</p>", 403
+
+    session["role"] = "teacher"
+    student = db.session.get(Student, student_id)
+    if not student:
+        return "<h2>Student not found</h2>", 404
+
+    is_sinhala = student.medium == "Sinhala"
+    labels = {
+        "title": "ශිෂ්‍ය විස්තර" if is_sinhala else "Student Details",
+        "student_info": "ශිෂ්‍ය තොරතුරු" if is_sinhala else "Student Info",
+        "name": "නම" if is_sinhala else "Name",
+        "grade": "ශ්‍රේණිය" if is_sinhala else "Grade",
+        "medium": "මාධ්‍යය" if is_sinhala else "Medium",
+        "result_history": "ප්‍රතිඵල ඉතිහාසය" if is_sinhala else "Result History",
+        "topic_performance": "මාතෘකා අනුව ක්‍රියාකාරීත්වය" if is_sinhala else "Topic-wise Performance",
+        "weak_topics": "දුර්වල මාතෘකා (< 50%)" if is_sinhala else "Weak Topics (score < 50%)",
+        "date": "දිනය" if is_sinhala else "Date",
+        "score": "ලකුණු" if is_sinhala else "Score",
+        "level": "මට්ටම" if is_sinhala else "Level",
+        "correct": "නිවැරදි" if is_sinhala else "Correct",
+        "topic": "මාතෘකාව" if is_sinhala else "Topic",
+        "percentage": "ප්‍රතිශතය" if is_sinhala else "Percentage",
+        "status": "තත්ත්වය" if is_sinhala else "Status",
+        "back": "ඩෑෂ්බෝඩ් වෙත ආපසු" if is_sinhala else "Back to Dashboard",
+    }
+
+    result_history = (
+        StudentResult.query.filter_by(student_id=student.id)
+        .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+        .all()
+    )
+
+    history_rows = "".join(
+        f"""
+        <tr><td style='border:1px solid #ccc;padding:8px;'>{r.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td><td style='border:1px solid #ccc;padding:8px;'>{r.score}%</td><td style='border:1px solid #ccc;padding:8px;'>{r.level}</td><td style='border:1px solid #ccc;padding:8px;'>{r.correct_answers}/{r.total_questions}</td></tr>
+        """
+        for r in result_history
+    )
+
+    medium_key = "si" if is_sinhala else "en"
+    topic_rows_list = []
+    weak_topics = []
+    for result in result_history:
+        topic_performance = StudentTopicPerformance.query.filter_by(student_result_id=result.id).order_by(StudentTopicPerformance.id.asc()).all()
+        for topic in topic_performance:
+            topic_name = getattr(topic, f"topic_{medium_key}")
+            status = getattr(topic, f"status_{medium_key}")
+            topic_rows_list.append(f"""
+                <tr><td style='border:1px solid #ccc;padding:8px;'>{topic_name}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.correct_count}/{topic.total_count}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td></tr>
+                """)
+            if topic.percentage < 50:
+                weak_topics.append(topic_name)
+
+    topic_rows = "".join(topic_rows_list)
+    weak_topic_html = "<br>".join(dict.fromkeys(weak_topics)) if weak_topics else "-"
+
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if is_sinhala else 'en'}'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head>
+      <body>
+        <h1>{labels['title']}</h1><h2>{labels['student_info']}</h2>
+        <p><strong>{labels['name']}:</strong> {student.name}</p><p><strong>{labels['grade']}:</strong> {student.grade}</p><p><strong>{labels['medium']}:</strong> {student.medium}</p>
+        <h2>{labels['result_history']}</h2>
+        <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['date']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['score']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['level']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['correct']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}</tbody></table>
+        <h2>{labels['topic_performance']}</h2>
+        <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['topic']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['correct']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['percentage']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['status']}</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}</tbody></table>
+        <h2>{labels['weak_topics']}</h2><p>{weak_topic_html}</p><p><a href='/teacher-dashboard'>{labels['back']}</a></p>
+      </body></html>
+    """
+
 @app.route("/logout", methods=["GET"])
 def logout():
     session.pop("student_id", None)
