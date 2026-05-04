@@ -2788,6 +2788,7 @@ def test_page() -> str:
         .all()
     )
     medium_key = "en" if selected_medium == "English" else "si"
+    streak_message = ""
 
     question_blocks = []
     for q in questions:
@@ -2861,6 +2862,7 @@ def update_student_xp_and_level(student_id: int | None, earned_xp: int) -> tuple
 def submit_test() -> str:
     db.create_all()
     selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
+    streak_message = ""
 
     medium_key = "en" if selected_medium == "English" else "si"
     questions = (
@@ -3008,6 +3010,15 @@ def submit_test() -> str:
     earned_xp = correct_answers * 15
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
     streak_feedback = get_streak_feedback(student_id)
+    if student_id:
+        if streak_feedback.get("increased"):
+            streak_message = (
+                f"ඔබේ අඛණ්ඩ දින {streak_feedback.get('current')} දක්වා වැඩිවුණා"
+                if selected_medium == "Sinhala"
+                else f"Your streak increased to {streak_feedback.get('current')} days"
+            )
+        elif streak_feedback.get("restarted"):
+            streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
 
     student_result = StudentResult(
         student_id=student_id,
@@ -3524,6 +3535,7 @@ def submit_practice() -> str:
     subject = (request.form.get("subject") or "").strip()
     topic = (request.form.get("topic") or "").strip()
     medium_key = "en" if selected_medium == "English" else "si"
+    streak_message = ""
 
     questions = (
         Question.query.filter_by(grade=grade, subject=subject, topic=topic)
@@ -3588,6 +3600,15 @@ def submit_practice() -> str:
     earned_xp = correct_answers * 10
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
     streak_feedback = get_streak_feedback(student_id)
+    if student_id:
+        if streak_feedback.get("increased"):
+            streak_message = (
+                f"ඔබේ අඛණ්ඩ දින {streak_feedback.get('current')} දක්වා වැඩිවුණා"
+                if selected_medium == "Sinhala"
+                else f"Your streak increased to {streak_feedback.get('current')} days"
+            )
+        elif streak_feedback.get("restarted"):
+            streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
 
     practice_attempt = PracticeAttempt(
         student_id=student_id,
