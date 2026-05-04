@@ -473,16 +473,6 @@ def register_form() -> str:
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
 
-    streak_message = ""
-    if streak_feedback["increased"]:
-        streak_message = (
-            f"ඔබේ අඛණ්ඩ දින {streak_feedback['current']} දක්වා වැඩිවුණා"
-            if selected_medium == "Sinhala"
-            else f"Your streak increased to {streak_feedback['current']} days"
-        )
-    elif streak_feedback["restarted"]:
-        streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
-
     return f"""
     <!doctype html>
     <html lang="{'si' if selected_medium == 'Sinhala' else 'en'}">
@@ -3498,16 +3488,6 @@ def submit_practice() -> str:
         score=score,
     )
     db.session.commit()
-    streak_message = ""
-    if streak_feedback["increased"]:
-        streak_message = (
-            f"ඔබේ අඛණ්ඩ දින {streak_feedback['current']} දක්වා වැඩිවුණා"
-            if selected_medium == "Sinhala"
-            else f"Your streak increased to {streak_feedback['current']} days"
-        )
-    elif streak_feedback["restarted"]:
-        streak_message = "ඔබේ අඛණ්ඩ දින නැවත ආරම්භ විය" if selected_medium == "Sinhala" else "Your streak restarted"
-
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
