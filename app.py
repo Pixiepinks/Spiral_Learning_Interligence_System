@@ -210,6 +210,20 @@ class StudentTopicPerformance(db.Model):
     status_si = db.Column(db.String(50), nullable=False)
 
 
+class StudentTopicProgress(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False)
+    topic_en = db.Column(db.String(150), nullable=False)
+    topic_si = db.Column(db.String(150), nullable=False)
+    latest_score = db.Column(db.Float, nullable=False, default=0)
+    mastery_level_en = db.Column(db.String(50), nullable=False)
+    mastery_level_si = db.Column(db.String(50), nullable=False)
+    attempts_count = db.Column(db.Integer, nullable=False, default=1)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 
 
 def ensure_gamification_columns() -> None:
@@ -727,6 +741,18 @@ def student_dashboard():
         """
         for attempt in practice_attempts
     )
+    recommendations = get_student_recommendations(student.id)
+    rec_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{rec['topic_si'] if language == 'si' else rec['topic_en']}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{rec['mastery_level_si'] if language == 'si' else rec['mastery_level_en']}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{rec['action_si'] if language == 'si' else rec['action_en']}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='{rec['action_url']}'>{rec['action_si'] if language == 'si' else rec['action_en']}</a></td>
+        </tr>
+        """
+        for rec in recommendations
+    )
 
     latest_html = ""
     if latest_result:
@@ -805,6 +831,20 @@ def student_dashboard():
             {practice_rows if practice_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
           </tbody>
         </table>
+        <h2>{"මගේ ඊළඟ පියවර" if language == "si" else "My Next Steps"}</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"මාතෘකාව" if language == "si" else "Topic"}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"දැනට මට්ටම" if language == "si" else "Current Level"}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"නිර්දේශිත ක්‍රියාව" if language == "si" else "Recommended Action"}</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"සබැඳිය" if language == "si" else "Link"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rec_rows if rec_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No recommendations found.</td></tr>"}
+          </tbody>
+        </table>
 
         <p>
           <a href='/learning-path'>{text["my_learning_path"]}</a>
@@ -834,6 +874,84 @@ def classify_topic(score: float) -> tuple[str, str]:
     if score < 80:
         return "Improving", "දියුණු වෙමින්"
     return "Strong", "ශක්තිමත්"
+
+
+def classify_mastery(score: float) -> tuple[str, str]:
+    if score < 50:
+        return "Weak", "දුර්වල"
+    if score < 80:
+        return "Improving", "වැඩිදියුණු වෙමින්"
+    return "Mastered", "සම්පූර්ණ කර ඇත"
+
+
+def upsert_student_topic_progress(student_id: int | None, grade: str, subject: str, topic_en: str, topic_si: str, score: float) -> None:
+    if not student_id:
+        return
+    mastery_en, mastery_si = classify_mastery(score)
+    existing = StudentTopicProgress.query.filter_by(
+        student_id=student_id,
+        grade=grade,
+        subject=subject,
+        topic_en=topic_en,
+    ).first()
+    now = datetime.utcnow()
+    if existing:
+        existing.latest_score = score
+        existing.mastery_level_en = mastery_en
+        existing.mastery_level_si = mastery_si
+        existing.attempts_count = (existing.attempts_count or 0) + 1
+        existing.last_updated = now
+        existing.topic_si = topic_si or existing.topic_si
+        return
+    db.session.add(
+        StudentTopicProgress(
+            student_id=student_id,
+            grade=grade,
+            subject=subject,
+            topic_en=topic_en,
+            topic_si=topic_si,
+            latest_score=score,
+            mastery_level_en=mastery_en,
+            mastery_level_si=mastery_si,
+            attempts_count=1,
+            last_updated=now,
+        )
+    )
+
+
+def get_student_recommendations(student_id: int) -> list[dict[str, str]]:
+    student = db.session.get(Student, student_id)
+    if not student:
+        return []
+    recommendations = []
+    progress_rows = (
+        StudentTopicProgress.query.filter_by(student_id=student_id)
+        .order_by(StudentTopicProgress.last_updated.desc(), StudentTopicProgress.id.desc())
+        .all()
+    )
+    for row in progress_rows:
+        if row.mastery_level_en == "Weak":
+            action_en, action_si, action_url = "Practice + Retest", "පුහුණුව + නැවත පරීක්ෂණය", "/retest-weak"
+        elif row.mastery_level_en == "Improving":
+            action_en = "Intermediate Practice"
+            action_si = "අතරමැදි පුහුණුව"
+            action_url = f"/practice?grade={quote_plus(row.grade)}&subject={quote_plus(row.subject)}&topic={quote_plus(row.topic_en)}&medium={quote_plus(student.medium)}"
+        else:
+            action_en = "Challenge Practice or Next Topic"
+            action_si = "අභියෝගාත්මක පුහුණුව හෝ ඊළඟ මාතෘකාව"
+            action_url = f"/practice?grade={quote_plus(row.grade)}&subject={quote_plus(row.subject)}&topic={quote_plus(row.topic_en)}&medium={quote_plus(student.medium)}"
+        recommendations.append(
+            {
+                "topic_en": row.topic_en,
+                "topic_si": row.topic_si,
+                "mastery_level_en": row.mastery_level_en,
+                "mastery_level_si": row.mastery_level_si,
+                "action_en": action_en,
+                "action_si": action_si,
+                "action_url": action_url,
+            }
+        )
+    return recommendations
 
 
 @app.route("/learning-path", methods=["GET"])
@@ -1258,6 +1376,19 @@ def teacher_student_details(student_id: int):
 
     topic_rows = "".join(topic_rows_list)
     weak_topic_html = "<br>".join(dict.fromkeys(weak_topics)) if weak_topics else "-"
+    topic_progress_rows = (
+        StudentTopicProgress.query.filter_by(student_id=student.id)
+        .order_by(StudentTopicProgress.last_updated.desc(), StudentTopicProgress.id.desc())
+        .all()
+    )
+    progress_rows_html = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.topic_si if is_sinhala else item.topic_en}</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{item.latest_score}%</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{item.mastery_level_si if is_sinhala else item.mastery_level_en}</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{item.attempts_count}</td>"
+        f"<td style='border:1px solid #ccc;padding:8px;'>{item.last_updated.strftime('%Y-%m-%d %H:%M:%S')}</td></tr>"
+        for item in topic_progress_rows
+    )
 
     return f"""
     <!doctype html>
@@ -1271,6 +1402,8 @@ def teacher_student_details(student_id: int):
         <h2>{labels['topic_performance']}</h2>
         <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['topic']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['correct']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['percentage']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['status']}</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}</tbody></table>
         <h2>{labels['weak_topics']}</h2><p>{weak_topic_html}</p><p><a href='/teacher-dashboard'>{labels['back']}</a></p>
+        <h2>{"මාතෘකා ප්‍රගතිය" if is_sinhala else "Student Topic Progress"}</h2>
+        <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['topic']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['score']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['status']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"උත්සාහ ගණන" if is_sinhala else "Attempts Count"}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"අවසන් යාවත්කාලීන" if is_sinhala else "Last Updated"}</th></tr></thead><tbody>{progress_rows_html if progress_rows_html else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>-</td></tr>"}</tbody></table>
       </body></html>
     """
 
@@ -1630,6 +1763,11 @@ def admin_student_details(student_id: int):
     practice_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td><td style='border:1px solid #ccc;padding:8px;'>{item.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.score}%</td><td style='border:1px solid #ccc;padding:8px;'>{item.correct_answers}/{item.total_questions}</td></tr>" for item in practice_attempts)
     topic_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.correct_count}/{topic.total_count}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td><td style='border:1px solid #ccc;padding:8px;'>{topic.status_en}</td></tr>" for topic in latest_topic_performance)
     weak_rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{topic.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{topic.percentage}%</td></tr>" for topic in weak_topics)
+    progress_rows = StudentTopicProgress.query.filter_by(student_id=student.id).order_by(StudentTopicProgress.last_updated.desc(), StudentTopicProgress.id.desc()).all()
+    progress_rows_html = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.latest_score}%</td><td style='border:1px solid #ccc;padding:8px;'>{item.mastery_level_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.attempts_count}</td><td style='border:1px solid #ccc;padding:8px;'>{item.last_updated.strftime('%Y-%m-%d %H:%M:%S')}</td></tr>"
+        for item in progress_rows
+    )
     return f"""
     <h1>Student Details: {student.name}</h1>
     <p><a href='/admin/students'>Back to Manage Students</a></p>
@@ -1639,6 +1777,7 @@ def admin_student_details(student_id: int):
     <h2>Practice Attempt History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}</tbody></table>
     <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
     <h2>Weak Topics (Percentage &lt; 50)</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th></tr></thead><tbody>{weak_rows if weak_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No weak topics found.</td></tr>"}</tbody></table>
+    <h2>Student Topic Progress</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Latest Score</th><th style='border:1px solid #ccc;padding:8px;'>Mastery Level</th><th style='border:1px solid #ccc;padding:8px;'>Attempts Count</th><th style='border:1px solid #ccc;padding:8px;'>Last Updated</th></tr></thead><tbody>{progress_rows_html if progress_rows_html else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No topic progress found.</td></tr>"}</tbody></table>
     """
 
 
@@ -2538,6 +2677,14 @@ def submit_test() -> str:
                 status_si=status_si,
             )
         )
+        upsert_student_topic_progress(
+            student_id=student_id,
+            grade="6",
+            subject="Math",
+            topic_en=stats["topic_en"],
+            topic_si=stats["topic_si"],
+            score=topic_percentage,
+        )
     db.session.commit()
 
     topic_analysis_html = f"""
@@ -2720,6 +2867,14 @@ def retest_weak() -> str:
                 status_en=status_en,
                 status_si=status_si,
             ))
+            upsert_student_topic_progress(
+                student_id=student_id,
+                grade=latest_result.grade,
+                subject=latest_result.subject,
+                topic_en=stats["topic_en"],
+                topic_si=stats["topic_si"],
+                score=topic_percentage,
+            )
         db.session.commit()
         return redirect(url_for("view_result", result_id=student_result.id))
 
@@ -2976,6 +3131,14 @@ def submit_practice() -> str:
         correct_answers=correct_answers,
     )
     db.session.add(practice_attempt)
+    upsert_student_topic_progress(
+        student_id=student_id,
+        grade=grade,
+        subject=subject,
+        topic_en=topic_en,
+        topic_si=topic_si,
+        score=score,
+    )
     db.session.commit()
     return f"""
     <!doctype html>
@@ -3021,6 +3184,17 @@ def update_practice_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Practice DB update failed: {exc}"}), 500
+
+
+@app.route("/update-topic-progress-db", methods=["GET"])
+def update_topic_progress_db() -> tuple:
+    try:
+        db.create_all()
+        db.session.commit()
+        return jsonify({"success": True, "message": "Student topic progress table ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Topic progress DB update failed: {exc}"}), 500
 
 
 @app.route("/update-question-attempt-db", methods=["GET"])
