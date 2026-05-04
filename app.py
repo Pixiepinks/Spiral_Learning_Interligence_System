@@ -261,6 +261,15 @@ class StudentTopicProgress(db.Model):
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ParentNotification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    parent_email = db.Column(db.String(120), nullable=False)
+    message_en = db.Column(db.Text, nullable=False)
+    message_si = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 
 
 def ensure_gamification_columns() -> None:
@@ -345,6 +354,46 @@ def get_topic_sinhala(topic_en: str) -> str:
         "Percentages": "ප්‍රතිශත",
     }
     return topic_map.get(topic_en, topic_en)
+
+
+def create_parent_notification(
+    student_id: int | None,
+    topic_en: str,
+    topic_si: str,
+    score: float,
+    improved: bool,
+    streak_increased: bool,
+) -> None:
+    if not student_id:
+        return
+
+    student = db.session.get(Student, student_id)
+    if not student or not (student.parent_email or "").strip():
+        return
+
+    message_en = None
+    message_si = None
+    if score < 50:
+        message_en = f"Your child needs improvement in {topic_en}"
+        message_si = f"ඔබගේ දරුවා {topic_si} දුර්වලයි"
+    elif improved:
+        message_en = f"Good progress in {topic_en}"
+        message_si = f"{topic_si} හි හොඳ ප්‍රගතියක්"
+    elif streak_increased:
+        message_en = "Your child is learning consistently"
+        message_si = "ඔබගේ දරුවා අඛණ්ඩව ඉගෙන ගනී"
+
+    if not message_en or not message_si:
+        return
+
+    db.session.add(
+        ParentNotification(
+            student_id=student_id,
+            parent_email=student.parent_email.strip(),
+            message_en=message_en,
+            message_si=message_si,
+        )
+    )
 
 
 
@@ -697,6 +746,13 @@ def login():
 @app.route("/student-dashboard", methods=["GET"])
 def student_dashboard():
     student_id = session.get("student_id")
+    previous_result = None
+    if student_id:
+        previous_result = (
+            StudentResult.query.filter_by(student_id=student_id, grade="6", subject="Math")
+            .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+            .first()
+        )
     if not student_id:
         return redirect(url_for("login"))
 
@@ -1396,6 +1452,7 @@ def parent_login():
 
 @app.route("/parent-dashboard", methods=["GET"])
 def parent_dashboard():
+    db.create_all()
     if session.get("parent_logged_in") is not True:
         return redirect(url_for("parent_login"))
 
@@ -1447,6 +1504,24 @@ def parent_dashboard():
             </tr>
             """
         )
+    student_map = {student.id: student for student in students}
+    latest_notifications = (
+        ParentNotification.query.filter_by(parent_email=logged_in_parent_email)
+        .order_by(ParentNotification.created_at.desc(), ParentNotification.id.desc())
+        .limit(10)
+        .all()
+    )
+    notification_rows: list[str] = []
+    for notification in latest_notifications:
+        student = student_map.get(notification.student_id)
+        student_name = student.name if student else f"Student #{notification.student_id}"
+        student_medium = student.medium if student else "English"
+        message = notification.message_si if student_medium == "Sinhala" else notification.message_en
+        notification_rows.append(
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{student_name}</td>"
+            f"<td style='border:1px solid #ccc;padding:8px;'>{message}</td>"
+            f"<td style='border:1px solid #ccc;padding:8px;'>{notification.created_at.strftime('%Y-%m-%d %H:%M')}</td></tr>"
+        )
 
     table_rows = "".join(rows)
     return f"""
@@ -1473,6 +1548,17 @@ def parent_dashboard():
             </tr>
           </thead>
           <tbody>{table_rows if table_rows else "<tr><td colspan='7' style='border:1px solid #ccc;padding:8px;'>No student linked to this parent account yet.</td></tr>"}</tbody>
+        </table>
+        <h2 style='margin-top:24px;'>Latest Notifications</h2>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Message</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
+            </tr>
+          </thead>
+          <tbody>{''.join(notification_rows) if notification_rows else "<tr><td colspan='3' style='border:1px solid #ccc;padding:8px;'>No notifications yet.</td></tr>"}</tbody>
         </table>
       </body>
     </html>
@@ -2951,6 +3037,15 @@ def submit_test() -> str:
             topic_si=stats["topic_si"],
             score=topic_percentage,
         )
+    primary_topic = max(topic_stats.values(), key=lambda item: item["total"], default=None)
+    create_parent_notification(
+        student_id=student_id,
+        topic_en=(primary_topic or {}).get("topic_en", "Math"),
+        topic_si=(primary_topic or {}).get("topic_si", "ගණිතය"),
+        score=percentage_score,
+        improved=bool(previous_result and percentage_score > previous_result.score),
+        streak_increased=bool(streak_feedback.get("increased")),
+    )
     db.session.commit()
 
     topic_analysis_html = f"""
@@ -3143,6 +3238,15 @@ def retest_weak() -> str:
                 topic_si=stats["topic_si"],
                 score=topic_percentage,
             )
+        primary_topic = max(topic_stats.values(), key=lambda item: item["total"], default=None)
+        create_parent_notification(
+            student_id=student_id,
+            topic_en=(primary_topic or {}).get("topic_en", "Math"),
+            topic_si=(primary_topic or {}).get("topic_si", "ගණිතය"),
+            score=percentage_score,
+            improved=percentage_score > last_score,
+            streak_increased=bool(streak_feedback.get("increased")),
+        )
         db.session.commit()
         streak_status = "increased" if streak_feedback["increased"] else "restarted" if streak_feedback["restarted"] else ""
         return redirect(
@@ -3463,6 +3567,14 @@ def submit_practice() -> str:
     topic_en = topic_question.topic_en if topic_question else topic
     topic_si = topic_question.topic_si if topic_question else topic
 
+    previous_attempt = None
+    if student_id:
+        previous_attempt = (
+            PracticeAttempt.query.filter_by(student_id=student_id, grade=grade, subject=subject, topic_en=topic_en)
+            .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
+            .first()
+        )
+
     earned_xp = correct_answers * 10
     student_xp, _ = update_student_xp_and_level(student_id, earned_xp)
     streak_feedback = get_streak_feedback(student_id)
@@ -3486,6 +3598,14 @@ def submit_practice() -> str:
         topic_en=topic_en,
         topic_si=topic_si,
         score=score,
+    )
+    create_parent_notification(
+        student_id=student_id,
+        topic_en=topic_en or topic or "Math",
+        topic_si=topic_si or topic or "ගණිතය",
+        score=score,
+        improved=bool(previous_attempt and score > previous_attempt.score),
+        streak_increased=bool(streak_feedback.get("increased")),
     )
     db.session.commit()
     return f"""
