@@ -132,6 +132,7 @@ class Question(db.Model):
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
     explanation_si = db.Column(db.Text, nullable=False)
+    difficulty_level = db.Column(db.Integer, nullable=False, default=3)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -790,8 +791,10 @@ def update_db() -> tuple:
         db.session.execute(db.text("UPDATE student SET medium = 'English' WHERE medium IS NULL"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_en VARCHAR(150)"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS topic_si VARCHAR(150)"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS difficulty_level INTEGER DEFAULT 3"))
         db.session.execute(db.text("UPDATE question SET topic_en = topic WHERE topic_en IS NULL"))
         db.session.execute(db.text("UPDATE question SET topic_si = topic WHERE topic_si IS NULL"))
+        db.session.execute(db.text("UPDATE question SET difficulty_level = 3 WHERE difficulty_level IS NULL"))
         db.session.commit()
         return jsonify({"success": True, "message": "Database updated successfully"}), 200
     except Exception as exc:
@@ -875,9 +878,12 @@ def create_question():
         return jsonify({"success": False, "message": "correct_option must be one of A, B, C, D"}), 400
 
     payload = {field: data[field].strip() for field in required_fields if field != "correct_option"}
+    difficulty_level = int(data.get("difficulty_level", 3))
+    if difficulty_level < 1 or difficulty_level > 5:
+        return jsonify({"success": False, "message": "difficulty_level must be between 1 and 5"}), 400
     if not payload.get("topic"):
         payload["topic"] = payload.get("topic_en") or payload.get("topic_si")
-    question = Question(**payload, correct_option=correct_option)
+    question = Question(**payload, correct_option=correct_option, difficulty_level=difficulty_level)
     db.session.add(question)
     db.session.commit()
 
@@ -1310,11 +1316,30 @@ def practice_page() -> str:
     selected_medium = resolve_medium(request.args.get("medium"))
 
     medium_key = "en" if selected_medium == "English" else "si"
+    student_id = session.get("student_id")
+    last_attempt = None
+    if student_id:
+        last_attempt = (
+            PracticeAttempt.query.filter_by(student_id=student_id, grade=grade, subject=subject)
+            .order_by(PracticeAttempt.created_at.desc(), PracticeAttempt.id.desc())
+            .first()
+        )
+
+    if not last_attempt or last_attempt.score < 50:
+        target_difficulties = [1, 2]
+    elif last_attempt.score <= 80:
+        target_difficulties = [3]
+    else:
+        target_difficulties = [4, 5]
+
+    base_query = Question.query.filter_by(grade=grade, subject=subject, topic=topic)
     questions = (
-        Question.query.filter_by(grade=grade, subject=subject, topic=topic)
+        base_query.filter(Question.difficulty_level.in_(target_difficulties))
         .order_by(Question.id.asc())
         .all()
     )
+    if not questions:
+        questions = base_query.order_by(Question.id.asc()).all()
 
     question_blocks = []
     for q in questions:
