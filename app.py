@@ -1818,10 +1818,59 @@ def teacher_class_details(class_id: int):
         .all()
     )
 
+    labels = {
+        "en": {
+            "class_overview": "Class Overview",
+            "weak_topics": "Weak Topics",
+            "top_students": "Top Students",
+            "needs_improvement": "Needs Improvement",
+            "total_students": "Total students",
+            "average_score": "Average score (latest results)",
+            "below_50": "Number of students below 50%",
+            "topic": "Topic",
+            "avg_score": "Average Score",
+            "student": "Student",
+            "score": "Score",
+        },
+        "si": {
+            "class_overview": "පන්තිය සාරාංශය",
+            "weak_topics": "දුර්වල කොටස්",
+            "top_students": "ඉහළම සිසුන්",
+            "needs_improvement": "වැඩිදියුණු විය යුතු සිසුන්",
+            "total_students": "මුළු සිසුන්",
+            "average_score": "සාමාන්‍ය ලකුණු (අවසන් ප්‍රතිඵල)",
+            "below_50": "50% ට අඩු සිසුන් ගණන",
+            "topic": "මාතෘකාව",
+            "avg_score": "සාමාන්‍ය ලකුණ",
+            "student": "ශිෂ්‍යයා",
+            "score": "ලකුණ",
+        },
+    }
+
     rows = []
+    latest_scored_students = []
+    topic_totals: dict[str, dict[str, float | int | str]] = {}
     for student in students:
         latest_result = get_latest_student_result(student.id)
         latest_score = f"{latest_result.score}%" if latest_result else "-"
+        if latest_result:
+            latest_scored_students.append({"name": student.name, "score": float(latest_result.score)})
+            topic_performance = (
+                StudentTopicPerformance.query.filter_by(student_result_id=latest_result.id)
+                .order_by(StudentTopicPerformance.id.asc())
+                .all()
+            )
+            for topic_item in topic_performance:
+                key = topic_item.topic_en.strip().lower()
+                if key not in topic_totals:
+                    topic_totals[key] = {
+                        "topic_en": topic_item.topic_en,
+                        "topic_si": topic_item.topic_si,
+                        "score_sum": 0.0,
+                        "count": 0,
+                    }
+                topic_totals[key]["score_sum"] = float(topic_totals[key]["score_sum"]) + float(topic_item.percentage)
+                topic_totals[key]["count"] = int(topic_totals[key]["count"]) + 1
 
         topic_progress_rows = (
             StudentTopicProgress.query.filter_by(student_id=student.id)
@@ -1853,6 +1902,43 @@ def teacher_class_details(class_id: int):
         )
 
     student_rows = "".join(rows)
+    total_students = len(students)
+    average_score = (
+        sum(item["score"] for item in latest_scored_students) / len(latest_scored_students)
+        if latest_scored_students
+        else 0.0
+    )
+    below_50_count = sum(1 for item in latest_scored_students if item["score"] < 50)
+
+    weak_topics_ranked = []
+    for data in topic_totals.values():
+        avg = float(data["score_sum"]) / int(data["count"])
+        weak_topics_ranked.append(
+            {
+                "topic_en": str(data["topic_en"]),
+                "topic_si": str(data["topic_si"]),
+                "avg": avg,
+            }
+        )
+    weak_topics_ranked.sort(key=lambda item: item["avg"])
+    top_3_weak_topics = weak_topics_ranked[:3]
+
+    ranked_students = sorted(latest_scored_students, key=lambda item: item["score"], reverse=True)
+    top_5_students = ranked_students[:5]
+    bottom_5_students = sorted(latest_scored_students, key=lambda item: item["score"])[:5]
+
+    weak_topic_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['topic_en'])}<br><small>{escape(item['topic_si'])}</small></td><td style='border:1px solid #ccc;padding:8px;'>{item['avg']:.1f}%</td></tr>"
+        for item in top_3_weak_topics
+    )
+    top_student_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
+        for item in top_5_students
+    )
+    bottom_student_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
+        for item in bottom_5_students
+    )
 
     return f"""
     <!doctype html>
@@ -1862,6 +1948,27 @@ def teacher_class_details(class_id: int):
         <h1>Class: {escape(classroom.class_name)}</h1>
         <p>Grade: {display_grade(classroom.grade)}</p>
         <p><a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></p>
+        <h2>{labels["en"]["class_overview"]} / {labels["si"]["class_overview"]}</h2>
+        <ul>
+          <li><strong>{labels["en"]["total_students"]}</strong> / {labels["si"]["total_students"]}: {total_students}</li>
+          <li><strong>{labels["en"]["average_score"]}</strong> / {labels["si"]["average_score"]}: {average_score:.1f}%</li>
+          <li><strong>{labels["en"]["below_50"]}</strong> / {labels["si"]["below_50"]}: {below_50_count}</li>
+        </ul>
+        <h2>{labels["en"]["weak_topics"]} / {labels["si"]["weak_topics"]}</h2>
+        <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
+          <thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["topic"]} / {labels["si"]["topic"]}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["avg_score"]} / {labels["si"]["avg_score"]}</th></tr></thead>
+          <tbody>{weak_topic_rows if weak_topic_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No topic performance data available.</td></tr>"}</tbody>
+        </table>
+        <h2>{labels["en"]["top_students"]} / {labels["si"]["top_students"]}</h2>
+        <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
+          <thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["student"]} / {labels["si"]["student"]}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["score"]} / {labels["si"]["score"]}</th></tr></thead>
+          <tbody>{top_student_rows if top_student_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No results yet.</td></tr>"}</tbody>
+        </table>
+        <h2>{labels["en"]["needs_improvement"]} / {labels["si"]["needs_improvement"]}</h2>
+        <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
+          <thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["student"]} / {labels["si"]["student"]}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["score"]} / {labels["si"]["score"]}</th></tr></thead>
+          <tbody>{bottom_student_rows if bottom_student_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No results yet.</td></tr>"}</tbody>
+        </table>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
