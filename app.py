@@ -298,6 +298,31 @@ class HomeworkSubmission(db.Model):
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ClassTest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer, nullable=False)
+    teacher_id = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False, default="Math")
+    topic_en = db.Column(db.String(150), nullable=False)
+    topic_si = db.Column(db.String(150), nullable=False)
+    difficulty_level = db.Column(db.Integer, nullable=False, default=1)
+    test_date = db.Column(db.Date, nullable=False)
+    duration_minutes = db.Column(db.Integer, nullable=False, default=30)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ClassTestSubmission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    class_test_id = db.Column(db.Integer, nullable=False)
+    student_id = db.Column(db.Integer, nullable=False)
+    score = db.Column(db.Float, nullable=False, default=0)
+    total_questions = db.Column(db.Integer, nullable=False, default=0)
+    correct_answers = db.Column(db.Integer, nullable=False, default=0)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class StudentTopicProgress(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, nullable=False)
@@ -2025,6 +2050,7 @@ def teacher_class_details(class_id: int):
         <p>Grade: {display_grade(classroom.grade)}</p>
         <p><a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></p>
         <p><a href='/teacher/class/{classroom.id}/assign-homework'>Assign Homework</a></p>
+        <p><a href='/teacher/class/{classroom.id}/create-test'>Create Class Test</a></p>
         <h2>{labels["en"]["class_overview"]} / {labels["si"]["class_overview"]}</h2>
         <ul>
           <li><strong>{labels["en"]["total_students"]}</strong> / {labels["si"]["total_students"]}: {total_students}</li>
@@ -2472,6 +2498,36 @@ def teacher_remind_homework_student(homework_id: int, student_id: int):
       </body>
     </html>
     """
+
+
+@app.route("/teacher/class/<int:class_id>/create-test", methods=["GET", "POST"])
+def teacher_create_class_test(class_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+    classroom = Class.query.filter_by(id=class_id, teacher_id=int(teacher_id)).first()
+    if not classroom:
+        return "<h2>Class not found</h2>", 404
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        topic_en = (request.form.get("topic_en") or "").strip()
+        topic_si = (request.form.get("topic_si") or topic_en).strip()
+        test_date_raw = (request.form.get("test_date") or "").strip()
+        difficulty_level = int((request.form.get("difficulty_level") or "1").strip() or "1")
+        duration_minutes = int((request.form.get("duration_minutes") or "30").strip() or "30")
+        try:
+            test_date = datetime.strptime(test_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            return "<h2>Invalid test date</h2><p><a href=''>Try again</a></p>", 400
+        if not title or not topic_en or difficulty_level < 1 or difficulty_level > 5 or duration_minutes <= 0:
+            return "<h2>Invalid test data</h2><p><a href=''>Try again</a></p>", 400
+        db.session.add(ClassTest(class_id=classroom.id, teacher_id=int(teacher_id), title=title, grade=classroom.grade, subject="Math", topic_en=topic_en, topic_si=topic_si, difficulty_level=difficulty_level, test_date=test_date, duration_minutes=duration_minutes))
+        db.session.commit()
+        return redirect(url_for("teacher_class_details", class_id=classroom.id))
+    return f"<!doctype html><html><body><h1>Create Test - {escape(classroom.class_name)}</h1><form method='post'><label>Title: <input type='text' name='title' required></label><br><br><label>Topic (English): <input type='text' name='topic_en' required></label><br><br><label>Topic (Sinhala): <input type='text' name='topic_si'></label><br><br><label>Difficulty (1-5): <input type='number' min='1' max='5' name='difficulty_level' value='1' required></label><br><br><label>Test date: <input type='date' name='test_date' required></label><br><br><label>Duration (minutes): <input type='number' min='1' name='duration_minutes' value='30' required></label><br><br><button type='submit'>Save Test</button></form><p><a href='/teacher/class/{classroom.id}'>Back to Class</a></p></body></html>"
+
 @app.route("/teacher-logout", methods=["GET"])
 def teacher_logout():
     session.pop("teacher_logged_in", None)
@@ -4836,6 +4892,72 @@ def student_homework_submit(homework_id: int):
     db.session.commit()
     return f"<h1>Homework Submitted</h1><p>Score: {score}% ({correct_answers}/{total_questions})</p><p><a href='/student/homework'>Back to My Homework</a></p>"
 
+
+
+@app.route("/student/tests", methods=["GET"])
+def student_tests_list():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    if not student or not student.class_id:
+        return "<h2>No class assigned</h2><p><a href='/student-dashboard'>Back</a></p>"
+    tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.desc()).all()
+    today = date.today()
+    upcoming=[t for t in tests if t.test_date >= today]
+    past=[t for t in tests if t.test_date < today]
+    mk=lambda x: "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(i.title)}</td><td style='border:1px solid #ccc;padding:8px;'>{escape(i.topic_si if student.medium=='Sinhala' else i.topic_en)}</td><td style='border:1px solid #ccc;padding:8px;'>{i.test_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{i.duration_minutes} min</td><td style='border:1px solid #ccc;padding:8px;'><a href='/student/test/{i.id}'>Open</a></td></tr>" for i in x)
+    upcoming_html = mk(upcoming) or "<tr><td style='border:1px solid #ccc;padding:8px;'>No upcoming tests.</td></tr>"
+    past_html = mk(past) or "<tr><td style='border:1px solid #ccc;padding:8px;'>No past tests.</td></tr>"
+    return f"<!doctype html><html><body><h1>My Class Tests</h1><h2>Upcoming tests</h2><table style='border-collapse:collapse;width:100%'><tbody>{upcoming_html}</tbody></table><h2>Past tests</h2><table style='border-collapse:collapse;width:100%'><tbody>{past_html}</tbody></table><p><a href='/student-dashboard'>Back</a></p></body></html>"
+
+@app.route("/student/test/<int:test_id>", methods=["GET", "POST"])
+def student_take_test(test_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    test = db.session.get(ClassTest, test_id)
+    if not student or not test or student.class_id != test.class_id:
+        return "<h2>Test not found</h2>", 404
+    questions = get_questions_for_homework(test.grade, test.subject, test.topic_en, test.topic_si, test.difficulty_level)
+    if request.method == "POST":
+        correct_answers = sum(1 for q in questions if (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper())
+        total_questions = len(questions)
+        score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+        db.session.add(ClassTestSubmission(class_test_id=test.id, student_id=student.id, score=score, total_questions=total_questions, correct_answers=correct_answers))
+        db.session.commit()
+        return f"<h1>Test Submitted</h1><p>Score: {score}% ({correct_answers}/{total_questions})</p><p><a href='/student/tests'>Back to Tests</a></p>"
+    medium_key = "si" if student.medium == "Sinhala" else "en"
+    q_html = "".join(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p><label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label></div>" for q in questions)
+    return f"<!doctype html><html><body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p><form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/tests'>Back</a></p></body></html>"
+
+@app.route("/teacher/test/<int:test_id>", methods=["GET"])
+def teacher_test_results(test_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+    teacher_id = session.get("teacher_id")
+    test = ClassTest.query.filter_by(id=test_id, teacher_id=int(teacher_id or 0)).first()
+    if not test:
+        return "<h2>Test not found</h2>", 404
+    students = Student.query.filter_by(class_id=test.class_id).order_by(Student.name.asc()).all()
+    submissions = ClassTestSubmission.query.filter_by(class_test_id=test.id).all()
+    by_student = {s.student_id: s for s in submissions}
+    ranked = sorted(submissions, key=lambda x: x.score, reverse=True)
+    rank_map = {item.student_id: idx + 1 for idx, item in enumerate(ranked)}
+    avg = round(sum(s.score for s in submissions) / len(submissions), 2) if submissions else 0
+    rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(st.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{('-' if st.id not in by_student else str(by_student[st.id].score)+'%')}</td><td style='border:1px solid #ccc;padding:8px;'>{rank_map.get(st.id, '-')}</td></tr>" for st in students)
+    return f"<!doctype html><html><body><h1>Test Results: {escape(test.title)}</h1><p>Average score: {avg}%</p><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student list</th><th style='border:1px solid #ccc;padding:8px;'>Scores</th><th style='border:1px solid #ccc;padding:8px;'>Ranking</th></tr></thead><tbody>{rows}</tbody></table><p><a href='/teacher/class/{test.class_id}'>Back to Class</a></p></body></html>"
+
+@app.route("/update-class-test-db", methods=["GET"])
+def update_class_test_db() -> tuple:
+    try:
+        db.create_all()
+        db.session.commit()
+        return jsonify({"success": True, "message": "Class test tables ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Class test DB update failed: {exc}"}), 500
 
 @app.route("/update-question-attempt-db", methods=["GET"])
 def update_question_attempt_db() -> tuple:
