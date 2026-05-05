@@ -203,6 +203,15 @@ class Teacher(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SchoolAdmin(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    school_id = db.Column(db.Integer, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Class(db.Model):
     __tablename__ = "class"
 
@@ -925,15 +934,22 @@ def login():
         db.session.rollback()
 
     if role == "school_admin":
+        school_admin = SchoolAdmin.query.filter_by(email=email).first()
+        if school_admin and check_password_hash(school_admin.password_hash, password):
+            session["school_admin_logged_in"] = True
+            session["school_id"] = school_admin.school_id
+            return redirect("/school-admin/dashboard")
+
         school_admin_email, school_admin_password = get_school_admin_credentials()
-        if email != school_admin_email or password != school_admin_password:
-            return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
-        school = School.query.order_by(School.id.asc()).first()
-        if not school:
-            return "<h2>No school found</h2><p>Run <code>/update-school-db</code> first.</p>", 400
-        session["school_admin_logged_in"] = True
-        session["school_id"] = school.id
-        return redirect("/school-admin/dashboard")
+        if email == school_admin_email and password == school_admin_password:
+            school = School.query.order_by(School.id.asc()).first()
+            if not school:
+                return "<h2>No school found</h2><p>Run <code>/update-school-db</code> first.</p>", 400
+            session["school_admin_logged_in"] = True
+            session["school_id"] = school.id
+            return redirect("/school-admin/dashboard")
+
+        return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
 
     student = Student.query.filter_by(email=email).first()
     if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
@@ -2948,6 +2964,7 @@ def admin_dashboard():
         <p><a href='/admin/questions'>Manage Questions</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
+        <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 
         <h2>Latest Activity</h2>
@@ -3211,6 +3228,57 @@ def admin_activate_premium(student_id: int):
     student.subscription_end_date = date.today() + timedelta(days=30)
     db.session.commit()
     return redirect("/admin/premium")
+
+
+@app.route("/admin/create-school-admin", methods=["GET", "POST"])
+def admin_create_school_admin():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    schools = School.query.order_by(School.school_name.asc(), School.id.asc()).all()
+    if request.method == "POST":
+        school_id_raw = (request.form.get("school_id") or "").strip()
+        name = (request.form.get("name") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        password = request.form.get("password") or ""
+
+        selected_school = School.query.filter_by(id=int(school_id_raw)).first() if school_id_raw.isdigit() else None
+        if not selected_school or not name or not email or not password:
+            return "<h2>All fields are required and school must be valid.</h2><p><a href='/admin/create-school-admin'>Try again</a></p>", 400
+
+        existing = SchoolAdmin.query.filter_by(email=email).first()
+        if existing:
+            return "<h2>Email already exists.</h2><p><a href='/admin/create-school-admin'>Try again</a></p>", 400
+
+        db.session.add(
+            SchoolAdmin(
+                school_id=selected_school.id,
+                name=name,
+                email=email,
+                password_hash=generate_password_hash(password),
+            )
+        )
+        db.session.commit()
+        return redirect("/admin-dashboard")
+
+    school_options = "".join(f"<option value='{school.id}'>{school.school_name}</option>" for school in schools)
+    return f"""
+    <h1>Create School Admin</h1>
+    <form method='post' action='/admin/create-school-admin'>
+      <label>School Name:
+        <select name='school_id' required>
+          <option value=''>Select School</option>
+          {school_options}
+        </select>
+      </label><br><br>
+      <label>Name: <input type='text' name='name' required></label><br><br>
+      <label>Email: <input type='email' name='email' required></label><br><br>
+      <label>Password: <input type='password' name='password' required></label><br><br>
+      <button type='submit'>Create School Admin</button>
+    </form>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    """
 
 
 @app.route("/admin/deactivate-premium/<int:student_id>", methods=["GET"])
