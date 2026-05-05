@@ -1707,7 +1707,20 @@ def teacher_login():
 def teacher_dashboard():
     if session.get("teacher_logged_in") is not True:
         return redirect(url_for("teacher_login"))
-    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+
+    teacher_classes = Class.query.filter_by(teacher_id=int(teacher_id)).all()
+    teacher_class_ids = [classroom.id for classroom in teacher_classes]
+
+    students = (
+        Student.query.filter(Student.class_id.in_(teacher_class_ids))
+        .order_by(Student.created_at.desc(), Student.id.desc())
+        .all()
+        if teacher_class_ids
+        else []
+    )
 
     rows = []
     for student in students:
@@ -1734,6 +1747,9 @@ def teacher_dashboard():
       <body>
         <h1>Teacher Dashboard</h1>
         <p><a href='/teacher/create-class'>Create Class</a></p>
+        <ul>
+          {''.join([f"<li>{escape(classroom.class_name)} ({display_grade(classroom.grade)}) - <a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></li>" for classroom in teacher_classes]) or '<li>No classes found.</li>'}
+        </ul>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -1786,6 +1802,82 @@ def teacher_create_class():
     db.session.add(new_class)
     db.session.commit()
     return redirect(url_for("teacher_dashboard"))
+
+
+@app.route("/teacher/assign-students/<int:class_id>", methods=["GET", "POST"])
+def teacher_assign_students(class_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+
+    classroom = Class.query.filter_by(id=class_id, teacher_id=int(teacher_id)).first()
+    if not classroom:
+        return "<h2>Class not found</h2>", 404
+
+    if request.method == "POST":
+        selected_student_ids = {
+            int(student_id)
+            for student_id in request.form.getlist("student_ids")
+            if student_id.isdigit()
+        }
+
+        grade_students = Student.query.filter_by(grade=classroom.grade).all()
+        for student in grade_students:
+            if student.id in selected_student_ids:
+                student.class_id = classroom.id
+
+        db.session.commit()
+        return redirect(url_for("teacher_dashboard"))
+
+    grade_students = (
+        Student.query.filter_by(grade=classroom.grade)
+        .order_by(Student.name.asc(), Student.id.asc())
+        .all()
+    )
+
+    student_rows = "".join(
+        [
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'><input type='checkbox' name='student_ids' value='{student.id}' {'checked' if student.class_id == classroom.id else ''}></td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td>
+            </tr>
+            """
+            for student in grade_students
+        ]
+    )
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Students</title></head>
+      <body>
+        <h1>Assign Students to {escape(classroom.class_name)}</h1>
+        <p>Grade: {display_grade(classroom.grade)}</p>
+        <form method='post' action='/teacher/assign-students/{classroom.id}'>
+          <table style='border-collapse:collapse;width:100%;'>
+            <thead>
+              <tr>
+                <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Select</th>
+                <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Name</th>
+                <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
+                <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
+              </tr>
+            </thead>
+            <tbody>{student_rows if student_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No students found for this grade.</td></tr>"}</tbody>
+          </table>
+          <br>
+          <button type='submit'>Save Assignments</button>
+        </form>
+        <p><a href='/teacher-dashboard'>Back to Dashboard</a></p>
+      </body>
+    </html>
+    """
 
 
 @app.route("/teacher/student/<int:student_id>", methods=["GET"])
