@@ -3548,7 +3548,12 @@ def admin_students():
     if admin_redirect:
         return admin_redirect
 
-    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    students_with_school = (
+        db.session.query(Student, School.school_name)
+        .outerjoin(School, Student.school_id == School.id)
+        .order_by(Student.created_at.desc(), Student.id.desc())
+        .all()
+    )
     student_rows = "".join(
         f"""
         <tr>
@@ -3556,6 +3561,7 @@ def admin_students():
           <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{school_name or '-'}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
@@ -3565,15 +3571,15 @@ def admin_students():
           <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/student/{student.id}'>View Details</a></td>
         </tr>
         """
-        for student in students
+        for student, school_name in students_with_school
     )
     return f"""
     <h1>Manage Students</h1>
     <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
     <p><a href='/register-form'>Add New Student</a></p>
     <table style='border-collapse:collapse;width:100%;'>
-      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>Mobile</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
-      <tbody>{student_rows if student_rows else "<tr><td colspan='11' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>School</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>Mobile</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
+      <tbody>{student_rows if student_rows else "<tr><td colspan='12' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
     </table>
     """
 
