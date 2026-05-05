@@ -2698,14 +2698,123 @@ def school_admin_dashboard():
     if auth_redirect:
         return auth_redirect
     school_id = int(session["school_id"])
+    selected_medium = resolve_medium(request.args.get("medium") or "English")
+    is_sinhala = selected_medium == "Sinhala"
+
+    labels = {
+        "school_performance": "පාසල් කාර්ය සාධනය" if is_sinhala else "School Performance",
+        "weak_topics": "දුර්වල කොටස්" if is_sinhala else "Weak Topics",
+        "students_at_risk": "අවදානම් සිසුන්" if is_sinhala else "Students at Risk",
+        "top_students": "ඉහළම සිසුන්" if is_sinhala else "Top Students",
+        "class_performance": "පන්ති කාර්ය සාධනය" if is_sinhala else "Class Performance",
+    }
+
     total_teachers = Teacher.query.filter_by(school_id=school_id).count()
-    total_students = Student.query.filter_by(school_id=school_id).count()
+    school_students = Student.query.filter_by(school_id=school_id).all()
+    total_students = len(school_students)
+    student_ids = [student.id for student in school_students]
     teacher_ids = [teacher.id for teacher in Teacher.query.filter_by(school_id=school_id).all()]
     total_classes = Class.query.filter(Class.teacher_id.in_(teacher_ids)).count() if teacher_ids else 0
     total_tests = ClassTest.query.filter(ClassTest.teacher_id.in_(teacher_ids)).count() if teacher_ids else 0
+
+    latest_results = []
+    for student in school_students:
+        latest_result = (
+            StudentResult.query.filter_by(student_id=student.id)
+            .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+            .first()
+        )
+        if latest_result:
+            latest_results.append({"student": student, "result": latest_result})
+
+    average_student_score = (
+        sum(item["result"].score for item in latest_results) / len(latest_results) if latest_results else 0
+    )
+    average_practice_score = (
+        db.session.query(db.func.avg(PracticeAttempt.score))
+        .filter(PracticeAttempt.student_id.in_(student_ids))
+        .scalar()
+        if student_ids
+        else 0
+    )
+    average_practice_score = float(average_practice_score or 0)
+
+    topic_totals = {}
+    for item in latest_results:
+        topic_rows = StudentTopicPerformance.query.filter_by(student_result_id=item["result"].id).all()
+        for row in topic_rows:
+            topic_key = row.topic_si if is_sinhala else row.topic_en
+            if topic_key not in topic_totals:
+                topic_totals[topic_key] = {"correct": 0, "total": 0}
+            topic_totals[topic_key]["correct"] += row.correct_count
+            topic_totals[topic_key]["total"] += row.total_count
+
+    weak_topics = sorted(
+        [
+            {
+                "topic": topic,
+                "score": (vals["correct"] / vals["total"] * 100) if vals["total"] else 0,
+            }
+            for topic, vals in topic_totals.items()
+        ],
+        key=lambda item: item["score"],
+    )[:3]
+
+    ranked_students = sorted(
+        [{"name": item["student"].name, "score": float(item["result"].score)} for item in latest_results],
+        key=lambda item: item["score"],
+        reverse=True,
+    )
+    risk_students = [item for item in sorted(ranked_students, key=lambda row: row["score"]) if item["score"] < 50][:5]
+    top_students = ranked_students[:5]
+
+    class_performance = []
+    classes = Class.query.filter(Class.teacher_id.in_(teacher_ids)).order_by(Class.class_name.asc()).all() if teacher_ids else []
+    for classroom in classes:
+        class_students = [student for student in school_students if student.class_id == classroom.id]
+        class_latest_scores = []
+        for student in class_students:
+            latest_result = (
+                StudentResult.query.filter_by(student_id=student.id)
+                .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
+                .first()
+            )
+            if latest_result:
+                class_latest_scores.append(float(latest_result.score))
+        avg_score = sum(class_latest_scores) / len(class_latest_scores) if class_latest_scores else 0
+        class_performance.append({"class_name": classroom.class_name, "average_score": avg_score})
+
+    weak_topic_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['topic'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
+        for item in weak_topics
+    )
+    risk_student_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
+        for item in risk_students
+    )
+    top_student_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
+        for item in top_students
+    )
+    class_rows = "".join(
+        f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['class_name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['average_score']:.1f}%</td></tr>"
+        for item in class_performance
+    )
+
     return f"""<!doctype html><html><body><h1>School Admin Dashboard</h1>
     <p>Total teachers: {total_teachers}</p><p>Total students: {total_students}</p>
     <p>Total classes: {total_classes}</p><p>Total tests: {total_tests}</p>
+    <h2>{labels['school_performance']}</h2>
+    <p>Average student score: {average_student_score:.1f}%</p>
+    <p>Average practice score: {average_practice_score:.1f}%</p>
+    <h2>{labels['weak_topics']}</h2>
+    <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th></tr></thead><tbody>{weak_topic_rows if weak_topic_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No topic data found.</td></tr>"}</tbody></table>
+    <h2>{labels['students_at_risk']}</h2>
+    <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Score</th></tr></thead><tbody>{risk_student_rows if risk_student_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No risk students found.</td></tr>"}</tbody></table>
+    <h2>{labels['top_students']}</h2>
+    <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Score</th></tr></thead><tbody>{top_student_rows if top_student_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody></table>
+    <h2>{labels['class_performance']}</h2>
+    <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Class</th><th style='border:1px solid #ccc;padding:8px;'>Average score</th></tr></thead><tbody>{class_rows if class_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No classes found.</td></tr>"}</tbody></table>
     <p><a href='/school-admin/teachers'>Manage Teachers</a></p>
     <p><a href='/school-admin/students'>Manage Students</a></p></body></html>"""
 
