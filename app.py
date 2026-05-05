@@ -1517,18 +1517,19 @@ def parent_dashboard():
         student_name = student.name if student else f"Student #{notification.student_id}"
         student_medium = student.medium if student else "English"
         message = notification.message_si if student_medium == "Sinhala" else notification.message_en
+        safe_student_name = escape(student_name)
+        safe_message = escape(message)
         whatsapp_button_text = "WhatsApp මගින් යවන්න" if student_medium == "Sinhala" else "Send via WhatsApp"
         parent_mobile = (student.mobile or "").strip() if student else ""
         whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(message)}"
         whatsapp_button_html = (
-            f"<a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>"
-            f"<button type='button'>{whatsapp_button_text}</button></a>"
+            f"<a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>{escape(whatsapp_button_text)}</a>"
             if parent_mobile
             else "-"
         )
         notification_rows.append(
-            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{student_name}</td>"
-            f"<td style='border:1px solid #ccc;padding:8px;'>{message}</td>"
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{safe_student_name}</td>"
+            f"<td style='border:1px solid #ccc;padding:8px;'>{safe_message}</td>"
             f"<td style='border:1px solid #ccc;padding:8px;'>{notification.created_at.strftime('%Y-%m-%d %H:%M')}</td>"
             f"<td style='border:1px solid #ccc;padding:8px;'>{whatsapp_button_html}</td></tr>"
         )
