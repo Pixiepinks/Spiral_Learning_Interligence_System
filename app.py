@@ -1153,6 +1153,9 @@ def student_dashboard():
         )
 
     recommendations = get_student_recommendations(student.id)
+    class_tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.asc()).all() if student.class_id else []
+    upcoming_tests = [item for item in class_tests if item.test_date >= date.today()]
+    next_test = upcoming_tests[0] if upcoming_tests else None
     rec_rows = "".join(
         f"""
         <tr>
@@ -1281,6 +1284,10 @@ def student_dashboard():
             {rec_rows if rec_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No recommendations found.</td></tr>"}
           </tbody>
         </table>
+        <h2>{"පරීක්ෂා" if language == "si" else "Tests"}</h2>
+        {f"<p style='padding:10px;border:1px solid #c9e6ff;background:#eef7ff;border-radius:8px;'>{'ඔබට ' + next_test.test_date.strftime('%Y-%m-%d') + ' දින පරීක්ෂාවක් ඇත' if language == 'si' else 'You have a test on ' + next_test.test_date.strftime('%Y-%m-%d')}</p>" if next_test else ""}
+        <p><a href='/student/tests'>{"ඉදිරියට ඇති පරීක්ෂා" if language == "si" else "View Upcoming Tests"}</a></p>
+        <p><a href='/test'>{"SkillScan පරීක්ෂාව ලබාගන්න" if language == "si" else "Take SkillScan Test"}</a></p>
 
         <p>
           <a href='/learning-path'>{text["my_learning_path"]}</a>
@@ -2040,6 +2047,16 @@ def teacher_class_details(class_id: int):
         f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['name'])}</td><td style='border:1px solid #ccc;padding:8px;'>{item['score']:.1f}%</td></tr>"
         for item in bottom_5_students
     )
+    class_tests = ClassTest.query.filter_by(class_id=classroom.id).order_by(ClassTest.test_date.asc(), ClassTest.id.desc()).all()
+    class_test_rows = []
+    for class_test in class_tests:
+        submissions = ClassTestSubmission.query.filter_by(class_test_id=class_test.id).all()
+        submissions_count = len(submissions)
+        avg_score = f"{(sum(item.score for item in submissions) / submissions_count):.1f}%" if submissions_count else "-"
+        class_test_rows.append(
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(class_test.title)}</td><td style='border:1px solid #ccc;padding:8px;'>{class_test.test_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{submissions_count}</td><td style='border:1px solid #ccc;padding:8px;'>{avg_score}</td><td style='border:1px solid #ccc;padding:8px;'><a href='/teacher/test/{class_test.id}'>ප්‍රතිඵල බලන්න / View Results</a></td></tr>"
+        )
+    class_tests_html = "".join(class_test_rows)
 
     return f"""
     <!doctype html>
@@ -2050,7 +2067,7 @@ def teacher_class_details(class_id: int):
         <p>Grade: {display_grade(classroom.grade)}</p>
         <p><a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></p>
         <p><a href='/teacher/class/{classroom.id}/assign-homework'>Assign Homework</a></p>
-        <p><a href='/teacher/class/{classroom.id}/create-test'>Create Class Test</a></p>
+        <p><a href='/teacher/class/{classroom.id}/create-test'>නව පරීක්ෂාවක් සාදන්න / Create Test</a></p>
         <h2>{labels["en"]["class_overview"]} / {labels["si"]["class_overview"]}</h2>
         <ul>
           <li><strong>{labels["en"]["total_students"]}</strong> / {labels["si"]["total_students"]}: {total_students}</li>
@@ -2085,6 +2102,11 @@ def teacher_class_details(class_id: int):
             </tr>
           </thead>
           <tbody>{homework_rows_html if homework_rows_html else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No homework assigned yet. / තවම ගෙදර වැඩ නියම කර නොමැත.</td></tr>"}</tbody>
+        </table>
+        <h2>Class Tests</h2>
+        <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
+          <thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>Title</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>Test Date</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>Submissions count</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>Average Score</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>Action</th></tr></thead>
+          <tbody>{class_tests_html if class_tests_html else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No class tests yet.</td></tr>"}</tbody>
         </table>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
@@ -4904,12 +4926,19 @@ def student_tests_list():
         return "<h2>No class assigned</h2><p><a href='/student-dashboard'>Back</a></p>"
     tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.desc()).all()
     today = date.today()
-    upcoming=[t for t in tests if t.test_date >= today]
-    past=[t for t in tests if t.test_date < today]
-    mk=lambda x: "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(i.title)}</td><td style='border:1px solid #ccc;padding:8px;'>{escape(i.topic_si if student.medium=='Sinhala' else i.topic_en)}</td><td style='border:1px solid #ccc;padding:8px;'>{i.test_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{i.duration_minutes} min</td><td style='border:1px solid #ccc;padding:8px;'><a href='/student/test/{i.id}'>Open</a></td></tr>" for i in x)
-    upcoming_html = mk(upcoming) or "<tr><td style='border:1px solid #ccc;padding:8px;'>No upcoming tests.</td></tr>"
-    past_html = mk(past) or "<tr><td style='border:1px solid #ccc;padding:8px;'>No past tests.</td></tr>"
-    return f"<!doctype html><html><body><h1>My Class Tests</h1><h2>Upcoming tests</h2><table style='border-collapse:collapse;width:100%'><tbody>{upcoming_html}</tbody></table><h2>Past tests</h2><table style='border-collapse:collapse;width:100%'><tbody>{past_html}</tbody></table><p><a href='/student-dashboard'>Back</a></p></body></html>"
+    is_si = student.medium == "Sinhala"
+    rows = []
+    for item in tests:
+        is_upcoming = item.test_date >= today
+        status = "Upcoming" if is_upcoming else "Completed"
+        action = (
+            f"<a href='/student/test/{item.id}'>{'පරීක්ෂාව ආරම්භ කරන්න' if is_si else 'Start Test'}</a>"
+            if is_upcoming
+            else f"<a href='/student/test/{item.id}/result'>{'ප්‍රතිඵල බලන්න' if is_si else 'View Result'}</a>"
+        )
+        rows.append(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item.title)}</td><td style='border:1px solid #ccc;padding:8px;'>{item.test_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td><td style='border:1px solid #ccc;padding:8px;'>{action}</td></tr>")
+    rows_html = "".join(rows) if rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No tests found.</td></tr>"
+    return f"<!doctype html><html><body><h1>{'මගේ පරීක්ෂා' if is_si else 'My Tests'}</h1><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Title</th><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Status</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead><tbody>{rows_html}</tbody></table><p><a href='/student-dashboard'>Back</a></p></body></html>"
 
 @app.route("/student/test/<int:test_id>", methods=["GET", "POST"])
 def student_take_test(test_id: int):
@@ -4925,12 +4954,30 @@ def student_take_test(test_id: int):
         correct_answers = sum(1 for q in questions if (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper())
         total_questions = len(questions)
         score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+        existing = ClassTestSubmission.query.filter_by(class_test_id=test.id, student_id=student.id).first()
+        if existing:
+            db.session.delete(existing)
+            db.session.flush()
         db.session.add(ClassTestSubmission(class_test_id=test.id, student_id=student.id, score=score, total_questions=total_questions, correct_answers=correct_answers))
         db.session.commit()
-        return f"<h1>Test Submitted</h1><p>Score: {score}% ({correct_answers}/{total_questions})</p><p><a href='/student/tests'>Back to Tests</a></p>"
+        return redirect(url_for("student_test_result_summary", test_id=test.id))
     medium_key = "si" if student.medium == "Sinhala" else "en"
     q_html = "".join(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p><label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label></div>" for q in questions)
-    return f"<!doctype html><html><body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p><form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/tests'>Back</a></p></body></html>"
+    timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
+    return f"<!doctype html><html><body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p>{timer_html}<form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit' style='padding:10px 16px;font-weight:bold;'>{'යවන්න' if student.medium=='Sinhala' else 'Submit Test'}</button></form><p><a href='/student/tests'>Back</a></p></body></html>"
+
+@app.route("/student/test/<int:test_id>/result", methods=["GET"])
+def student_test_result_summary(test_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    test = db.session.get(ClassTest, test_id)
+    if not test:
+        return "<h2>Test not found</h2>", 404
+    submission = ClassTestSubmission.query.filter_by(class_test_id=test_id, student_id=student_id).first()
+    if not submission:
+        return "<h2>Result not available</h2><p><a href='/student/tests'>Back to tests</a></p>", 404
+    return f"<!doctype html><html><body><h1>{escape(test.title)} - Result</h1><p>Score: {submission.score}% ({submission.correct_answers}/{submission.total_questions})</p><p><a href='/student/tests'>Back to Tests</a></p></body></html>"
 
 @app.route("/teacher/test/<int:test_id>", methods=["GET"])
 def teacher_test_results(test_id: int):
@@ -4943,11 +4990,10 @@ def teacher_test_results(test_id: int):
     students = Student.query.filter_by(class_id=test.class_id).order_by(Student.name.asc()).all()
     submissions = ClassTestSubmission.query.filter_by(class_test_id=test.id).all()
     by_student = {s.student_id: s for s in submissions}
-    ranked = sorted(submissions, key=lambda x: x.score, reverse=True)
-    rank_map = {item.student_id: idx + 1 for idx, item in enumerate(ranked)}
     avg = round(sum(s.score for s in submissions) / len(submissions), 2) if submissions else 0
-    rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(st.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{('-' if st.id not in by_student else str(by_student[st.id].score)+'%')}</td><td style='border:1px solid #ccc;padding:8px;'>{rank_map.get(st.id, '-')}</td></tr>" for st in students)
-    return f"<!doctype html><html><body><h1>Test Results: {escape(test.title)}</h1><p>Average score: {avg}%</p><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student list</th><th style='border:1px solid #ccc;padding:8px;'>Scores</th><th style='border:1px solid #ccc;padding:8px;'>Ranking</th></tr></thead><tbody>{rows}</tbody></table><p><a href='/teacher/class/{test.class_id}'>Back to Class</a></p></body></html>"
+    sorted_students = sorted(students, key=lambda st: by_student.get(st.id).score if st.id in by_student else -1, reverse=True)
+    rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(st.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{('-' if st.id not in by_student else str(by_student[st.id].score)+'%')}</td><td style='border:1px solid #ccc;padding:8px;'>{('Not Submitted' if st.id not in by_student else 'Submitted')}</td></tr>" for st in sorted_students)
+    return f"<!doctype html><html><body><h1>Test Title: {escape(test.title)}</h1><p>Average Score: {avg}%</p><p>Total Students: {len(students)}</p><p>Submitted Count: {len(submissions)}</p><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student Name</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{rows}</tbody></table><p><a href='/teacher/class/{test.class_id}'>Back to Class</a></p></body></html>"
 
 @app.route("/update-class-test-db", methods=["GET"])
 def update_class_test_db() -> tuple:
