@@ -3385,38 +3385,76 @@ def retest_weak() -> str:
 @app.route("/upgrade", methods=["GET"])
 def upgrade_page() -> str:
     selected_medium = resolve_medium(request.args.get("medium"))
-    limit_type = (request.args.get("limit_type") or "").strip().lower()
-    if selected_medium == "Sinhala":
-        title = "ප්‍රිමියම් වෙත උසස් කරන්න"
-        heading = "දෛනික සීමාව ඉක්මවා ඇත"
-        practice_msg = "දිනකට පුහුණු ප්‍රශ්න 5 ක් පමණි. අසීමිත පුහුණුව සඳහා Premium ගන්න."
-        retest_msg = "දිනකට නැවත පරීක්ෂණ 3 ක් පමණි. අසීමිත නැවත පරීක්ෂණ සඳහා Premium ගන්න."
-        benefits = ["අසීමිත දෛනික Practice", "අසීමිත Retest Weak Topics", "වේගවත් ප්‍රගතිය සඳහා වඩා හොඳ මාර්ගගතය"]
-        cta = "WhatsApp මඟින් සම්බන්ධ වන්න"
-        back = "ඩෑෂ්බෝඩ් වෙත ආපසු"
-        benefits_title = "Premium ප්‍රතිලාභ"
-    else:
-        title = "Upgrade to Premium"
-        heading = "Daily limit reached"
-        practice_msg = "You can do only 5 practice sets per day. Upgrade for unlimited practice."
-        retest_msg = "You can do only 3 retest attempts per day. Upgrade for unlimited retests."
-        benefits = ["Unlimited daily practice", "Unlimited weak-topic retests", "Faster progress with consistent learning"]
-        cta = "Contact via WhatsApp"
-        back = "Back to Dashboard"
-        benefits_title = "Premium benefits"
-    limit_message = retest_msg if limit_type == "retest" else practice_msg
-    whatsapp_link = "https://wa.me/94700000000?text=Hi%2C%20I%20want%20to%20upgrade%20to%20Premium."
+    back = "ඩෑෂ්බෝඩ් වෙත ආපසු" if selected_medium == "Sinhala" else "Back to Dashboard"
+    whatsapp_link = "https://wa.me/94703755777?text=I%20want%20to%20upgrade%20to%20premium"
+
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{title}</title></head>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>Upgrade</title>
+        <style>
+          body {{
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f5f7fb;
+            color: #102036;
+          }}
+          .wrap {{
+            max-width: 720px;
+            margin: 32px auto;
+            padding: 0 16px;
+          }}
+          .card {{
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(16, 32, 54, 0.08);
+            padding: 28px;
+          }}
+          h1 {{ margin: 0 0 10px; font-size: 2rem; line-height: 1.2; }}
+          .si-title {{ margin: 0 0 22px; font-size: 1.2rem; color: #1a3f8b; }}
+          h2 {{ margin: 22px 0 10px; font-size: 1.1rem; color: #1a3f8b; }}
+          ul {{ margin: 0; padding-left: 20px; }}
+          li {{ margin: 8px 0; }}
+          .price {{ font-size: 1.5rem; font-weight: 700; color: #0f7b43; margin: 6px 0 0; }}
+          .cta-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
+          .btn {{
+            display: inline-block;
+            text-decoration: none;
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-weight: 700;
+          }}
+          .btn-primary {{ background: #25d366; color: #fff; }}
+          .btn-secondary {{ background: #e7ecf7; color: #102036; }}
+        </style>
+      </head>
       <body>
-        <h1>{heading}</h1>
-        <p>{limit_message}</p>
-        <h2>{benefits_title}</h2>
-        <ul>{''.join(f'<li>{item}</li>' for item in benefits)}</ul>
-        <p><a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>{cta}</a></p>
-        <p><a href='/student-dashboard'>{back}</a></p>
+        <main class='wrap'>
+          <section class='card'>
+            <h1>Improve Your Child’s Marks in 30 Days</h1>
+            <p class='si-title'>ඔබගේ දරුවාගේ ලකුණු දින 30 ක් තුළ වැඩි කරගන්න</p>
+
+            <h2>Benefits</h2>
+            <ul>
+              <li>Personalized learning</li>
+              <li>Weak topic fixing</li>
+              <li>Daily progress tracking</li>
+              <li>Parent notifications</li>
+            </ul>
+
+            <h2>Pricing</h2>
+            <p class='price'>Only LKR 350 per month</p>
+
+            <div class='cta-row'>
+              <a class='btn btn-primary' href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>Contact on WhatsApp</a>
+              <a class='btn btn-primary' href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>WhatsApp මගින් සම්බන්ධ වන්න</a>
+              <a class='btn btn-secondary' href='/student-dashboard?medium={selected_medium}'>{back}</a>
+            </div>
+          </section>
+        </main>
       </body>
     </html>
     """
