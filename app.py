@@ -185,7 +185,7 @@ class Student(db.Model):
     subscription_end_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     class_id = db.Column(db.Integer, nullable=True)
-    school_id = db.Column(db.Integer, nullable=True)
+    school_id = db.Column(db.Integer, nullable=False)
 
 
 class School(db.Model):
@@ -711,6 +711,10 @@ def register_form() -> str:
     selected_medium = resolve_medium(request.args.get("medium"))
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+    schools = School.query.order_by(School.school_name.asc()).all()
+    school_options = ''.join(
+        f'<option value="{school.id}">{escape(school.school_name)}</option>' for school in schools
+    )
 
     return f"""
     <!doctype html>
@@ -757,6 +761,14 @@ def register_form() -> str:
           </label>
           <br><br>
           <label>
+            School:
+            <select name="school_id" required>
+              <option value="">Select school</option>
+              {school_options}
+            </select>
+          </label>
+          <br><br>
+          <label>
             Password:
             <input type="password" name="password" required>
           </label>
@@ -782,7 +794,7 @@ def register_student():
             return "<h2>Error: Invalid or missing form data</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": "Invalid or missing JSON body"}), 400
 
-    required_fields = ["name", "grade", "email", "parent_email", "mobile", "medium", "password"]
+    required_fields = ["name", "grade", "email", "parent_email", "mobile", "medium", "password", "school_id"]
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
     if missing_fields:
         if is_form_submission:
@@ -815,6 +827,21 @@ def register_student():
             return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": msg}), 400
 
+    school_id_raw = str(data.get("school_id", "")).strip()
+    if not school_id_raw:
+        msg = "Please select school"
+        if is_form_submission:
+            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
+        return jsonify({"success": False, "message": msg}), 400
+
+    if not school_id_raw.isdigit() or not School.query.get(int(school_id_raw)):
+        msg = "Invalid school selected"
+        if is_form_submission:
+            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
+        return jsonify({"success": False, "message": msg}), 400
+
+    school_id = int(school_id_raw)
+
     email = data["email"].strip()
     parent_email = data["parent_email"].strip()
     mobile = data["mobile"].strip()
@@ -837,6 +864,7 @@ def register_student():
         parent_email=parent_email,
         mobile=mobile,
         password_hash=generate_password_hash(data["password"]),
+        school_id=school_id,
     )
 
     db.session.add(student)
@@ -862,6 +890,7 @@ def register_student():
                     "email": student.email,
                     "parent_email": student.parent_email,
                     "mobile": student.mobile,
+                    "school_id": student.school_id,
                 },
             }
         ),
