@@ -321,6 +321,35 @@ class ParentNotification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+def get_homework_summary_for_class(class_id: int):
+    assignments = (
+        HomeworkAssignment.query.filter_by(class_id=class_id)
+        .order_by(HomeworkAssignment.due_date.asc(), HomeworkAssignment.id.desc())
+        .all()
+    )
+    total_students = Student.query.filter_by(class_id=class_id).count()
+    summary_rows = []
+    for assignment in assignments:
+        submissions = HomeworkSubmission.query.filter_by(homework_id=assignment.id).all()
+        submission_count = len(submissions)
+        average_score = (
+            round(sum(item.score for item in submissions) / submission_count, 1)
+            if submission_count
+            else None
+        )
+        summary_rows.append(
+            {
+                "assignment": assignment,
+                "total_students": total_students,
+                "submission_count": submission_count,
+                "average_score": average_score,
+            }
+        )
+    return summary_rows
+
+
+
+
 
 
 def ensure_gamification_columns() -> None:
@@ -1942,6 +1971,14 @@ def teacher_class_details(class_id: int):
         )
 
     student_rows = "".join(rows)
+    homework_summary_rows = get_homework_summary_for_class(classroom.id)
+    homework_row_list = []
+    for item in homework_summary_rows:
+        average_score_text = f"{item['average_score']:.1f}%" if item["average_score"] is not None else "-"
+        homework_row_list.append(
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item['assignment'].title)}</td><td style='border:1px solid #ccc;padding:8px;'>{item['assignment'].due_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{item['total_students']}</td><td style='border:1px solid #ccc;padding:8px;'>{item['submission_count']}</td><td style='border:1px solid #ccc;padding:8px;'>{average_score_text}</td><td style='border:1px solid #ccc;padding:8px;'><a href='/teacher/homework/{item['assignment'].id}'>View Details / විස්තර බලන්න</a></td></tr>"
+        )
+    homework_rows_html = "".join(homework_row_list)
     total_students = len(students)
     average_score = (
         sum(item["score"] for item in latest_scored_students) / len(latest_scored_students)
@@ -2009,6 +2046,20 @@ def teacher_class_details(class_id: int):
         <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
           <thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["student"]} / {labels["si"]["student"]}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels["en"]["score"]} / {labels["si"]["score"]}</th></tr></thead>
           <tbody>{bottom_student_rows if bottom_student_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No results yet.</td></tr>"}</tbody>
+        </table>
+        <h2>Homework Overview / ගෙදර වැඩ සාරාංශය</h2>
+        <table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Title / මාතෘකාව</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Due Date / අවසන් දිනය</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Total Students / මුළු සිසුන්</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Submissions / ඉදිරිපත් කිරීම්</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Average Score / සාමාන්‍ය ලකුණ</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Action / ක්‍රියාව</th>
+            </tr>
+          </thead>
+          <tbody>{homework_rows_html if homework_rows_html else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No homework assigned yet. / තවම ගෙදර වැඩ නියම කර නොමැත.</td></tr>"}</tbody>
         </table>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
@@ -2279,6 +2330,81 @@ def teacher_assign_homework(class_id: int):
     </form>
     <p><a href='/teacher/class/{classroom.id}'>Back to Class</a></p>
     </body></html>
+    """
+
+
+@app.route("/teacher/homework/<int:homework_id>", methods=["GET"])
+def teacher_homework_details(homework_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+
+    homework = HomeworkAssignment.query.filter_by(id=homework_id, teacher_id=int(teacher_id)).first()
+    if not homework:
+        return "<h2>Homework not found</h2>", 404
+
+    students = (
+        Student.query.filter_by(class_id=homework.class_id)
+        .order_by(Student.name.asc(), Student.id.asc())
+        .all()
+    )
+    submissions = HomeworkSubmission.query.filter_by(homework_id=homework.id).all()
+    submission_by_student = {item.student_id: item for item in submissions}
+
+    total_students = len(students)
+    submitted_scores = [item.score for item in submissions]
+    average_score = round(sum(submitted_scores) / len(submitted_scores), 1) if submitted_scores else 0.0
+    not_submitted_count = sum(1 for student in students if student.id not in submission_by_student)
+    weak_students_count = sum(1 for item in submissions if item.score < 50)
+
+    detail_rows = []
+    for student in students:
+        submission = submission_by_student.get(student.id)
+        is_submitted = submission is not None
+        score_value = f"{submission.score:.1f}%" if is_submitted else "-"
+        if not is_submitted:
+            status = "Not Submitted / ඉදිරිපත් කර නැත"
+        elif submission.score < 50:
+            status = "Weak / දුර්වල"
+        else:
+            status = "Completed / සම්පූර්ණයි"
+
+        detail_rows.append(
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{'Yes / ඔව්' if is_submitted else 'No / නැහැ'}</td><td style='border:1px solid #ccc;padding:8px;'>{score_value}</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td></tr>"
+        )
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Homework Details</title></head>
+      <body>
+        <h1>Homework Details / ගෙදර වැඩ විස්තර</h1>
+        <p><strong>Title / මාතෘකාව:</strong> {escape(homework.title)}</p>
+        <p><strong>Due Date / අවසන් දිනය:</strong> {homework.due_date.strftime('%Y-%m-%d')}</p>
+        <h2>Summary / සාරාංශය</h2>
+        <ul>
+          <li><strong>Average score / සාමාන්‍ය ලකුණ:</strong> {average_score:.1f}%</li>
+          <li><strong>Total students / මුළු සිසුන්:</strong> {total_students}</li>
+          <li><strong>Not submitted / ඉදිරිපත් නොකළ:</strong> {not_submitted_count}</li>
+          <li><strong>Weak students (&lt;50%) / දුර්වල සිසුන්:</strong> {weak_students_count}</li>
+        </ul>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student Name / ශිෂ්‍ය නම</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Submitted / ඉදිරිපත් කළාද</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score / ලකුණ</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Status / තත්ත්වය</th>
+            </tr>
+          </thead>
+          <tbody>{''.join(detail_rows) if detail_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No students found in this class.</td></tr>"}</tbody>
+        </table>
+        <p><a href='/teacher/class/{homework.class_id}'>Back to Class / පන්තියට ආපසු</a></p>
+      </body>
+    </html>
     """
 
 @app.route("/teacher-logout", methods=["GET"])
