@@ -321,6 +321,23 @@ def has_active_premium(student: Student | None) -> bool:
     return True
 
 
+def expire_subscription_if_needed(student: Student | None) -> bool:
+    if not student or not student.is_premium:
+        return False
+    if not student.subscription_end_date or student.subscription_end_date >= date.today():
+        return False
+    student.is_premium = False
+    student.subscription_end_date = None
+    db.session.commit()
+    return True
+
+
+def get_subscription_expired_message(medium: str) -> str:
+    if resolve_medium(medium) == "Sinhala":
+        return "ඔබගේ Premium අවසන් වී ඇත. දිගටම භාවිතා කිරීමට නැවත සක්‍රීය කරන්න."
+    return "Your premium has expired. Please renew to continue."
+
+
 def get_daily_practice_count(student_id: int | None) -> int:
     if not student_id:
         return 0
@@ -785,7 +802,10 @@ def login():
     if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
         return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
 
+    expired_now = expire_subscription_if_needed(student)
     session["student_id"] = student.id
+    if expired_now:
+        session["subscription_expired_message"] = get_subscription_expired_message(student.medium)
     return redirect(url_for("student_dashboard"))
 
 
@@ -806,6 +826,11 @@ def student_dashboard():
     if not student:
         session.pop("student_id", None)
         return redirect(url_for("login"))
+
+    expired_now = expire_subscription_if_needed(student)
+    expired_message = session.pop("subscription_expired_message", None)
+    if expired_now and not expired_message:
+        expired_message = get_subscription_expired_message(student.medium)
 
     result_history = (
         StudentResult.query.filter_by(student_id=student.id)
@@ -1060,6 +1085,7 @@ def student_dashboard():
       </head>
       <body>
         <h1>{text["dashboard"]}</h1>
+        {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
         <p><strong>{text["name"]}:</strong> {student.name}</p>
         <p><strong>{text["grade"]}:</strong> {student.grade}</p>
         <p><strong>{text["medium"]}:</strong> {student.medium}</p>
@@ -1316,6 +1342,7 @@ def learning_path() -> str:
     if not student:
         session.pop("student_id", None)
         return redirect(url_for("login"))
+
 
     latest_result = (
         StudentResult.query.filter_by(student_id=student.id)
@@ -3296,7 +3323,10 @@ def retest_weak() -> str:
         session.pop("student_id", None)
         return redirect(url_for("login"))
 
+
     selected_medium = resolve_medium(request.values.get("medium") or student.medium)
+    expired_now = expire_subscription_if_needed(student)
+    expired_message = get_subscription_expired_message(selected_medium) if expired_now else ""
     if not has_active_premium(student) and get_daily_retest_count(student_id) >= 3:
         return redirect(url_for("upgrade_page", medium=selected_medium, limit_type="retest"))
     medium_key = "en" if selected_medium == "English" else "si"
@@ -3643,6 +3673,8 @@ def practice_page() -> str:
     medium_key = "en" if selected_medium == "English" else "si"
     student_id = session.get("student_id")
     student = db.session.get(Student, student_id) if student_id else None
+    expired_now = expire_subscription_if_needed(student)
+    expired_message = get_subscription_expired_message(selected_medium) if expired_now else ""
     if student_id and not has_active_premium(student) and get_daily_practice_count(student_id) >= 5:
         return redirect(url_for("upgrade_page", medium=selected_medium, limit_type="practice"))
     last_attempt = None
