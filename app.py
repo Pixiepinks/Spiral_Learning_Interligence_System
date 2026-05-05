@@ -1672,11 +1672,10 @@ def parent_dashboard():
         message = notification.message_si if student_medium == "Sinhala" else notification.message_en
         safe_student_name = escape(student_name)
         safe_message = escape(message)
-        whatsapp_button_text = "WhatsApp මගින් යවන්න" if student_medium == "Sinhala" else "Send via WhatsApp"
         parent_mobile = (student.mobile or "").strip() if student else ""
         whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(message)}"
         whatsapp_button_html = (
-            f"<a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>{escape(whatsapp_button_text)}</a>"
+            f"<a href='{whatsapp_link}' target='_blank'>Send via WhatsApp</a>"
             if parent_mobile
             else "-"
         )
