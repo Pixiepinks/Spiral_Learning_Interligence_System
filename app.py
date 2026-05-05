@@ -2343,6 +2343,7 @@ def admin_dashboard():
         <h2>Quick Links</h2>
         <p><a href='/admin/students'>Manage Students</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
+        <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 
@@ -2385,6 +2386,168 @@ def admin_dashboard():
       </body>
     </html>
     """
+
+
+@app.route("/admin/classes", methods=["GET"])
+def admin_classes():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    classes = Class.query.order_by(Class.created_at.desc(), Class.id.desc()).all()
+    rows = []
+    for classroom in classes:
+        rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{classroom.id}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(classroom.class_name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{display_grade(classroom.grade)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{classroom.teacher_id}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{Student.query.filter_by(class_id=classroom.id).count()}</td>
+              <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/class/{classroom.id}'>View / Assign</a></td>
+            </tr>
+            """
+        )
+
+    class_rows = "".join(rows)
+    return f"""
+    <h1>Manage Classes</h1>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead>
+        <tr>
+          <th style='border:1px solid #ccc;padding:8px;'>Class ID</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Class Name</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Grade</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Teacher ID</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Student Count</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Action</th>
+        </tr>
+      </thead>
+      <tbody>{class_rows if class_rows else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No classes found.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/class/<int:class_id>", methods=["GET"])
+def admin_class_details(class_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    classroom = db.session.get(Class, class_id)
+    if not classroom:
+        return "<h2>Class not found</h2>", 404
+
+    students = (
+        Student.query.filter_by(class_id=classroom.id)
+        .order_by(Student.name.asc(), Student.id.asc())
+        .all()
+    )
+
+    student_rows = "".join(
+        [
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{display_grade(student.grade)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td>
+            </tr>
+            """
+            for student in students
+        ]
+    )
+
+    return f"""
+    <h1>Class: {escape(classroom.class_name)}</h1>
+    <p><strong>Class ID:</strong> {classroom.id}</p>
+    <p><strong>Grade:</strong> {display_grade(classroom.grade)}</p>
+    <p><strong>Teacher ID:</strong> {classroom.teacher_id}</p>
+    <p><a href='/admin/assign-students/{classroom.id}'>Assign Students</a></p>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead>
+        <tr>
+          <th style='border:1px solid #ccc;padding:8px;'>Student ID</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Name</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Grade</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Medium</th>
+        </tr>
+      </thead>
+      <tbody>{student_rows if student_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No students assigned.</td></tr>"}</tbody>
+    </table>
+    <p><a href='/admin/classes'>Back to Manage Classes</a></p>
+    """
+
+
+@app.route("/admin/assign-students/<int:class_id>", methods=["GET", "POST"])
+def admin_assign_students(class_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    classroom = db.session.get(Class, class_id)
+    if not classroom:
+        return "<h2>Class not found</h2>", 404
+
+    if request.method == "POST":
+        selected_student_ids = {
+            int(student_id)
+            for student_id in request.form.getlist("student_ids")
+            if student_id.isdigit()
+        }
+        grade_students = Student.query.filter_by(grade=classroom.grade).all()
+        for student in grade_students:
+            if student.id in selected_student_ids:
+                student.class_id = classroom.id
+            elif student.class_id == classroom.id:
+                student.class_id = None
+        db.session.commit()
+        return redirect(f"/admin/class/{classroom.id}")
+
+    grade_students = (
+        Student.query.filter_by(grade=classroom.grade)
+        .order_by(Student.name.asc(), Student.id.asc())
+        .all()
+    )
+    student_rows = "".join(
+        [
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'><input type='checkbox' name='student_ids' value='{student.id}' {'checked' if student.class_id == classroom.id else ''}></td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{display_grade(student.grade)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td>
+            </tr>
+            """
+            for student in grade_students
+        ]
+    )
+
+    return f"""
+    <h1>Assign Students to {escape(classroom.class_name)}</h1>
+    <p>Grade: {display_grade(classroom.grade)}</p>
+    <form method='post' action='/admin/assign-students/{classroom.id}'>
+      <table style='border-collapse:collapse;width:100%;'>
+        <thead>
+          <tr>
+            <th style='border:1px solid #ccc;padding:8px;'>Select</th>
+            <th style='border:1px solid #ccc;padding:8px;'>Student ID</th>
+            <th style='border:1px solid #ccc;padding:8px;'>Name</th>
+            <th style='border:1px solid #ccc;padding:8px;'>Grade</th>
+            <th style='border:1px solid #ccc;padding:8px;'>Medium</th>
+          </tr>
+        </thead>
+        <tbody>{student_rows if student_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No students found for this grade.</td></tr>"}</tbody>
+      </table>
+      <br>
+      <button type='submit'>Save Assignments</button>
+    </form>
+    <p><a href='/admin/class/{classroom.id}'>Back to Class Details</a></p>
+    """
+
 
 @app.route("/admin/premium", methods=["GET"])
 def admin_premium():
