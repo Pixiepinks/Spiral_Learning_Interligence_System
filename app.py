@@ -167,6 +167,8 @@ class Student(db.Model):
     current_streak = db.Column(db.Integer, nullable=False, default=0)
     longest_streak = db.Column(db.Integer, nullable=False, default=0)
     last_activity_date = db.Column(db.Date, nullable=True)
+    is_premium = db.Column(db.Boolean, nullable=False, default=False)
+    subscription_end_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -300,6 +302,49 @@ def ensure_streak_columns() -> None:
     db.session.execute(db.text("UPDATE student SET current_streak = 0 WHERE current_streak IS NULL"))
     db.session.execute(db.text("UPDATE student SET longest_streak = 0 WHERE longest_streak IS NULL"))
     db.session.commit()
+
+
+def ensure_subscription_columns() -> None:
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS is_premium BOOLEAN"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_end_date DATE"))
+    db.session.execute(db.text("UPDATE student SET is_premium = FALSE WHERE is_premium IS NULL"))
+    db.session.commit()
+
+
+def has_active_premium(student: Student | None) -> bool:
+    if not student:
+        return False
+    if not student.is_premium:
+        return False
+    if student.subscription_end_date and student.subscription_end_date < date.today():
+        return False
+    return True
+
+
+def get_daily_practice_count(student_id: int | None) -> int:
+    if not student_id:
+        return 0
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    return (
+        StudentQuestionAttempt.query.filter(
+            StudentQuestionAttempt.student_id == student_id,
+            StudentQuestionAttempt.source_type == "Practice",
+            StudentQuestionAttempt.created_at >= today_start,
+        ).count()
+    )
+
+
+def get_daily_retest_count(student_id: int | None) -> int:
+    if not student_id:
+        return 0
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    return (
+        StudentQuestionAttempt.query.filter(
+            StudentQuestionAttempt.student_id == student_id,
+            StudentQuestionAttempt.source_type == "RetestWeak",
+            StudentQuestionAttempt.created_at >= today_start,
+        ).count()
+    )
 
 
 def update_student_streak(student_id: int | None) -> tuple[int, int]:
@@ -732,6 +777,7 @@ def login():
     try:
         ensure_gamification_columns()
         ensure_streak_columns()
+        ensure_subscription_columns()
     except Exception:
         db.session.rollback()
 
@@ -2542,6 +2588,17 @@ def update_streak_db() -> tuple[str, int]:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Streak DB update failed: {exc}"}), 500
 
+
+@app.route("/update-subscription-db", methods=["GET"])
+def update_subscription_db() -> tuple[str, int]:
+    try:
+        ensure_subscription_columns()
+        return "Subscription columns updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Subscription DB update failed: {exc}"}), 500
+
+
 @app.route("/update-db", methods=["GET"])
 def update_db() -> tuple:
     try:
@@ -3166,6 +3223,8 @@ def retest_weak() -> str:
         return redirect(url_for("login"))
 
     selected_medium = resolve_medium(request.values.get("medium") or student.medium)
+    if not has_active_premium(student) and get_daily_retest_count(student_id) >= 3:
+        return redirect(url_for("upgrade_page", medium=selected_medium, limit_type="retest"))
     medium_key = "en" if selected_medium == "English" else "si"
     latest_result = get_latest_student_result(student_id)
 
@@ -3323,6 +3382,46 @@ def retest_weak() -> str:
     """
 
 
+@app.route("/upgrade", methods=["GET"])
+def upgrade_page() -> str:
+    selected_medium = resolve_medium(request.args.get("medium"))
+    limit_type = (request.args.get("limit_type") or "").strip().lower()
+    if selected_medium == "Sinhala":
+        title = "ප්‍රිමියම් වෙත උසස් කරන්න"
+        heading = "දෛනික සීමාව ඉක්මවා ඇත"
+        practice_msg = "දිනකට පුහුණු ප්‍රශ්න 5 ක් පමණි. අසීමිත පුහුණුව සඳහා Premium ගන්න."
+        retest_msg = "දිනකට නැවත පරීක්ෂණ 3 ක් පමණි. අසීමිත නැවත පරීක්ෂණ සඳහා Premium ගන්න."
+        benefits = ["අසීමිත දෛනික Practice", "අසීමිත Retest Weak Topics", "වේගවත් ප්‍රගතිය සඳහා වඩා හොඳ මාර්ගගතය"]
+        cta = "WhatsApp මඟින් සම්බන්ධ වන්න"
+        back = "ඩෑෂ්බෝඩ් වෙත ආපසු"
+        benefits_title = "Premium ප්‍රතිලාභ"
+    else:
+        title = "Upgrade to Premium"
+        heading = "Daily limit reached"
+        practice_msg = "You can do only 5 practice sets per day. Upgrade for unlimited practice."
+        retest_msg = "You can do only 3 retest attempts per day. Upgrade for unlimited retests."
+        benefits = ["Unlimited daily practice", "Unlimited weak-topic retests", "Faster progress with consistent learning"]
+        cta = "Contact via WhatsApp"
+        back = "Back to Dashboard"
+        benefits_title = "Premium benefits"
+    limit_message = retest_msg if limit_type == "retest" else practice_msg
+    whatsapp_link = "https://wa.me/94700000000?text=Hi%2C%20I%20want%20to%20upgrade%20to%20Premium."
+    return f"""
+    <!doctype html>
+    <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{title}</title></head>
+      <body>
+        <h1>{heading}</h1>
+        <p>{limit_message}</p>
+        <h2>{benefits_title}</h2>
+        <ul>{''.join(f'<li>{item}</li>' for item in benefits)}</ul>
+        <p><a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>{cta}</a></p>
+        <p><a href='/student-dashboard'>{back}</a></p>
+      </body>
+    </html>
+    """
+
+
 
 
 @app.route("/leaderboard", methods=["GET"])
@@ -3431,6 +3530,9 @@ def practice_page() -> str:
 
     medium_key = "en" if selected_medium == "English" else "si"
     student_id = session.get("student_id")
+    student = db.session.get(Student, student_id) if student_id else None
+    if student_id and not has_active_premium(student) and get_daily_practice_count(student_id) >= 5:
+        return redirect(url_for("upgrade_page", medium=selected_medium, limit_type="practice"))
     last_attempt = None
     if student_id:
         last_attempt = (
