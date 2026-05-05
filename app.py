@@ -3074,6 +3074,7 @@ def admin_dashboard():
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
+        <p><a href='/admin/schools'>Manage Schools</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 
         <h2>Latest Activity</h2>
@@ -3339,6 +3340,112 @@ def admin_activate_premium(student_id: int):
     return redirect("/admin/premium")
 
 
+
+
+@app.route("/admin/schools", methods=["GET"])
+def admin_schools():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    schools = School.query.order_by(School.created_at.desc(), School.id.desc()).all()
+    rows = []
+    for school in schools:
+        teacher_count = Teacher.query.filter_by(school_id=school.id).count()
+        student_count = Student.query.filter_by(school_id=school.id).count()
+        rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(school.school_name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{school.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{teacher_count}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student_count}</td>
+              <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/edit-school/{school.id}'>Edit</a></td>
+            </tr>
+            """
+        )
+
+    school_rows = "".join(rows)
+    return f"""
+    <h1>Manage Schools</h1>
+    <p><a href='/admin/create-school'>Create New School</a></p>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead>
+        <tr>
+          <th style='border:1px solid #ccc;padding:8px;'>School Name</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Created Date</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Total Teachers</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Total Students</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Action</th>
+        </tr>
+      </thead>
+      <tbody>{school_rows if school_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No schools found.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/create-school", methods=["GET", "POST"])
+def admin_create_school():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    if request.method == "POST":
+        school_name = (request.form.get("school_name") or "").strip()
+        if not school_name:
+            return "<h2>School Name is required.</h2><p><a href='/admin/create-school'>Try again</a></p>", 400
+
+        existing_school = School.query.filter(db.func.lower(School.school_name) == school_name.lower()).first()
+        if existing_school:
+            return "<h2>School name already exists.</h2><p><a href='/admin/create-school'>Try again</a></p>", 400
+
+        db.session.add(School(school_name=school_name, created_at=datetime.utcnow()))
+        db.session.commit()
+        return redirect("/admin/schools")
+
+    return """
+    <h1>Create New School</h1>
+    <form method='post' action='/admin/create-school'>
+      <label>School Name: <input type='text' name='school_name' required></label><br><br>
+      <button type='submit'>Create School</button>
+    </form>
+    <p><a href='/admin/schools'>Back to Manage Schools</a></p>
+    """
+
+
+@app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
+def admin_edit_school(school_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    school = School.query.get_or_404(school_id)
+
+    if request.method == "POST":
+        school_name = (request.form.get("school_name") or "").strip()
+        if not school_name:
+            return f"<h2>School Name is required.</h2><p><a href='/admin/edit-school/{school.id}'>Try again</a></p>", 400
+
+        existing_school = School.query.filter(
+            db.func.lower(School.school_name) == school_name.lower(),
+            School.id != school.id,
+        ).first()
+        if existing_school:
+            return f"<h2>School name already exists.</h2><p><a href='/admin/edit-school/{school.id}'>Try again</a></p>", 400
+
+        school.school_name = school_name
+        db.session.commit()
+        return redirect("/admin/schools")
+
+    return f"""
+    <h1>Edit School</h1>
+    <form method='post' action='/admin/edit-school/{school.id}'>
+      <label>School Name: <input type='text' name='school_name' value='{escape(school.school_name)}' required></label><br><br>
+      <button type='submit'>Update School</button>
+    </form>
+    <p><a href='/admin/schools'>Back to Manage Schools</a></p>
+    """
 @app.route("/admin/create-school-admin", methods=["GET", "POST"])
 def admin_create_school_admin():
     admin_redirect = admin_session_required()
