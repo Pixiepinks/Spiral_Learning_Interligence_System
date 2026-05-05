@@ -2365,15 +2365,22 @@ def teacher_homework_details(homework_id: int):
         submission = submission_by_student.get(student.id)
         is_submitted = submission is not None
         score_value = f"{submission.score:.1f}%" if is_submitted else "-"
+        reminder_cell = "-"
         if not is_submitted:
             status = "Not Submitted / ඉදිරිපත් කර නැත"
+            reminder_url = url_for("teacher_remind_homework_student", homework_id=homework.id, student_id=student.id)
+            reminder_cell = (
+                f"<form method='post' action='{reminder_url}' style='margin:0;'>"
+                "<button type='submit'>Send Reminder</button>"
+                "</form>"
+            )
         elif submission.score < 50:
             status = "Weak / දුර්වල"
         else:
             status = "Completed / සම්පූර්ණයි"
 
         detail_rows.append(
-            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{'Yes / ඔව්' if is_submitted else 'No / නැහැ'}</td><td style='border:1px solid #ccc;padding:8px;'>{score_value}</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td></tr>"
+            f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{'Yes / ඔව්' if is_submitted else 'No / නැහැ'}</td><td style='border:1px solid #ccc;padding:8px;'>{score_value}</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td><td style='border:1px solid #ccc;padding:8px;'>{reminder_cell}</td></tr>"
         )
 
     return f"""
@@ -2398,15 +2405,74 @@ def teacher_homework_details(homework_id: int):
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Submitted / ඉදිරිපත් කළාද</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Score / ලකුණ</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Status / තත්ත්වය</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Reminder / මතක් කිරීම</th>
             </tr>
           </thead>
-          <tbody>{''.join(detail_rows) if detail_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No students found in this class.</td></tr>"}</tbody>
+          <tbody>{''.join(detail_rows) if detail_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No students found in this class.</td></tr>"}</tbody>
         </table>
         <p><a href='/teacher/class/{homework.class_id}'>Back to Class / පන්තියට ආපසු</a></p>
       </body>
     </html>
     """
 
+
+
+@app.route("/teacher/homework/<int:homework_id>/remind/<int:student_id>", methods=["POST"])
+def teacher_remind_homework_student(homework_id: int, student_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+
+    homework = HomeworkAssignment.query.filter_by(id=homework_id, teacher_id=int(teacher_id)).first()
+    if not homework:
+        return "<h2>Homework not found</h2>", 404
+
+    student = Student.query.filter_by(id=student_id, class_id=homework.class_id).first()
+    if not student:
+        return "<h2>Student not found for this class</h2>", 404
+
+    existing_submission = HomeworkSubmission.query.filter_by(homework_id=homework.id, student_id=student.id).first()
+    if existing_submission:
+        return redirect(url_for("teacher_homework_details", homework_id=homework.id))
+
+    due_date_text = homework.due_date.strftime("%Y-%m-%d")
+    message_en = f"Reminder: {student.name} has pending homework: {homework.title}. Due date: {due_date_text}."
+    message_si = f"මතක් කිරීම: {student.name} සඳහා {homework.title} ගෙදර වැඩ තවම සම්පූර්ණ කර නොමැත. අවසන් දිනය: {due_date_text}."
+
+    db.session.add(
+        ParentNotification(
+            student_id=student.id,
+            parent_email=student.parent_email or student.email,
+            message_en=message_en,
+            message_si=message_si,
+        )
+    )
+    db.session.commit()
+
+    selected_message = message_si if student.medium == "Sinhala" else message_en
+    parent_mobile = (student.mobile or "").strip()
+    whatsapp_link_html = ""
+    if parent_mobile:
+        whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(selected_message)}"
+        whatsapp_link_html = (
+            f"<p><a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>Send via WhatsApp</a></p>"
+        )
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reminder Created</title></head>
+      <body>
+        <h2>Reminder created successfully.</h2>
+        <p>Notification saved for {escape(student.name)}.</p>
+        {whatsapp_link_html}
+        <p><a href='/teacher/homework/{homework.id}'>Back to Homework Details</a></p>
+      </body>
+    </html>
+    """
 @app.route("/teacher-logout", methods=["GET"])
 def teacher_logout():
     session.pop("teacher_logged_in", None)
