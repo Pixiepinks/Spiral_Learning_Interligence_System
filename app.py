@@ -3770,10 +3770,26 @@ def update_class_db() -> tuple:
 
 
 @app.route("/update-school-db", methods=["GET"])
-def update_school_db() -> tuple:
+def update_school_db() -> tuple[str, int]:
     try:
+        db.create_all()
         School.__table__.create(bind=db.engine, checkfirst=True)
+        SchoolAdmin.__table__.create(bind=db.engine, checkfirst=True)
         Teacher.__table__.create(bind=db.engine, checkfirst=True)
+        db.session.execute(
+            db.text(
+                """
+                CREATE TABLE IF NOT EXISTS school_admin (
+                    id SERIAL PRIMARY KEY,
+                    school_id INTEGER NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    email VARCHAR(120) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
         inspector = db.inspect(db.engine)
         student_columns = {col["name"] for col in inspector.get_columns("student")}
         if "school_id" not in student_columns:
@@ -3789,7 +3805,7 @@ def update_school_db() -> tuple:
         db.session.execute(db.text("UPDATE student SET school_id = :school_id WHERE school_id IS NULL"), {"school_id": first_school.id})
         db.session.execute(db.text("UPDATE teacher SET school_id = :school_id WHERE school_id IS NULL"), {"school_id": first_school.id})
         db.session.commit()
-        return jsonify({"success": True, "message": "School database updated successfully", "school_id": first_school.id}), 200
+        return "School database updated successfully", 200
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"School DB update failed: {exc}"}), 500
