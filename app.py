@@ -185,6 +185,22 @@ class Student(db.Model):
     subscription_end_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     class_id = db.Column(db.Integer, nullable=True)
+    school_id = db.Column(db.Integer, nullable=True)
+
+
+class School(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    school_name = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Teacher(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    school_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Class(db.Model):
@@ -881,8 +897,14 @@ def login():
             <title>Student Login</title>
           </head>
           <body>
-            <h1>Student Login</h1>
+            <h1>Login</h1>
             <form method="post" action="/login">
+              <label>Role:
+                <select name="role">
+                  <option value="student">Student</option>
+                  <option value="school_admin">School Admin</option>
+                </select>
+              </label><br><br>
               <label>Email: <input type="email" name="email" required></label><br><br>
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
@@ -891,6 +913,7 @@ def login():
         </html>
         """
 
+    role = (request.form.get("role") or "student").strip()
     email = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
 
@@ -900,6 +923,17 @@ def login():
         ensure_subscription_columns()
     except Exception:
         db.session.rollback()
+
+    if role == "school_admin":
+        school_admin_email, school_admin_password = get_school_admin_credentials()
+        if email != school_admin_email or password != school_admin_password:
+            return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
+        school = School.query.order_by(School.id.asc()).first()
+        if not school:
+            return "<h2>No school found</h2><p>Run <code>/update-school-db</code> first.</p>", 400
+        session["school_admin_logged_in"] = True
+        session["school_id"] = school.id
+        return redirect("/school-admin/dashboard")
 
     student = Student.query.filter_by(email=email).first()
     if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
@@ -1774,6 +1808,13 @@ def get_teacher_credentials() -> tuple[str, str]:
     )
 
 
+def get_school_admin_credentials() -> tuple[str, str]:
+    return (
+        os.environ.get("SCHOOL_ADMIN_EMAIL", "schooladmin@spiral.com"),
+        os.environ.get("SCHOOL_ADMIN_PASSWORD", "schooladmin123"),
+    )
+
+
 @app.route("/teacher-login", methods=["GET", "POST"])
 def teacher_login():
     if request.method == "GET":
@@ -1793,8 +1834,13 @@ def teacher_login():
 
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "")
-    teacher_email, teacher_password = get_teacher_credentials()
+    teacher = Teacher.query.filter_by(email=email).first()
+    if teacher and check_password_hash(teacher.password_hash, password):
+        session["teacher_logged_in"] = True
+        session["teacher_id"] = teacher.id
+        return redirect(url_for("teacher_dashboard"))
 
+    teacher_email, teacher_password = get_teacher_credentials()
     if email != teacher_email or password != teacher_password:
         return "<h2>Invalid teacher credentials</h2><p><a href='/teacher-login'>Try again</a></p>", 401
 
@@ -2620,6 +2666,91 @@ def admin_session_required():
     if session.get("admin_logged_in") is not True:
         return redirect(url_for("admin_login"))
     return None
+
+
+def school_admin_session_required():
+    if session.get("school_admin_logged_in") is not True:
+        return redirect(url_for("login"))
+    if not session.get("school_id"):
+        return "<h2>No school assigned</h2>", 400
+    return None
+
+
+@app.route("/school-admin/dashboard", methods=["GET"])
+def school_admin_dashboard():
+    auth_redirect = school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+    school_id = int(session["school_id"])
+    total_teachers = Teacher.query.filter_by(school_id=school_id).count()
+    total_students = Student.query.filter_by(school_id=school_id).count()
+    teacher_ids = [teacher.id for teacher in Teacher.query.filter_by(school_id=school_id).all()]
+    total_classes = Class.query.filter(Class.teacher_id.in_(teacher_ids)).count() if teacher_ids else 0
+    total_tests = ClassTest.query.filter(ClassTest.teacher_id.in_(teacher_ids)).count() if teacher_ids else 0
+    return f"""<!doctype html><html><body><h1>School Admin Dashboard</h1>
+    <p>Total teachers: {total_teachers}</p><p>Total students: {total_students}</p>
+    <p>Total classes: {total_classes}</p><p>Total tests: {total_tests}</p>
+    <p><a href='/school-admin/teachers'>Manage Teachers</a></p>
+    <p><a href='/school-admin/students'>Manage Students</a></p></body></html>"""
+
+
+@app.route("/school-admin/teachers", methods=["GET", "POST"])
+def school_admin_teachers():
+    auth_redirect = school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+    school_id = int(session["school_id"])
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password") or ""
+        if not name or not email or not password:
+            return "<h2>Missing required teacher fields</h2>", 400
+        db.session.add(Teacher(name=name, email=email, password_hash=generate_password_hash(password), school_id=school_id))
+        db.session.commit()
+        return redirect("/school-admin/teachers")
+    teachers = Teacher.query.filter_by(school_id=school_id).order_by(Teacher.id.desc()).all()
+    rows = "".join([f"<tr><td>{t.id}</td><td>{escape(t.name)}</td><td>{escape(t.email)}</td></tr>" for t in teachers])
+    return f"""<!doctype html><html><body><h1>Manage Teachers</h1>
+    <form method='post'><label>Name: <input name='name' required></label><br><br>
+    <label>Email: <input type='email' name='email' required></label><br><br>
+    <label>Password: <input type='password' name='password' required></label><br><br>
+    <button type='submit'>Add Teacher</button></form>
+    <table border='1' cellpadding='6'><tr><th>ID</th><th>Name</th><th>Email</th></tr>{rows}</table>
+    <p><a href='/school-admin/dashboard'>Back</a></p></body></html>"""
+
+
+@app.route("/school-admin/students", methods=["GET", "POST"])
+def school_admin_students():
+    auth_redirect = school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+    school_id = int(session["school_id"])
+    students = Student.query.filter_by(school_id=school_id).order_by(Student.id.desc()).all()
+    teacher_ids = [teacher.id for teacher in Teacher.query.filter_by(school_id=school_id).all()]
+    classes = Class.query.filter(Class.teacher_id.in_(teacher_ids)).order_by(Class.class_name.asc()).all() if teacher_ids else []
+    if request.method == "POST":
+        student_id = int(request.form.get("student_id") or 0)
+        class_id = int(request.form.get("class_id") or 0)
+        student = Student.query.filter_by(id=student_id, school_id=school_id).first()
+        if not student:
+            return "<h2>Student not found in your school</h2>", 404
+        student.class_id = class_id
+        db.session.commit()
+        return redirect("/school-admin/students")
+    class_options = "".join([f"<option value='{c.id}'>{escape(c.class_name)} ({escape(display_grade(c.grade))})</option>" for c in classes])
+    rows = ""
+    for student in students:
+        latest = StudentResult.query.filter_by(student_id=student.id).order_by(StudentResult.created_at.desc(), StudentResult.id.desc()).first()
+        performance = f"{latest.score:.1f}%" if latest else "N/A"
+        rows += f"<tr><td>{student.id}</td><td>{escape(student.name)}</td><td>{student.class_id or '-'}</td><td>{performance}</td></tr>"
+    return f"""<!doctype html><html><body><h1>Manage Students</h1>
+    <form method='post'><label>Student:
+    <select name='student_id'>{''.join([f"<option value='{s.id}'>{escape(s.name)}</option>" for s in students])}</select></label>
+    <label>Class: <select name='class_id'>{class_options}</select></label>
+    <button type='submit'>Assign to class</button></form>
+    <table border='1' cellpadding='6'><tr><th>ID</th><th>Name</th><th>Class</th><th>Performance</th></tr>{rows}</table>
+    <p><a href='/school-admin/dashboard'>Back</a></p></body></html>"""
 
 
 def parse_question_form_data() -> tuple[dict, str | None]:
@@ -3568,6 +3699,32 @@ def update_class_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Class DB update failed: {exc}"}), 500
+
+
+@app.route("/update-school-db", methods=["GET"])
+def update_school_db() -> tuple:
+    try:
+        School.__table__.create(bind=db.engine, checkfirst=True)
+        Teacher.__table__.create(bind=db.engine, checkfirst=True)
+        inspector = db.inspect(db.engine)
+        student_columns = {col["name"] for col in inspector.get_columns("student")}
+        if "school_id" not in student_columns:
+            db.session.execute(db.text("ALTER TABLE student ADD COLUMN school_id INTEGER"))
+        teacher_columns = {col["name"] for col in inspector.get_columns("teacher")}
+        if "school_id" not in teacher_columns:
+            db.session.execute(db.text("ALTER TABLE teacher ADD COLUMN school_id INTEGER"))
+        first_school = School.query.order_by(School.id.asc()).first()
+        if not first_school:
+            first_school = School(school_name="Default School")
+            db.session.add(first_school)
+            db.session.flush()
+        db.session.execute(db.text("UPDATE student SET school_id = :school_id WHERE school_id IS NULL"), {"school_id": first_school.id})
+        db.session.execute(db.text("UPDATE teacher SET school_id = :school_id WHERE school_id IS NULL"), {"school_id": first_school.id})
+        db.session.commit()
+        return jsonify({"success": True, "message": "School database updated successfully", "school_id": first_school.id}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"School DB update failed: {exc}"}), 500
 
 
 @app.route("/update-gamification-db", methods=["GET"])
