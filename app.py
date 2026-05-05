@@ -1711,34 +1711,68 @@ def teacher_dashboard():
     if teacher_id is None:
         return redirect(url_for("teacher_login"))
 
-    teacher_classes = Class.query.filter_by(teacher_id=int(teacher_id)).all()
-    teacher_class_ids = [classroom.id for classroom in teacher_classes]
-
-    students = (
-        Student.query.filter(Student.class_id.in_(teacher_class_ids))
-        .order_by(Student.created_at.desc(), Student.id.desc())
+    teacher_classes = (
+        Class.query.filter_by(teacher_id=int(teacher_id))
+        .order_by(Class.created_at.desc(), Class.id.desc())
         .all()
-        if teacher_class_ids
-        else []
     )
 
     rows = []
-    for student in students:
-        latest_result = get_latest_student_result(student.id)
-        latest_score = f"{latest_result.score}%" if latest_result else "-"
-        latest_level = latest_result.level if latest_result else "-"
-        rows.append(f"""
-            <tr>
-              <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{latest_score}</td>
-              <td style='border:1px solid #ccc;padding:8px;'>{latest_level}</td>
-              <td style='border:1px solid #ccc;padding:8px;'><a href='/teacher/student/{student.id}'>View Details</a></td>
-            </tr>
-            """)
+    for classroom in teacher_classes:
+        class_students = Student.query.filter_by(class_id=classroom.id).all()
+        student_count = len(class_students)
+        student_ids = [student.id for student in class_students]
+        average_score = "-"
+        weak_topics_summary = "-"
 
-    student_rows = "".join(rows)
+        if student_ids:
+            latest_scores = []
+            for student in class_students:
+                latest_result = get_latest_student_result(student.id)
+                if latest_result:
+                    latest_scores.append(latest_result.score)
+
+            if latest_scores:
+                average_score = f"{round(sum(latest_scores) / len(latest_scores), 1)}%"
+
+            weak_topic_counts = {}
+            topic_progress_rows = (
+                StudentTopicProgress.query.filter(
+                    StudentTopicProgress.student_id.in_(student_ids)
+                )
+                .order_by(
+                    StudentTopicProgress.last_updated.desc(),
+                    StudentTopicProgress.id.desc(),
+                )
+                .all()
+            )
+            for progress in topic_progress_rows:
+                if progress.latest_score < 50:
+                    weak_topic_counts[progress.topic_en] = (
+                        weak_topic_counts.get(progress.topic_en, 0) + 1
+                    )
+
+            if weak_topic_counts:
+                top_weak_topics = sorted(
+                    weak_topic_counts.items(), key=lambda item: item[1], reverse=True
+                )[:3]
+                weak_topics_summary = ", ".join(
+                    [f"{escape(topic)} ({count})" for topic, count in top_weak_topics]
+                )
+
+        rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(classroom.class_name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{student_count}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{average_score}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{weak_topics_summary}</td>
+              <td style='border:1px solid #ccc;padding:8px;'><a href='/teacher/class/{classroom.id}'>View Class</a></td>
+            </tr>
+            """
+        )
+
+    class_rows = "".join(rows)
 
     return f"""
     <!doctype html>
@@ -1747,23 +1781,99 @@ def teacher_dashboard():
       <body>
         <h1>Teacher Dashboard</h1>
         <p><a href='/teacher/create-class'>Create Class</a></p>
-        <ul>
-          {''.join([f"<li>{escape(classroom.class_name)} ({display_grade(classroom.grade)}) - <a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></li>" for classroom in teacher_classes]) or '<li>No classes found.</li>'}
-        </ul>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Name</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Grade</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Medium</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Latest Score</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Level</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Class Name</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Number of Students</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Average Score</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Weak Topics Summary</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Action</th>
             </tr>
           </thead>
-          <tbody>{student_rows if student_rows else "<tr><td colspan='6' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+          <tbody>{class_rows if class_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No classes found.</td></tr>"}</tbody>
         </table>
         <p><a href='/teacher-logout'>Logout</a></p>
+      </body>
+    </html>
+    """
+
+
+@app.route("/teacher/class/<int:class_id>", methods=["GET"])
+def teacher_class_details(class_id: int):
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+
+    teacher_id = session.get("teacher_id")
+    if teacher_id is None:
+        return redirect(url_for("teacher_login"))
+
+    classroom = Class.query.filter_by(id=class_id, teacher_id=int(teacher_id)).first()
+    if not classroom:
+        return "<h2>Class not found</h2>", 404
+
+    students = (
+        Student.query.filter_by(class_id=classroom.id)
+        .order_by(Student.name.asc(), Student.id.asc())
+        .all()
+    )
+
+    rows = []
+    for student in students:
+        latest_result = get_latest_student_result(student.id)
+        latest_score = f"{latest_result.score}%" if latest_result else "-"
+
+        topic_progress_rows = (
+            StudentTopicProgress.query.filter_by(student_id=student.id)
+            .order_by(StudentTopicProgress.last_updated.desc(), StudentTopicProgress.id.desc())
+            .all()
+        )
+        weak_topics = []
+        progress_entries = []
+        for progress in topic_progress_rows:
+            topic_name = escape(progress.topic_en)
+            progress_entries.append(
+                f"{topic_name} ({progress.latest_score}%, {escape(progress.mastery_level_en)})"
+            )
+            if progress.latest_score < 50:
+                weak_topics.append(topic_name)
+
+        weak_topics_html = ", ".join(dict.fromkeys(weak_topics)) if weak_topics else "-"
+        progress_html = "<br>".join(progress_entries) if progress_entries else "-"
+
+        rows.append(
+            f"""
+            <tr>
+              <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{latest_score}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{weak_topics_html}</td>
+              <td style='border:1px solid #ccc;padding:8px;'>{progress_html}</td>
+            </tr>
+            """
+        )
+
+    student_rows = "".join(rows)
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Class Details</title></head>
+      <body>
+        <h1>Class: {escape(classroom.class_name)}</h1>
+        <p>Grade: {display_grade(classroom.grade)}</p>
+        <p><a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></p>
+        <table style='border-collapse:collapse;width:100%;'>
+          <thead>
+            <tr>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student List</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Scores</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Weak Topics</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Progress</th>
+            </tr>
+          </thead>
+          <tbody>{student_rows if student_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No students in this class.</td></tr>"}</tbody>
+        </table>
+        <p><a href='/teacher-dashboard'>Back to Dashboard</a></p>
       </body>
     </html>
     """
