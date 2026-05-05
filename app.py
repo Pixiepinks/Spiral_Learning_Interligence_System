@@ -170,6 +170,17 @@ class Student(db.Model):
     is_premium = db.Column(db.Boolean, nullable=False, default=False)
     subscription_end_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    class_id = db.Column(db.Integer, nullable=True)
+
+
+class Class(db.Model):
+    __tablename__ = "class"
+
+    id = db.Column(db.Integer, primary_key=True)
+    class_name = db.Column(db.String(120), nullable=False)
+    grade = db.Column(db.String(20), nullable=False)
+    teacher_id = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Question(db.Model):
@@ -1688,6 +1699,7 @@ def teacher_login():
         return "<h2>Invalid teacher credentials</h2><p><a href='/teacher-login'>Try again</a></p>", 401
 
     session["teacher_logged_in"] = True
+    session["teacher_id"] = 1
     return redirect(url_for("teacher_dashboard"))
 
 
@@ -1721,6 +1733,7 @@ def teacher_dashboard():
       <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Dashboard</title></head>
       <body>
         <h1>Teacher Dashboard</h1>
+        <p><a href='/teacher/create-class'>Create Class</a></p>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -1738,6 +1751,41 @@ def teacher_dashboard():
       </body>
     </html>
     """
+
+
+@app.route("/teacher/create-class", methods=["GET", "POST"])
+def teacher_create_class():
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+
+    if request.method == "GET":
+        return f"""
+        <!doctype html>
+        <html lang='en'>
+          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Create Class</title></head>
+          <body>
+            <h1>Create Class</h1>
+            <form method="post" action="/teacher/create-class">
+              <label>Class name: <input type="text" name="class_name" placeholder="Grade 6A" required></label><br><br>
+              <label>Grade: <select name="grade" required>{grade_options_html()}</select></label><br><br>
+              <button type="submit">Create Class</button>
+            </form>
+            <p><a href='/teacher-dashboard'>Back to Dashboard</a></p>
+          </body>
+        </html>
+        """
+
+    class_name = request.form.get("class_name", "").strip()
+    grade = normalize_grade(request.form.get("grade"))
+    teacher_id = session.get("teacher_id")
+
+    if not class_name or not is_valid_grade(grade) or teacher_id is None:
+        return "<h2>Invalid class data</h2><p><a href='/teacher/create-class'>Try again</a></p>", 400
+
+    new_class = Class(class_name=class_name, grade=grade, teacher_id=int(teacher_id))
+    db.session.add(new_class)
+    db.session.commit()
+    return redirect(url_for("teacher_dashboard"))
 
 
 @app.route("/teacher/student/<int:student_id>", methods=["GET"])
@@ -1831,6 +1879,7 @@ def teacher_student_details(student_id: int):
 @app.route("/teacher-logout", methods=["GET"])
 def teacher_logout():
     session.pop("teacher_logged_in", None)
+    session.pop("teacher_id", None)
     return redirect(url_for("teacher_login"))
 
 
@@ -2667,6 +2716,21 @@ def update_parent_link_db() -> tuple:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Parent link DB update failed: {exc}"}), 500
 
+
+
+@app.route("/update-class-db", methods=["GET"])
+def update_class_db() -> tuple:
+    try:
+        Class.__table__.create(bind=db.engine, checkfirst=True)
+        inspector = db.inspect(db.engine)
+        student_columns = {col["name"] for col in inspector.get_columns("student")}
+        if "class_id" not in student_columns:
+            db.session.execute(db.text("ALTER TABLE student ADD COLUMN class_id INTEGER"))
+        db.session.commit()
+        return jsonify({"success": True, "message": "Class database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Class DB update failed: {exc}"}), 500
 
 
 @app.route("/update-gamification-db", methods=["GET"])
