@@ -1517,10 +1517,20 @@ def parent_dashboard():
         student_name = student.name if student else f"Student #{notification.student_id}"
         student_medium = student.medium if student else "English"
         message = notification.message_si if student_medium == "Sinhala" else notification.message_en
+        whatsapp_button_text = "WhatsApp මගින් යවන්න" if student_medium == "Sinhala" else "Send via WhatsApp"
+        parent_mobile = (student.mobile or "").strip() if student else ""
+        whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(message)}"
+        whatsapp_button_html = (
+            f"<a href='{whatsapp_link}' target='_blank' rel='noopener noreferrer'>"
+            f"<button type='button'>{whatsapp_button_text}</button></a>"
+            if parent_mobile
+            else "-"
+        )
         notification_rows.append(
             f"<tr><td style='border:1px solid #ccc;padding:8px;'>{student_name}</td>"
             f"<td style='border:1px solid #ccc;padding:8px;'>{message}</td>"
-            f"<td style='border:1px solid #ccc;padding:8px;'>{notification.created_at.strftime('%Y-%m-%d %H:%M')}</td></tr>"
+            f"<td style='border:1px solid #ccc;padding:8px;'>{notification.created_at.strftime('%Y-%m-%d %H:%M')}</td>"
+            f"<td style='border:1px solid #ccc;padding:8px;'>{whatsapp_button_html}</td></tr>"
         )
 
     table_rows = "".join(rows)
@@ -1556,9 +1566,10 @@ def parent_dashboard():
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Student</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Message</th>
               <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Date</th>
+              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Action</th>
             </tr>
           </thead>
-          <tbody>{''.join(notification_rows) if notification_rows else "<tr><td colspan='3' style='border:1px solid #ccc;padding:8px;'>No notifications yet.</td></tr>"}</tbody>
+          <tbody>{''.join(notification_rows) if notification_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No notifications yet.</td></tr>"}</tbody>
         </table>
       </body>
     </html>
