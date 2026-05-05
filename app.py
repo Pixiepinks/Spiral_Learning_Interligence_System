@@ -2065,6 +2065,7 @@ def admin_dashboard():
         <h2>Quick Links</h2>
         <p><a href='/admin/students'>Manage Students</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
+        <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 
         <h2>Latest Activity</h2>
@@ -2106,6 +2107,79 @@ def admin_dashboard():
       </body>
     </html>
     """
+
+@app.route("/admin/premium", methods=["GET"])
+def admin_premium():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
+    student_rows = "".join(
+        f"""
+        <tr>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{'Yes' if student.is_premium else 'No'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.subscription_end_date.strftime('%Y-%m-%d') if student.subscription_end_date else '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/activate-premium/{student.id}'>Activate 30 Days</a> | <a href='/admin/deactivate-premium/{student.id}' onclick="return confirm('Deactivate premium access for this student?');">Deactivate</a></td>
+        </tr>
+        """
+        for student in students
+    )
+
+    return f"""
+    <h1>Premium Management</h1>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    <table style='border-collapse:collapse;width:100%;'>
+      <thead>
+        <tr>
+          <th style='border:1px solid #ccc;padding:8px;'>ID</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Name</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Grade</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Medium</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Email</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Parent Email</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Mobile</th>
+          <th style='border:1px solid #ccc;padding:8px;'>is_premium</th>
+          <th style='border:1px solid #ccc;padding:8px;'>subscription_end_date</th>
+          <th style='border:1px solid #ccc;padding:8px;'>Action</th>
+        </tr>
+      </thead>
+      <tbody>{student_rows if student_rows else "<tr><td colspan='10' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/activate-premium/<int:student_id>", methods=["GET"])
+def admin_activate_premium(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    student = Student.query.get_or_404(student_id)
+    student.is_premium = True
+    student.subscription_end_date = date.today() + timedelta(days=30)
+    db.session.commit()
+    return redirect("/admin/premium")
+
+
+@app.route("/admin/deactivate-premium/<int:student_id>", methods=["GET"])
+def admin_deactivate_premium(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    student = Student.query.get_or_404(student_id)
+    student.is_premium = False
+    student.subscription_end_date = None
+    db.session.commit()
+    return redirect("/admin/premium")
 
 
 @app.route("/admin/students", methods=["GET"])
