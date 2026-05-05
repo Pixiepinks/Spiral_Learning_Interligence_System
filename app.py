@@ -871,9 +871,11 @@ def register_student():
     db.session.commit()
 
     if is_form_submission:
+        admin_back_link = "<p><a href='/admin/students'>Back to Manage Students</a></p>" if session.get("admin_logged_in") is True else ""
         return (
             "<h2>Success: Student registered successfully</h2>"
-            "<p><a href='/register-form'>Register another student</a></p>",
+            "<p><a href='/register-form'>Register another student</a></p>"
+            f"{admin_back_link}",
             201,
         )
 
@@ -3099,6 +3101,7 @@ def admin_dashboard():
         <p><strong>Average practice score:</strong> {average_practice_score}%</p>
         <h2>Quick Links</h2>
         <p><a href='/admin/students'>Manage Students</a></p>
+        <p><a href='/register-form'>Register Student</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
@@ -3567,6 +3570,7 @@ def admin_students():
     return f"""
     <h1>Manage Students</h1>
     <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
+    <p><a href='/register-form'>Add New Student</a></p>
     <table style='border-collapse:collapse;width:100%;'>
       <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>Mobile</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
       <tbody>{student_rows if student_rows else "<tr><td colspan='11' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
