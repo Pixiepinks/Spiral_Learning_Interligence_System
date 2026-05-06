@@ -3305,7 +3305,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     return f"""
     <!doctype html>
     <html lang="en">
-      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title><style>.box-layout,.box-layout-preview{{font-family:monospace;line-height:1.4;white-space:pre;background:#f8fafc;padding:8px;border:1px solid #ddd;display:inline-block;max-width:100%;overflow:auto}}.box-layout-row{{min-height:1.2em}}.box-layout-line{{height:0;border-top:2px solid #444;margin:6px 0}}.box-layout-line-double{{border-top:none;border-bottom:3px double #444;height:4px}}.box-preview-square{{display:inline-block;min-width:1ch}}</style></head>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title><style>.box-layout,.box-layout-preview{font-family:monospace;line-height:1.4;white-space:pre;background:#f8fafc;padding:8px;border:1px solid #ddd;display:inline-block;max-width:100%;overflow:auto}.box-layout-row{min-height:1.2em}.box-layout-line{height:0;border-top:2px solid #444;margin:6px 0}.box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px}.box-preview-square{display:inline-block;min-width:1ch}</style></head>
       <body>
         <h1>{page_title}</h1>
         {error_html}
@@ -3385,7 +3385,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;");
-              const withBoxes = escaped.replace(/\\[box(\\d+)\\]/gi, "<span class='box-preview-square'>□</span>");
+              const withBoxes = escaped.replace(/\[box(\d+)\]/gi, "<span class='box-preview-square'>□</span>");
               return `<div class='box-layout-row'>${{withBoxes}}</div>`;
             }}).join("");
             p.innerHTML = out || "<div class='box-layout-row'>Live preview...</div>";
