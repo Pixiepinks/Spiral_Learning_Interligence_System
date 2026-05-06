@@ -235,6 +235,48 @@ def evaluate_box_question(question: "Question", form) -> tuple[bool, dict[str, s
     return all_correct and bool(expected), student_answers, expected
 
 
+def is_matching_pairs_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "matching_pairs"
+
+
+def parse_matching_items(raw: str) -> list[str]:
+    lines = [line.strip() for line in (raw or "").splitlines() if line.strip()]
+    return lines
+
+
+def parse_matching_answers_json(raw: str) -> tuple[dict[str, str], str | None]:
+    try:
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}, "Correct Matches JSON must be valid JSON."
+    if not isinstance(payload, dict):
+        return {}, "Correct Matches JSON must be a JSON object."
+    return {str(k).strip(): str(v).strip() for k, v in payload.items()}, None
+
+
+def evaluate_matching_pairs_question(question: "Question", form, medium_key: str) -> tuple[bool, dict[str, str], dict[str, str]]:
+    left = json.loads(getattr(question, f"matching_left_{medium_key}") or "[]")
+    answers = json.loads(getattr(question, f"matching_answers_{medium_key}") or "{}")
+    student_answers = {}
+    all_correct = True
+    for i, left_item in enumerate(left):
+        selected = (form.get(f"qmatch_{question.id}_{i}") or "").strip()
+        student_answers[str(left_item)] = selected
+        if selected != (answers.get(str(left_item), "").strip()):
+            all_correct = False
+    return all_correct and bool(left) and bool(answers), student_answers, answers
+
+
+def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
+    left = json.loads(getattr(question, f"matching_left_{medium_key}") or "[]")
+    right = json.loads(getattr(question, f"matching_right_{medium_key}") or "[]")
+    opts = "".join([f"<option value='{escape(item)}'>{escape(item)}</option>" for item in right])
+    rows = []
+    for i, left_item in enumerate(left):
+        rows.append(f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center;margin:8px 0;'><div>{escape(str(left_item))}</div><select name='qmatch_{question.id}_{i}'><option value=''>-- select answer --</option>{opts}</select></div>")
+    return "<div>"+"".join(rows)+"</div>"
+
+
 def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int, chapter_id: int | None = None):
     effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
     filters = [Question.grade == grade, Question.subject == subject, effective_difficulty == difficulty_level]
@@ -489,6 +531,12 @@ class Question(db.Model):
     correct_answer_text = db.Column(db.Text, nullable=True)
     box_template = db.Column(db.Text, nullable=True)
     box_answers = db.Column(db.Text, nullable=True)
+    matching_left_en = db.Column(db.Text, nullable=True)
+    matching_right_en = db.Column(db.Text, nullable=True)
+    matching_answers_en = db.Column(db.Text, nullable=True)
+    matching_left_si = db.Column(db.Text, nullable=True)
+    matching_right_si = db.Column(db.Text, nullable=True)
+    matching_answers_si = db.Column(db.Text, nullable=True)
     image_url = db.Column(db.Text, nullable=True)
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
@@ -3191,8 +3239,8 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
-    if question_type not in {"mcq", "short_answer", "box_input"}:
-        return {}, "Question type must be MCQ, Short Answer, or Box Input."
+    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs"}:
+        return {}, "Question type must be MCQ, Short Answer, Box Input, or Matching Pairs."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
@@ -3201,6 +3249,12 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     correct_answer_text = (request.form.get("correct_answer_text") or "").strip()
     box_template = request.form.get("box_template") or ""
     box_answers_raw = request.form.get("box_answers") or ""
+    matching_left_en = request.form.get("matching_left_en") or ""
+    matching_right_en = request.form.get("matching_right_en") or ""
+    matching_answers_en_raw = request.form.get("matching_answers_en") or ""
+    matching_left_si = request.form.get("matching_left_si") or ""
+    matching_right_si = request.form.get("matching_right_si") or ""
+    matching_answers_si_raw = request.form.get("matching_answers_si") or ""
     image_url = (request.form.get("image_url") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
@@ -3209,8 +3263,10 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         required_values.extend([option_a, option_b, option_c, option_d, correct_option])
     elif question_type == "short_answer":
         required_values.append(correct_answer_text)
-    else:
+    elif question_type == "box_input":
         required_values.extend([box_template.strip(), box_answers_raw.strip()])
+    else:
+        required_values.extend([matching_left_en.strip(), matching_right_en.strip(), matching_answers_en_raw.strip(), matching_left_si.strip(), matching_right_si.strip(), matching_answers_si_raw.strip()])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
@@ -3228,6 +3284,20 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         for key in extract_box_keys(box_template):
             if key not in normalized_box_answers:
                 return {}, f"Missing answer for {key}"
+
+    normalized_matching_answers_en = None
+    normalized_matching_answers_si = None
+    if question_type == "matching_pairs":
+        left_en = parse_matching_items(matching_left_en)
+        right_en = parse_matching_items(matching_right_en)
+        left_si = parse_matching_items(matching_left_si)
+        right_si = parse_matching_items(matching_right_si)
+        normalized_matching_answers_en, err_en = parse_matching_answers_json(matching_answers_en_raw)
+        normalized_matching_answers_si, err_si = parse_matching_answers_json(matching_answers_si_raw)
+        if err_en or err_si:
+            return {}, err_en or err_si
+        if not left_en or not right_en or not left_si or not right_si:
+            return {}, "Matching pairs lists cannot be empty."
 
     try:
         difficulty_level = int(difficulty_level_raw)
@@ -3263,6 +3333,12 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         "correct_answer_text": correct_answer_text,
         "box_template": box_template,
         "box_answers": json.dumps(normalized_box_answers, ensure_ascii=False) if normalized_box_answers is not None else "",
+        "matching_left_en": json.dumps(parse_matching_items(matching_left_en), ensure_ascii=False) if question_type == "matching_pairs" else "",
+        "matching_right_en": json.dumps(parse_matching_items(matching_right_en), ensure_ascii=False) if question_type == "matching_pairs" else "",
+        "matching_answers_en": json.dumps(normalized_matching_answers_en, ensure_ascii=False) if normalized_matching_answers_en is not None else "",
+        "matching_left_si": json.dumps(parse_matching_items(matching_left_si), ensure_ascii=False) if question_type == "matching_pairs" else "",
+        "matching_right_si": json.dumps(parse_matching_items(matching_right_si), ensure_ascii=False) if question_type == "matching_pairs" else "",
+        "matching_answers_si": json.dumps(normalized_matching_answers_si, ensure_ascii=False) if normalized_matching_answers_si is not None else "",
         "image_url": image_url,
         "difficulty_level": difficulty_level,
     }, None
@@ -3275,6 +3351,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     mcq_hidden = "" if question_type == "mcq" else "display:none;"
     short_hidden = "" if question_type == "short_answer" else "display:none;"
     box_hidden = "" if question_type == "box_input" else "display:none;"
+    matching_hidden = "" if question_type == "matching_pairs" else "display:none;"
     grade = (data.get("grade") or "").strip()
     subject = (data.get("subject") or "").strip()
     selected_term_id = int(data.get("term_id") or 0)
@@ -3311,6 +3388,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               <option value="mcq" {"selected" if question_type == "mcq" else ""}>MCQ</option>
               <option value="short_answer" {"selected" if question_type == "short_answer" else ""}>Short Answer</option>
               <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
+              <option value="matching_pairs" {"selected" if question_type == "matching_pairs" else ""}>Matching Pairs / Join the Pairs</option>
             </select>
           </label><br><br>
           <div id="mcq_fields" style="{mcq_hidden}">
@@ -3331,6 +3409,17 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             <label>Correct Box Answers (JSON):<br><textarea name="box_answers" rows="6" cols="80">{escape(data.get('box_answers', ''))}</textarea></label><br><br>
             <pre id='box_preview' style='font-family:monospace;white-space:pre;line-height:1.25;background:#f8fafc;padding:8px;border:1px solid #ddd;'></pre>
           </div>
+          <div id="matching_pairs_fields" style="{matching_hidden}">
+            <h3>ENGLISH</h3><p>Enter one item per line.</p>
+            <label>Left Items EN:<br><textarea name='matching_left_en' rows='5' cols='80'>{escape(data.get('matching_left_en',''))}</textarea></label><br><br>
+            <label>Right Items EN:<br><textarea name='matching_right_en' rows='5' cols='80'>{escape(data.get('matching_right_en',''))}</textarea></label><br><br>
+            <label>Correct Matches JSON EN:<br><textarea name='matching_answers_en' rows='6' cols='80'>{escape(data.get('matching_answers_en',''))}</textarea></label><br><br>
+            <h3>SINHALA</h3><p>Enter one item per line.</p>
+            <label>Left Items SI:<br><textarea name='matching_left_si' rows='5' cols='80'>{escape(data.get('matching_left_si',''))}</textarea></label><br><br>
+            <label>Right Items SI:<br><textarea name='matching_right_si' rows='5' cols='80'>{escape(data.get('matching_right_si',''))}</textarea></label><br><br>
+            <label>Correct Matches JSON SI:<br><textarea name='matching_answers_si' rows='6' cols='80'>{escape(data.get('matching_answers_si',''))}</textarea></label><br><br>
+            <div id='matching_preview'></div>
+          </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
               <option value="1" {"selected" if difficulty_level == "1" else ""}>1 Easy</option>
@@ -3349,6 +3438,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("mcq_fields").style.display = selectedType === "mcq" ? "block" : "none";
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
+            document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
           }}
         document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\[box(\d+)\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
@@ -4148,6 +4238,12 @@ def admin_add_question():
         correct_answer_text=form_data["correct_answer_text"] or None,
         box_template=form_data["box_template"] or None,
         box_answers=form_data["box_answers"] or None,
+        matching_left_en=form_data["matching_left_en"] or None,
+        matching_right_en=form_data["matching_right_en"] or None,
+        matching_answers_en=form_data["matching_answers_en"] or None,
+        matching_left_si=form_data["matching_left_si"] or None,
+        matching_right_si=form_data["matching_right_si"] or None,
+        matching_answers_si=form_data["matching_answers_si"] or None,
         image_url=form_data["image_url"] or None,
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
@@ -4255,6 +4351,12 @@ def admin_edit_question(question_id: int):
                 "correct_answer_text": question.correct_answer_text or "",
                 "box_template": question.box_template or "",
                 "box_answers": question.box_answers or "",
+                "matching_left_en": "\n".join(json.loads(question.matching_left_en or "[]")),
+                "matching_right_en": "\n".join(json.loads(question.matching_right_en or "[]")),
+                "matching_answers_en": question.matching_answers_en or "",
+                "matching_left_si": "\n".join(json.loads(question.matching_left_si or "[]")),
+                "matching_right_si": "\n".join(json.loads(question.matching_right_si or "[]")),
+                "matching_answers_si": question.matching_answers_si or "",
                 "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
             },
@@ -4292,6 +4394,14 @@ def admin_edit_question(question_id: int):
     question.option_d_si = form_data["option_d"]
     question.question_type = form_data["question_type"]
     question.correct_answer_text = form_data["correct_answer_text"] or None
+    question.box_template = form_data["box_template"] or None
+    question.box_answers = form_data["box_answers"] or None
+    question.matching_left_en = form_data["matching_left_en"] or None
+    question.matching_right_en = form_data["matching_right_en"] or None
+    question.matching_answers_en = form_data["matching_answers_en"] or None
+    question.matching_left_si = form_data["matching_left_si"] or None
+    question.matching_right_si = form_data["matching_right_si"] or None
+    question.matching_answers_si = form_data["matching_answers_si"] or None
     question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
@@ -4821,6 +4931,22 @@ def update_box_question_db() -> tuple[str, int]:
         return jsonify({"success": False, "message": f"Box question DB update failed: {exc}"}), 500
 
 
+
+@app.route("/update-matching-pairs-db", methods=["GET"])
+def update_matching_pairs_db():
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_left_en TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_right_en TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_answers_en TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_left_si TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_right_si TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_answers_si TEXT"))
+        db.session.commit()
+        return "<h2>Matching pairs DB update complete</h2>"
+    except Exception as exc:
+        db.session.rollback()
+        return f"<h2>Matching pairs DB update failed</h2><p>{escape(str(exc))}</p>", 500
+
 @app.route("/update-results-db", methods=["GET"])
 def update_results_db() -> tuple:
     try:
@@ -5011,7 +5137,9 @@ def test_page() -> str:
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            answer_html = render_matching_pairs_inputs(q, medium_key)
+        elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
@@ -5127,7 +5255,11 @@ def submit_test() -> str:
             },
         )
         topic_stats[topic_name]["total"] += 1
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            is_correct, student_pair_answers, correct_pair_answers = evaluate_matching_pairs_question(q, request.form, medium_key)
+            student_answer = json.dumps(student_pair_answers, ensure_ascii=False)
+            correct_answer = json.dumps(correct_pair_answers, ensure_ascii=False)
+        elif is_box_input_question(q):
             is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
             student_answer = json.dumps(student_box_answers, ensure_ascii=False)
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
@@ -5157,7 +5289,13 @@ def submit_test() -> str:
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
 
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            student_map = json.loads(student_answer or "{}")
+            correct_map = json.loads(correct_answer or "{}")
+            parts = [f"<div><strong>{escape(k)}</strong><br>Your Answer: {escape(student_map.get(k) or t(selected_medium, 'not_answered'))}<br>Correct Answer: {escape(v)}</div>" for k, v in correct_map.items()]
+            student_answer_text = "".join(parts) or t(selected_medium, "not_answered")
+            correct_answer_text = "-"
+        elif is_box_input_question(q):
             student_map = json.loads(student_answer or '{}')
             correct_map = json.loads(correct_answer or '{}')
             parts = []
@@ -5552,7 +5690,9 @@ def retest_weak() -> str:
 
     question_blocks = []
     for q in questions:
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            answer_html = render_matching_pairs_inputs(q, medium_key)
+        elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
@@ -5818,7 +5958,9 @@ def practice_page() -> str:
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            answer_html = render_matching_pairs_inputs(q, medium_key)
+        elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
@@ -5918,7 +6060,11 @@ def submit_practice() -> str:
     student_id = session.get("student_id")
 
     for q in questions:
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            is_correct, student_pair_answers, correct_pair_answers = evaluate_matching_pairs_question(q, request.form, medium_key)
+            student_answer = json.dumps(student_pair_answers, ensure_ascii=False)
+            correct_answer = json.dumps(correct_pair_answers, ensure_ascii=False)
+        elif is_box_input_question(q):
             is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
             student_answer = json.dumps(student_box_answers, ensure_ascii=False)
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
@@ -6109,7 +6255,9 @@ def student_homework_detail(homework_id: int):
     q_html_parts = []
     for q in questions:
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            answer_html = render_matching_pairs_inputs(q, medium_key)
+        elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
@@ -6224,7 +6372,9 @@ def student_take_test(test_id: int):
     q_html_parts = []
     for q in questions:
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_box_input_question(q):
+        if is_matching_pairs_question(q):
+            answer_html = render_matching_pairs_inputs(q, medium_key)
+        elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
