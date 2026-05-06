@@ -258,10 +258,20 @@ def evaluate_matching_pairs_question(question: "Question", form, medium_key: str
     left = json.loads(getattr(question, f"matching_left_{medium_key}") or "[]")
     answers = json.loads(getattr(question, f"matching_answers_{medium_key}") or "{}")
     student_answers = {}
+    mapping_json = (form.get(f"qmatch_map_{question.id}") or "").strip()
+    if mapping_json:
+        try:
+            payload = json.loads(mapping_json)
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            student_answers = {str(k).strip(): str(v).strip() for k, v in payload.items()}
+    if not student_answers:
+        for i, left_item in enumerate(left):
+            student_answers[str(left_item)] = (form.get(f"qmatch_{question.id}_{i}") or "").strip()
     all_correct = True
-    for i, left_item in enumerate(left):
-        selected = (form.get(f"qmatch_{question.id}_{i}") or "").strip()
-        student_answers[str(left_item)] = selected
+    for left_item in left:
+        selected = student_answers.get(str(left_item), "").strip()
         if selected != (answers.get(str(left_item), "").strip()):
             all_correct = False
     return all_correct and bool(left) and bool(answers), student_answers, answers
@@ -271,10 +281,130 @@ def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
     left = json.loads(getattr(question, f"matching_left_{medium_key}") or "[]")
     right = json.loads(getattr(question, f"matching_right_{medium_key}") or "[]")
     opts = "".join([f"<option value='{escape(item)}'>{escape(item)}</option>" for item in right])
-    rows = []
+    left_html = "".join(
+        [f"<button type='button' class='mp-item mp-left-item' data-value='{escape(str(item))}'>{escape(str(item))}</button>" for item in left]
+    )
+    right_html = "".join(
+        [f"<button type='button' class='mp-item mp-right-item' data-value='{escape(str(item))}'>{escape(str(item))}</button>" for item in right]
+    )
+    fallback_rows = []
     for i, left_item in enumerate(left):
-        rows.append(f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center;margin:8px 0;'><div>{escape(str(left_item))}</div><select name='qmatch_{question.id}_{i}'><option value=''>-- select answer --</option>{opts}</select></div>")
-    return "<div>"+"".join(rows)+"</div>"
+        fallback_rows.append(
+            f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center;margin:8px 0;'><div>{escape(str(left_item))}</div><select name='qmatch_{question.id}_{i}'><option value=''>-- select answer --</option>{opts}</select></div>"
+        )
+    return f"""
+    <style>
+      .matching-pairs-board {{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:12px;border:1px solid #cfcfcf;border-radius:10px;background:#fffdf8;min-height:140px;}}
+      .mp-lines {{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;}}
+      .mp-column {{display:flex;flex-direction:column;gap:10px;z-index:1;}}
+      .mp-item {{text-align:left;background:#fff;border:1px solid #444;border-radius:8px;padding:10px 12px;font-size:15px;line-height:1.25;touch-action:none;}}
+      .mp-item.selected {{background:#f4f4f4;}}
+      .mp-item.connected {{background:#f7f7f7;border-color:#111;}}
+      .matching-pairs-fallback {{display:none;}}
+      @media (max-width: 768px) {{ .matching-pairs-board {{gap:12px;}} .mp-item {{padding:12px;font-size:16px;}} }}
+    </style>
+    <div class='matching-pairs-widget' data-question-id='{question.id}'>
+      <input type='hidden' name='qmatch_map_{question.id}' class='mp-mapping-input' value='{{}}'>
+      <div class='matching-pairs-board'>
+        <svg class='mp-lines' aria-hidden='true'></svg>
+        <div class='mp-column'>{left_html}</div>
+        <div class='mp-column'>{right_html}</div>
+      </div>
+      <div class='matching-pairs-fallback'>{"".join(fallback_rows)}</div>
+    </div>
+    <script>
+    (function() {{
+      if (window.__matchingPairsInitDone) return;
+      window.__matchingPairsInitDone = true;
+      const supportsInteractive = !!(window.SVGElement && document.createElementNS && (window.PointerEvent || ("ontouchstart" in window) || ("onmousedown" in window)));
+      const getPoint = (event) => {{
+        if (event.touches && event.touches[0]) return {{x:event.touches[0].clientX,y:event.touches[0].clientY}};
+        if (event.changedTouches && event.changedTouches[0]) return {{x:event.changedTouches[0].clientX,y:event.changedTouches[0].clientY}};
+        return {{x:event.clientX,y:event.clientY}};
+      }};
+      const widgets = Array.from(document.querySelectorAll(".matching-pairs-widget"));
+      widgets.forEach((widget) => {{
+        const board = widget.querySelector(".matching-pairs-board");
+        const svg = widget.querySelector(".mp-lines");
+        const fallback = widget.querySelector(".matching-pairs-fallback");
+        if (!supportsInteractive || !board || !svg) {{
+          fallback.style.display = "block";
+          board.style.display = "none";
+          return;
+        }}
+        fallback.style.display = "none";
+        const leftItems = Array.from(widget.querySelectorAll(".mp-left-item"));
+        const rightItems = Array.from(widget.querySelectorAll(".mp-right-item"));
+        const hiddenInput = widget.querySelector(".mp-mapping-input");
+        const mapLeftToRight = new Map();
+        const mapRightToLeft = new Map();
+        let activeLeft = null;
+        let dragLine = null;
+        const edgePoint = (el, fromLeft=true) => {{
+          const r = el.getBoundingClientRect(); const b = board.getBoundingClientRect();
+          return {{x:(fromLeft ? r.right : r.left)-b.left, y:r.top + (r.height/2)-b.top}};
+        }};
+        const saveMapping = () => {{ hiddenInput.value = JSON.stringify(Object.fromEntries(mapLeftToRight)); }};
+        const redraw = () => {{
+          svg.innerHTML = "";
+          mapLeftToRight.forEach((rightVal, leftVal) => {{
+            const l = leftItems.find(i => i.dataset.value === leftVal); const r = rightItems.find(i => i.dataset.value === rightVal);
+            if (!l || !r) return;
+            const p1 = edgePoint(l, true); const p2 = edgePoint(r, false);
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            const mid = (p1.x + p2.x) / 2;
+            line.setAttribute("d", `M ${{p1.x}} ${{p1.y}} C ${{mid}} ${{p1.y}}, ${{mid}} ${{p2.y}}, ${{p2.x}} ${{p2.y}}`);
+            line.setAttribute("stroke", "#111"); line.setAttribute("stroke-width", "2.5"); line.setAttribute("fill", "none"); line.dataset.left = leftVal;
+            line.style.pointerEvents = "stroke";
+            line.addEventListener("click", () => {{ const rv = mapLeftToRight.get(leftVal); mapLeftToRight.delete(leftVal); if (rv) mapRightToLeft.delete(rv); updateStates(); redraw(); saveMapping(); }});
+            svg.appendChild(line);
+          }});
+          if (dragLine) svg.appendChild(dragLine);
+        }};
+        const updateStates = () => {{
+          leftItems.forEach(i => i.classList.toggle("connected", mapLeftToRight.has(i.dataset.value)));
+          rightItems.forEach(i => i.classList.toggle("connected", mapRightToLeft.has(i.dataset.value)));
+        }};
+        const beginDrag = (leftItem, event) => {{
+          event.preventDefault();
+          activeLeft = leftItem; leftItems.forEach(i => i.classList.remove("selected")); leftItem.classList.add("selected");
+          dragLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          dragLine.setAttribute("stroke", "#111"); dragLine.setAttribute("stroke-width", "2.5"); dragLine.setAttribute("fill", "none");
+          redraw();
+        }};
+        const moveDrag = (event) => {{
+          if (!activeLeft || !dragLine) return;
+          const from = edgePoint(activeLeft, true); const p = getPoint(event); const b = board.getBoundingClientRect();
+          const to = {x: p.x - b.left, y: p.y - b.top}; const mid = (from.x + to.x)/2;
+          dragLine.setAttribute("d", `M ${{from.x}} ${{from.y}} C ${{mid}} ${{from.y}}, ${{mid}} ${{to.y}}, ${{to.x}} ${{to.y}}`);
+        }};
+        const endDrag = (event) => {{
+          if (!activeLeft) return;
+          const pt = getPoint(event); const target = document.elementFromPoint(pt.x, pt.y);
+          const rightTarget = target && target.closest ? target.closest(".mp-right-item") : null;
+          if (rightTarget) {{
+            const leftVal = activeLeft.dataset.value; const rightVal = rightTarget.dataset.value;
+            const prevRight = mapLeftToRight.get(leftVal); if (prevRight) mapRightToLeft.delete(prevRight);
+            const prevLeft = mapRightToLeft.get(rightVal); if (prevLeft) mapLeftToRight.delete(prevLeft);
+            mapLeftToRight.set(leftVal, rightVal); mapRightToLeft.set(rightVal, leftVal); saveMapping();
+          }}
+          leftItems.forEach(i => i.classList.remove("selected"));
+          activeLeft = null; dragLine = null; updateStates(); redraw();
+        }};
+        leftItems.forEach((leftItem) => {{
+          leftItem.addEventListener("mousedown", (e) => beginDrag(leftItem, e));
+          leftItem.addEventListener("touchstart", (e) => beginDrag(leftItem, e), {passive:false});
+        }});
+        document.addEventListener("mousemove", moveDrag, {passive:false});
+        document.addEventListener("touchmove", moveDrag, {passive:false});
+        document.addEventListener("mouseup", endDrag);
+        document.addEventListener("touchend", endDrag);
+        window.addEventListener("resize", redraw);
+        updateStates(); redraw(); saveMapping();
+      }});
+    }})();
+    </script>
+    """
 
 
 def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int, chapter_id: int | None = None):
