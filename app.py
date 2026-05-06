@@ -5044,8 +5044,8 @@ def test_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
         <style>
-          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+          .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5056,8 +5056,8 @@ def test_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+            .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
               max-width: 180px;
             }}
@@ -5855,8 +5855,8 @@ def practice_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
         <style>
-          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+          .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5867,8 +5867,8 @@ def practice_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+            .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
               max-width: 180px;
             }}
@@ -6122,8 +6122,8 @@ def student_homework_detail(homework_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+      .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6134,8 +6134,8 @@ def student_homework_detail(homework_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+        .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
           max-width: 180px;
         }}
@@ -6238,8 +6238,8 @@ def student_take_test(test_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+      .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6250,8 +6250,8 @@ def student_take_test(test_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
-          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
+        .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
+          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
           .question-image {{
           max-width: 180px;
         }}
