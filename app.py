@@ -375,7 +375,7 @@ def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
         const moveDrag = (event) => {{
           if (!activeLeft || !dragLine) return;
           const from = edgePoint(activeLeft, true); const p = getPoint(event); const b = board.getBoundingClientRect();
-          const to = {x: p.x - b.left, y: p.y - b.top}; const mid = (from.x + to.x)/2;
+          const to = {{x: p.x - b.left, y: p.y - b.top}}; const mid = (from.x + to.x)/2;
           dragLine.setAttribute("d", `M ${{from.x}} ${{from.y}} C ${{mid}} ${{from.y}}, ${{mid}} ${{to.y}}, ${{to.x}} ${{to.y}}`);
         }};
         const endDrag = (event) => {{
@@ -393,10 +393,10 @@ def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
         }};
         leftItems.forEach((leftItem) => {{
           leftItem.addEventListener("mousedown", (e) => beginDrag(leftItem, e));
-          leftItem.addEventListener("touchstart", (e) => beginDrag(leftItem, e), {passive:false});
+          leftItem.addEventListener("touchstart", (e) => beginDrag(leftItem, e), {{passive:false}});
         }});
-        document.addEventListener("mousemove", moveDrag, {passive:false});
-        document.addEventListener("touchmove", moveDrag, {passive:false});
+        document.addEventListener("mousemove", moveDrag, {{passive:false}});
+        document.addEventListener("touchmove", moveDrag, {{passive:false}});
         document.addEventListener("mouseup", endDrag);
         document.addEventListener("touchend", endDrag);
         window.addEventListener("resize", redraw);
