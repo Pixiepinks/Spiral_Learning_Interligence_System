@@ -294,21 +294,31 @@ def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
         )
     return f"""
     <style>
-      .matching-pairs-board {{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:12px;border:1px solid #cfcfcf;border-radius:10px;background:#fffdf8;min-height:140px;}}
+      .matching-container {{max-width:700px;margin:0 auto;}}
+      .matching-pairs-board {{position:relative;border:1px solid #d9d9d9;border-radius:12px;background:#fffdf8;padding:18px;min-height:140px;display:flex;justify-content:center;}}
+      .matching-columns {{display:grid;grid-template-columns:220px 220px;gap:60px;justify-content:center;align-items:start;width:auto;position:relative;z-index:1;}}
+      .matching-column,.mp-column {{display:flex;flex-direction:column;gap:12px;width:220px;}}
+      .matching-item,.mp-item {{text-align:left;background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:8px 12px;min-height:42px;font-size:16px;line-height:1.25;touch-action:none;display:flex;align-items:center;}}
       .mp-lines {{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;}}
-      .mp-column {{display:flex;flex-direction:column;gap:10px;z-index:1;}}
-      .mp-item {{text-align:left;background:#fff;border:1px solid #444;border-radius:8px;padding:10px 12px;font-size:15px;line-height:1.25;touch-action:none;}}
       .mp-item.selected {{background:#f4f4f4;}}
       .mp-item.connected {{background:#f7f7f7;border-color:#111;}}
       .matching-pairs-fallback {{display:none;}}
-      @media (max-width: 768px) {{ .matching-pairs-board {{gap:12px;}} .mp-item {{padding:12px;font-size:16px;}} }}
+      @media (max-width: 768px) {{
+        .matching-container {{max-width:100%;}}
+        .matching-pairs-board {{padding:14px;}}
+        .matching-columns {{grid-template-columns:1fr;gap:16px;width:100%;}}
+        .matching-column,.mp-column {{width:100%;max-width:100%;}}
+        .matching-item,.mp-item {{font-size:14px;}}
+      }}
     </style>
-    <div class='matching-pairs-widget' data-question-id='{question.id}'>
+    <div class='matching-pairs-widget matching-container' data-question-id='{question.id}'>
       <input type='hidden' name='qmatch_map_{question.id}' class='mp-mapping-input' value='{{}}'>
       <div class='matching-pairs-board'>
         <svg class='mp-lines' aria-hidden='true'></svg>
-        <div class='mp-column'>{left_html}</div>
-        <div class='mp-column'>{right_html}</div>
+        <div class='matching-columns'>
+          <div class='matching-column mp-column'>{left_html}</div>
+          <div class='matching-column mp-column'>{right_html}</div>
+        </div>
       </div>
       <div class='matching-pairs-fallback'>{"".join(fallback_rows)}</div>
     </div>
@@ -346,6 +356,8 @@ def render_matching_pairs_inputs(question: "Question", medium_key: str) -> str:
         }};
         const saveMapping = () => {{ hiddenInput.value = JSON.stringify(Object.fromEntries(mapLeftToRight)); }};
         const redraw = () => {{
+          const boardRect = board.getBoundingClientRect();
+          svg.setAttribute("viewBox", `0 0 ${{boardRect.width}} ${{boardRect.height}}`);
           svg.innerHTML = "";
           mapLeftToRight.forEach((rightVal, leftVal) => {{
             const l = leftItems.find(i => i.dataset.value === leftVal); const r = rightItems.find(i => i.dataset.value === rightVal);
