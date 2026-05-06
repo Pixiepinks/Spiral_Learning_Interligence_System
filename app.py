@@ -190,6 +190,63 @@ def t(medium: str, key: str) -> str:
 def is_short_answer_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "short_answer"
 
+def is_box_input_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "box_input"
+
+
+def extract_box_keys(template: str) -> list[str]:
+    seen = []
+    for key in re.findall(r"\[box(\d+)\]", template or "", flags=re.IGNORECASE):
+        box_key = f"box{int(key)}"
+        if box_key not in seen:
+            seen.append(box_key)
+    return seen
+
+
+def parse_box_answers_json(raw: str) -> tuple[dict[str, str], str | None]:
+    try:
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}, "Correct Box Answers must be valid JSON."
+    if not isinstance(payload, dict):
+        return {}, "Correct Box Answers must be a JSON object."
+    return {str(k).strip().lower(): str(v).strip() for k, v in payload.items()}, None
+
+
+def render_box_template_with_inputs(question: "Question", input_prefix: str) -> str:
+    template = question.box_template or ""
+    lines = []
+    for raw_line in template.splitlines():
+        marker = raw_line.strip().lower()
+        if marker == "---single---":
+            lines.append("<div class='math-single-line'></div>")
+            continue
+        if marker == "===double===":
+            lines.append("<div class='math-double-line'><div></div><div></div></div>")
+            continue
+        safe_line = escape(raw_line)
+        safe_line = safe_line.replace(" ", "&nbsp;")
+        safe_line = re.sub(
+            r"\[box(\d+)\]",
+            lambda m: f"<input type='text' name='{input_prefix}_{question.id}_box{int(m.group(1))}' class='math-box' inputmode='text' autocomplete='off'>",
+            safe_line,
+            flags=re.IGNORECASE,
+        )
+        lines.append(f"<div>{safe_line}</div>")
+    return f"<div class='math-layout'>{''.join(lines)}</div>"
+
+
+def evaluate_box_question(question: "Question", form) -> tuple[bool, dict[str, str], dict[str, str]]:
+    expected, _ = parse_box_answers_json(question.box_answers or "{}")
+    student_answers = {}
+    all_correct = True
+    for key in extract_box_keys(question.box_template or ""):
+        value = (form.get(f"qbox_{question.id}_{key}") or "").strip()
+        student_answers[key] = value
+        if value.casefold() != (expected.get(key, "").strip().casefold()):
+            all_correct = False
+    return all_correct and bool(expected), student_answers, expected
+
 
 def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int, chapter_id: int | None = None):
     effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
@@ -443,6 +500,8 @@ class Question(db.Model):
     option_d_si = db.Column(db.Text, nullable=False)
     question_type = db.Column(db.String(20), nullable=False, default="mcq")
     correct_answer_text = db.Column(db.Text, nullable=True)
+    box_template = db.Column(db.Text, nullable=True)
+    box_answers = db.Column(db.Text, nullable=True)
     image_url = db.Column(db.Text, nullable=True)
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
@@ -3145,22 +3204,26 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
-    if question_type not in {"mcq", "short_answer"}:
-        return {}, "Question type must be MCQ or Short Answer."
+    if question_type not in {"mcq", "short_answer", "box_input"}:
+        return {}, "Question type must be MCQ, Short Answer, or Box Input."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = (request.form.get("correct_option") or "").strip().upper()
     correct_answer_text = (request.form.get("correct_answer_text") or "").strip()
+    box_template = request.form.get("box_template") or ""
+    box_answers_raw = request.form.get("box_answers") or ""
     image_url = (request.form.get("image_url") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
     required_values = [grade, subject, question_text_en, question_text_si]
     if question_type == "mcq":
         required_values.extend([option_a, option_b, option_c, option_d, correct_option])
-    else:
+    elif question_type == "short_answer":
         required_values.append(correct_answer_text)
+    else:
+        required_values.extend([box_template.strip(), box_answers_raw.strip()])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
@@ -3170,6 +3233,15 @@ def parse_question_form_data() -> tuple[dict, str | None]:
 
     if question_type == "mcq" and correct_option not in {"A", "B", "C", "D"}:
         return {}, "Correct answer must be one of A, B, C, or D."
+    normalized_box_answers = None
+    if question_type == "box_input":
+        normalized_box_answers, box_err = parse_box_answers_json(box_answers_raw)
+        if box_err:
+            return {}, box_err
+        for key in extract_box_keys(box_template):
+            if key not in normalized_box_answers:
+                return {}, f"Missing answer for {key}"
+
     try:
         difficulty_level = int(difficulty_level_raw)
     except ValueError:
@@ -3202,6 +3274,8 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         "correct_option": correct_option,
         "question_type": question_type,
         "correct_answer_text": correct_answer_text,
+        "box_template": box_template,
+        "box_answers": json.dumps(normalized_box_answers, ensure_ascii=False) if normalized_box_answers is not None else "",
         "image_url": image_url,
         "difficulty_level": difficulty_level,
     }, None
@@ -3213,6 +3287,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     question_type = data.get("question_type", "mcq")
     mcq_hidden = "" if question_type == "mcq" else "display:none;"
     short_hidden = "" if question_type == "short_answer" else "display:none;"
+    box_hidden = "" if question_type == "box_input" else "display:none;"
     grade = (data.get("grade") or "").strip()
     subject = (data.get("subject") or "").strip()
     selected_term_id = int(data.get("term_id") or 0)
@@ -3248,6 +3323,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             <select name="question_type" id="question_type" onchange="toggleQuestionType()" required>
               <option value="mcq" {"selected" if question_type == "mcq" else ""}>MCQ</option>
               <option value="short_answer" {"selected" if question_type == "short_answer" else ""}>Short Answer</option>
+              <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
             </select>
           </label><br><br>
           <div id="mcq_fields" style="{mcq_hidden}">
@@ -3259,6 +3335,14 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           </div>
           <div id="short_answer_fields" style="{short_hidden}">
             <label>Correct Answer (text or number): <input type="text" name="correct_answer_text" value="{escape(data.get('correct_answer_text', ''))}"></label><br><br>
+          </div>
+
+          <div id="box_input_fields" style="{box_hidden}">
+            <p>Use [box1], [box2], [box3] for answer boxes, ---single--- for single line, and ===double=== for double answer line.</p>
+            <p>You can freely arrange numbers, operators, and box positions.</p>
+            <label>Box Template:<br><textarea name="box_template" rows="6" cols="80">{escape(data.get('box_template', ''))}</textarea></label><br><br>
+            <label>Correct Box Answers (JSON):<br><textarea name="box_answers" rows="6" cols="80">{escape(data.get('box_answers', ''))}</textarea></label><br><br>
+            <div id='box_preview' class='math-layout' style='background:#f8fafc;padding:8px;border:1px solid #ddd;'></div>
           </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
@@ -3274,11 +3358,12 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         <p><a href="/admin/questions">Back to Questions</a></p>
         <script>
           function toggleQuestionType() {{
-            const isMcq = document.getElementById("question_type").value === "mcq";
-            document.getElementById("mcq_fields").style.display = isMcq ? "block" : "none";
-            document.getElementById("short_answer_fields").style.display = isMcq ? "none" : "block";
+            const selectedType = document.getElementById("question_type").value;
+            document.getElementById("mcq_fields").style.display = selectedType === "mcq" ? "block" : "none";
+            document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
+            document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
-        </script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const render=(txt)=>{{ if(!p) return; const esc=(v)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const lines=(txt||"").split(/\n/).map((line)=>{{ const m=line.trim().toLowerCase(); if(m==="---single---") return "<div class=\"math-single-line\"></div>"; if(m==="===double===") return "<div class=\"math-double-line\"><div></div><div></div></div>"; const html=esc(line).replace(/ /g,"&nbsp;").replace(/\[box(\d+)\]/gi,"<input class=\"math-box\" disabled>"); return `<div>${html}</div>`; }}); p.innerHTML = lines.join("") || "Live preview..."; }}; const u=()=>render(t?.value||""); if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -4074,6 +4159,8 @@ def admin_add_question():
         option_d_si=form_data["option_d"],
         question_type=form_data["question_type"],
         correct_answer_text=form_data["correct_answer_text"] or None,
+        box_template=form_data["box_template"] or None,
+        box_answers=form_data["box_answers"] or None,
         image_url=form_data["image_url"] or None,
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
@@ -4179,6 +4266,8 @@ def admin_edit_question(question_id: int):
                 "correct_option": question.correct_option,
                 "question_type": question.question_type or "mcq",
                 "correct_answer_text": question.correct_answer_text or "",
+                "box_template": question.box_template or "",
+                "box_answers": question.box_answers or "",
                 "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
             },
@@ -4731,6 +4820,20 @@ def update_question_format_db() -> tuple[str, int]:
         return jsonify({"success": False, "message": f"Question format DB update failed: {exc}"}), 500
 
 
+@app.route("/update-box-question-db", methods=["GET"])
+def update_box_question_db() -> tuple[str, int]:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'mcq'"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS box_template TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS box_answers TEXT"))
+        db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
+        db.session.commit()
+        return "Box question database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Box question DB update failed: {exc}"}), 500
+
+
 @app.route("/update-results-db", methods=["GET"])
 def update_results_db() -> tuple:
     try:
@@ -4921,7 +5024,9 @@ def test_page() -> str:
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             option_a = getattr(q, f"option_a_{medium_key}")
@@ -4952,6 +5057,11 @@ def test_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
         <style>
+           .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -4962,7 +5072,12 @@ def test_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .question-image {{
+             .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
               max-width: 180px;
             }}
           }}
@@ -5031,7 +5146,11 @@ def submit_test() -> str:
             },
         )
         topic_stats[topic_name]["total"] += 1
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
+            student_answer = json.dumps(student_box_answers, ensure_ascii=False)
+            correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
+        elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
             is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
@@ -5057,7 +5176,18 @@ def submit_test() -> str:
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
 
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            student_map = json.loads(student_answer or '{}')
+            correct_map = json.loads(correct_answer or '{}')
+            parts = []
+            for k, v in correct_map.items():
+                sval = student_map.get(k, '')
+                ok = sval.strip().casefold() == str(v).strip().casefold()
+                color = '#16a34a' if ok else '#dc2626'
+                parts.append(f"<div><strong>{k}</strong>: <span style='color:{color}'>{escape(sval or '-')}</span> / {escape(str(v))}</div>")
+            student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
+            correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
+        elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
         elif student_answer in option_label_key:
@@ -5367,8 +5497,14 @@ def retest_weak() -> str:
         for q in questions:
             topic_stats.setdefault(q.topic_en, {"topic_en": q.topic_en, "topic_si": q.topic_si, "total": 0, "correct": 0})
             topic_stats[q.topic_en]["total"] += 1
-            student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
-            is_correct = student_answer == q.correct_option.strip().upper()
+            if is_box_input_question(q):
+                is_correct, _, _ = evaluate_box_question(q, request.form)
+            elif is_short_answer_question(q):
+                student_answer = request.form.get(f"q_{q.id}", "").strip()
+                is_correct = bool((q.correct_answer_text or '').strip()) and student_answer.casefold() == (q.correct_answer_text or '').strip().casefold()
+            else:
+                student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+                is_correct = student_answer == q.correct_option.strip().upper()
             if is_correct:
                 correct_answers += 1
                 topic_stats[q.topic_en]["correct"] += 1
@@ -5435,17 +5571,13 @@ def retest_weak() -> str:
 
     question_blocks = []
     for q in questions:
-        question_blocks.append(
-            f"""
-            <div style='margin:16px 0;padding:12px;border:1px solid #ddd;'>
-              <p><strong>Q{q.id}.</strong> {getattr(q, f"question_text_{medium_key}")}</p>
-              <label><input type='radio' name='q_{q.id}' value='A'> A. {getattr(q, f"option_a_{medium_key}")}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='B'> B. {getattr(q, f"option_b_{medium_key}")}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='C'> C. {getattr(q, f"option_c_{medium_key}")}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='D'> D. {getattr(q, f"option_d_{medium_key}")}</label>
-            </div>
-            """
-        )
+        if is_box_input_question(q):
+            answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_short_answer_question(q):
+            answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
+        else:
+            answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {getattr(q, f'option_a_{medium_key}')}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {getattr(q, f'option_b_{medium_key}')}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {getattr(q, f'option_c_{medium_key}')}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {getattr(q, f'option_d_{medium_key}')}</label>"
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {getattr(q, f'question_text_{medium_key}')}</p>{answer_html}</div>")
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
@@ -5705,7 +5837,9 @@ def practice_page() -> str:
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             option_a = getattr(q, f"option_a_{medium_key}")
@@ -5740,6 +5874,11 @@ def practice_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
         <style>
+           .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5750,7 +5889,12 @@ def practice_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .question-image {{
+             .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
               max-width: 180px;
             }}
           }}
@@ -5799,7 +5943,11 @@ def submit_practice() -> str:
     student_id = session.get("student_id")
 
     for q in questions:
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
+            student_answer = json.dumps(student_box_answers, ensure_ascii=False)
+            correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
+        elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
             is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
@@ -5986,7 +6134,9 @@ def student_homework_detail(homework_id: int):
     q_html_parts = []
     for q in questions:
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
@@ -5997,7 +6147,12 @@ def student_homework_detail(homework_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .question-image {{
+       .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
         max-width: 250px;
         width: 100%;
         height: auto;
@@ -6007,7 +6162,12 @@ def student_homework_detail(homework_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .question-image {{
+         .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
           max-width: 180px;
         }}
       }}
@@ -6074,7 +6234,14 @@ def student_take_test(test_id: int):
         return "<h2>Test not found</h2>", 404
     questions = get_questions_for_homework(test.grade, test.subject, test.topic_en, test.topic_si, test.difficulty_level)
     if request.method == "POST":
-        correct_answers = sum(1 for q in questions if (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper())
+        def _is_correct(q):
+            if is_box_input_question(q):
+                ok, _, _ = evaluate_box_question(q, request.form)
+                return ok
+            if is_short_answer_question(q):
+                return (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
+            return (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
+        correct_answers = sum(1 for q in questions if _is_correct(q))
         total_questions = len(questions)
         score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
         existing = ClassTestSubmission.query.filter_by(class_test_id=test.id, student_id=student.id).first()
@@ -6088,7 +6255,9 @@ def student_take_test(test_id: int):
     q_html_parts = []
     for q in questions:
         image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
-        if is_short_answer_question(q):
+        if is_box_input_question(q):
+            answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
@@ -6100,7 +6269,12 @@ def student_take_test(test_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .question-image {{
+       .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
         max-width: 250px;
         width: 100%;
         height: auto;
@@ -6110,7 +6284,12 @@ def student_take_test(test_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .question-image {{
+         .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
+          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
+          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
+          .math-double-line {width: 220px; margin: 2px 0;}
+          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .question-image {{
           max-width: 180px;
         }}
       }}
