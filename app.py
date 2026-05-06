@@ -4905,7 +4905,9 @@ def create_questions() -> tuple:
 @app.route("/test", methods=["GET"])
 def test_page() -> str:
     db.create_all()
-    selected_medium = resolve_medium(request.args.get("medium"))
+    student_id = session.get("student_id")
+    student = db.session.get(Student, student_id) if student_id else None
+    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.args.get("medium"))
 
     questions = (
         Question.query.filter_by(grade="6", subject="Math")
@@ -4929,8 +4931,18 @@ def test_page() -> str:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
         question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
 
-    english_selected = "selected" if selected_medium == "English" else ""
-    sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+    show_language_controls = student is None
+    language_controls_html = f"""
+        <form method='get' action='/test' style='margin-bottom:20px;'>
+          <label>{t(selected_medium, 'language')}:
+            <select name='medium'>
+              <option value='English' {'selected' if selected_medium == 'English' else ''}>English</option>
+              <option value='Sinhala' {'selected' if selected_medium == 'Sinhala' else ''}>Sinhala</option>
+            </select>
+          </label>
+          <button type='submit'>{t(selected_medium, 'change_language')}</button>
+        </form>
+    """ if show_language_controls else ""
 
     return f"""
     <!doctype html>
@@ -4958,17 +4970,8 @@ def test_page() -> str:
       </head>
       <body>
         <h1>{t(selected_medium, 'test_title')}</h1>
-        <form method='get' action='/test' style='margin-bottom:20px;'>
-          <label>{t(selected_medium, 'language')}:
-            <select name='medium'>
-              <option value='English' {english_selected}>English</option>
-              <option value='Sinhala' {sinhala_selected}>Sinhala</option>
-            </select>
-          </label>
-          <button type='submit'>{t(selected_medium, 'change_language')}</button>
-        </form>
+        {language_controls_html}
         <form method='post' action='/submit-test'>
-          <input type='hidden' name='medium' value='{selected_medium}'>
           <p>{t(selected_medium, 'selected_language')}: <strong>{selected_medium}</strong></p>
           {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
@@ -4996,7 +4999,9 @@ def update_student_xp_and_level(student_id: int | None, earned_xp: int) -> tuple
 @app.route("/submit-test", methods=["POST"])
 def submit_test() -> str:
     db.create_all()
-    selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
+    student_id = session.get("student_id")
+    student = db.session.get(Student, student_id) if student_id else None
+    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.form.get("medium") or request.args.get("medium"))
     streak_message = ""
 
     medium_key = "en" if selected_medium == "English" else "si"
@@ -5140,7 +5145,6 @@ def submit_test() -> str:
             """
         )
 
-    student_id = session.get("student_id")
     previous_result = (
         StudentResult.query.filter_by(student_id=student_id)
         .order_by(StudentResult.created_at.desc())
@@ -5168,7 +5172,7 @@ def submit_test() -> str:
         student_id=student_id,
         grade="6",
         subject="Math",
-        medium=selected_medium,
+        medium=resolve_medium(student.medium) if student else selected_medium,
         score=percentage_score,
         level=level_name,
         total_questions=total_questions,
@@ -5298,7 +5302,7 @@ def retest_weak() -> str:
         return redirect(url_for("login"))
 
 
-    selected_medium = resolve_medium(request.values.get("medium") or student.medium)
+    selected_medium = resolve_medium(student.medium)
     expired_now = expire_subscription_if_needed(student)
     expired_message = get_subscription_expired_message(selected_medium) if expired_now else ""
     if not has_active_premium(student) and get_daily_retest_count(student_id) >= 3:
@@ -5450,7 +5454,6 @@ def retest_weak() -> str:
         <h1>{t(selected_medium, 'retest_weak_topics')}</h1>
         <p><strong>{t(selected_medium, 'total_questions')}:</strong> {len(questions)}</p>
         <form method='post' action='/retest-weak'>
-          <input type='hidden' name='medium' value='{selected_medium}'>
           {''.join(question_blocks)}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
@@ -5642,11 +5645,11 @@ def practice_page() -> str:
     grade = (request.args.get("grade") or "").strip()
     subject = (request.args.get("subject") or "").strip()
     topic = (request.args.get("topic") or "").strip()
-    selected_medium = resolve_medium(request.args.get("medium"))
-
-    medium_key = "en" if selected_medium == "English" else "si"
     student_id = session.get("student_id")
     student = db.session.get(Student, student_id) if student_id else None
+    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.args.get("medium"))
+
+    medium_key = "en" if selected_medium == "English" else "si"
     expired_now = expire_subscription_if_needed(student)
     expired_message = get_subscription_expired_message(selected_medium) if expired_now else ""
     if student_id and not has_active_premium(student) and get_daily_practice_count(student_id) >= 5:
@@ -5712,8 +5715,21 @@ def practice_page() -> str:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
         question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
 
-    english_selected = "selected" if selected_medium == "English" else ""
-    sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
+    show_language_controls = student is None
+    language_controls_html = f"""
+        <form method='get' action='/practice' style='margin-bottom:20px;'>
+          <input type='hidden' name='grade' value='{grade}'>
+          <input type='hidden' name='subject' value='{subject}'>
+          <input type='hidden' name='topic' value='{topic}'>
+          <label>{t(selected_medium, 'language')}:
+            <select name='medium'>
+              <option value='English' {'selected' if selected_medium == 'English' else ''}>English</option>
+              <option value='Sinhala' {'selected' if selected_medium == 'Sinhala' else ''}>Sinhala</option>
+            </select>
+          </label>
+          <button type='submit'>{t(selected_medium, 'change_language')}</button>
+        </form>
+    """ if show_language_controls else ""
     display_topic = topic or "-"
 
     return f"""
@@ -5744,23 +5760,11 @@ def practice_page() -> str:
         <h1>{t(selected_medium, 'practice_title')}</h1>
         <p><strong>{t(selected_medium, 'topic_name')}:</strong> {display_topic}</p>
         <p><strong>{t(selected_medium, 'difficulty_label')}:</strong> {selected_question_difficulty}</p>
-        <form method='get' action='/practice' style='margin-bottom:20px;'>
-          <input type='hidden' name='grade' value='{grade}'>
-          <input type='hidden' name='subject' value='{subject}'>
-          <input type='hidden' name='topic' value='{topic}'>
-          <label>{t(selected_medium, 'language')}:
-            <select name='medium'>
-              <option value='English' {english_selected}>English</option>
-              <option value='Sinhala' {sinhala_selected}>Sinhala</option>
-            </select>
-          </label>
-          <button type='submit'>{t(selected_medium, 'change_language')}</button>
-        </form>
+        {language_controls_html}
         <form method='post' action='/submit-practice'>
           <input type='hidden' name='grade' value='{grade}'>
           <input type='hidden' name='subject' value='{subject}'>
           <input type='hidden' name='topic' value='{topic}'>
-          <input type='hidden' name='medium' value='{selected_medium}'>
           {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
@@ -5773,7 +5777,9 @@ def practice_page() -> str:
 @app.route("/submit-practice", methods=["POST"])
 def submit_practice() -> str:
     db.create_all()
-    selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
+    student_id = session.get("student_id")
+    student = db.session.get(Student, student_id) if student_id else None
+    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.form.get("medium") or request.args.get("medium"))
     grade = (request.form.get("grade") or "").strip()
     subject = (request.form.get("subject") or "").strip()
     topic = (request.form.get("topic") or "").strip()
@@ -5865,7 +5871,7 @@ def submit_practice() -> str:
         subject=subject,
         topic_en=topic_en,
         topic_si=topic_si,
-        medium=selected_medium,
+        medium=resolve_medium(student.medium) if student else selected_medium,
         score=score,
         total_questions=total_questions,
         correct_answers=correct_answers,
