@@ -214,26 +214,13 @@ def parse_box_answers_json(raw: str) -> tuple[dict[str, str], str | None]:
 
 
 def render_box_template_with_inputs(question: "Question", input_prefix: str) -> str:
-    template = question.box_template or ""
-    lines = []
-    for raw_line in template.splitlines():
-        marker = raw_line.strip().lower()
-        if marker == "---single---":
-            lines.append("<div class='math-single-line'></div>")
-            continue
-        if marker == "===double===":
-            lines.append("<div class='math-double-line'><div></div><div></div></div>")
-            continue
-        safe_line = escape(raw_line)
-        safe_line = safe_line.replace(" ", "&nbsp;")
-        safe_line = re.sub(
-            r"\[box(\d+)\]",
-            lambda m: f"<input type='text' name='{input_prefix}_{question.id}_box{int(m.group(1))}' class='math-box' inputmode='text' autocomplete='off'>",
-            safe_line,
-            flags=re.IGNORECASE,
-        )
-        lines.append(f"<div>{safe_line}</div>")
-    return f"<div class='math-layout'>{''.join(lines)}</div>"
+    template = escape(question.box_template or "")
+    def repl(match):
+        num = match.group(1)
+        key = f"box{int(num)}"
+        return f"<input type='text' name='{input_prefix}_{question.id}_{key}' class='box-input' inputmode='text' autocomplete='off'>"
+    html = re.sub(r"\[box(\d+)\]", repl, template, flags=re.IGNORECASE)
+    return f"<pre class='box-layout'>{html}</pre>"
 
 
 def evaluate_box_question(question: "Question", form) -> tuple[bool, dict[str, str], dict[str, str]]:
@@ -3338,11 +3325,11 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           </div>
 
           <div id="box_input_fields" style="{box_hidden}">
-            <p>Use [box1], [box2], [box3] for answer boxes, ---single--- for single line, and ===double=== for double answer line.</p>
+            <p>Use placeholders like [box1], [box2], [box3] where students should enter answers.</p>
             <p>You can freely arrange numbers, operators, and box positions.</p>
             <label>Box Template:<br><textarea name="box_template" rows="6" cols="80">{escape(data.get('box_template', ''))}</textarea></label><br><br>
             <label>Correct Box Answers (JSON):<br><textarea name="box_answers" rows="6" cols="80">{escape(data.get('box_answers', ''))}</textarea></label><br><br>
-            <div id='box_preview' class='math-layout' style='background:#f8fafc;padding:8px;border:1px solid #ddd;'></div>
+            <pre id='box_preview' style='font-family:monospace;background:#f8fafc;padding:8px;border:1px solid #ddd;'></pre>
           </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
@@ -3363,7 +3350,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const render=(txt)=>{{ if(!p) return; const esc=(v)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const lines=(txt||"").split(/\n/).map((line)=>{{ const m=line.trim().toLowerCase(); if(m==="---single---") return "<div class=\"math-single-line\"></div>"; if(m==="===double===") return "<div class=\"math-double-line\"><div></div><div></div></div>"; const html=esc(line).replace(/ /g,"&nbsp;").replace(/\[box(\d+)\]/gi,"<input class=\"math-box\" disabled>"); return `<div>${html}</div>`; }}); p.innerHTML = lines.join("") || "Live preview..."; }}; const u=()=>render(t?.value||""); if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const u=() => {{ if (p && t) {{ p.textContent=t.value||"Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -5057,11 +5044,8 @@ def test_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
         <style>
-           .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5072,11 +5056,8 @@ def test_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-             .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
               max-width: 180px;
             }}
@@ -5874,11 +5855,8 @@ def practice_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
         <style>
-           .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5889,11 +5867,8 @@ def practice_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-             .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
               max-width: 180px;
             }}
@@ -6147,11 +6122,8 @@ def student_homework_detail(homework_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-       .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6162,11 +6134,8 @@ def student_homework_detail(homework_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-         .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
           max-width: 180px;
         }}
@@ -6269,11 +6238,8 @@ def student_take_test(test_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-       .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6284,11 +6250,8 @@ def student_take_test(test_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-         .math-layout {font-family: monospace; white-space: pre; line-height: 1.6;}
-          .math-box {width: 32px; height: 32px; text-align: center; font-size: 18px; border: 2px solid #000; display: inline-block; vertical-align: middle;}
-          .math-single-line {border-top: 2px solid #000; width: 220px; margin: 2px 0;}
-          .math-double-line {width: 220px; margin: 2px 0;}
-          .math-double-line div {border-top: 2px solid #000; margin-top: 3px;}
+        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
           max-width: 180px;
         }}
