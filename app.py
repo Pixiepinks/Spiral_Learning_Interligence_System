@@ -5760,7 +5760,9 @@ def retest_weak() -> str:
         for q in questions:
             topic_stats.setdefault(q.topic_en, {"topic_en": q.topic_en, "topic_si": q.topic_si, "total": 0, "correct": 0})
             topic_stats[q.topic_en]["total"] += 1
-            if is_box_input_question(q):
+            if is_matching_pairs_question(q):
+                is_correct, _, _ = evaluate_matching_pairs_question(q, request.form, medium_key)
+            elif is_box_input_question(q):
                 is_correct, _, _ = evaluate_box_question(q, request.form)
             elif is_short_answer_question(q):
                 student_answer = request.form.get(f"q_{q.id}", "").strip()
@@ -6233,11 +6235,31 @@ def submit_practice() -> str:
 
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
-        if is_short_answer_question(q):
+        if is_matching_pairs_question(q):
+            student_map = json.loads(student_answer or "{}")
+            correct_map = json.loads(correct_answer or "{}")
+            parts = [f"<div><strong>{escape(k)}</strong><br>Your Answer: {escape(student_map.get(k) or t(selected_medium, 'not_answered'))}<br>Correct Answer: {escape(v)}</div>" for k, v in correct_map.items()]
+            student_answer_text = "".join(parts) or t(selected_medium, "not_answered")
+            correct_answer_text = "-"
+        elif is_box_input_question(q):
+            student_map = json.loads(student_answer or '{}')
+            correct_map = json.loads(correct_answer or '{}')
+            parts = []
+            for k, v in correct_map.items():
+                sval = student_map.get(k, '')
+                ok = sval.strip().casefold() == str(v).strip().casefold()
+                color = '#16a34a' if ok else '#dc2626'
+                parts.append(f"<div><strong>{k}</strong>: <span style='color:{color}'>{escape(sval or '-')}</span> / {escape(str(v))}</div>")
+            student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
+            correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
+        elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
+        elif student_answer in option_label_key:
+            student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
+            correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
         else:
-            student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}") if student_answer in option_label_key else t(selected_medium, "not_answered")
+            student_answer_text = t(selected_medium, "not_answered")
             correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
 
         answer_rows.append(
@@ -6449,8 +6471,17 @@ def student_homework_submit(homework_id: int):
         return "<h2>Homework not found</h2>", 404
     questions = get_questions_for_homework(homework.grade, homework.subject, homework.topic_en, homework.topic_si, homework.difficulty_level)
     correct_answers = 0
+    medium_key = "si" if student.medium == "Sinhala" else "en"
     for q in questions:
-        if (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper():
+        if is_matching_pairs_question(q):
+            is_correct, _, _ = evaluate_matching_pairs_question(q, request.form, medium_key)
+        elif is_box_input_question(q):
+            is_correct, _, _ = evaluate_box_question(q, request.form)
+        elif is_short_answer_question(q):
+            is_correct = (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
+        else:
+            is_correct = (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
+        if is_correct:
             correct_answers += 1
     total_questions = len(questions)
     score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
@@ -6495,7 +6526,11 @@ def student_take_test(test_id: int):
         return "<h2>Test not found</h2>", 404
     questions = get_questions_for_homework(test.grade, test.subject, test.topic_en, test.topic_si, test.difficulty_level)
     if request.method == "POST":
+        medium_key = "si" if student.medium == "Sinhala" else "en"
         def _is_correct(q):
+            if is_matching_pairs_question(q):
+                ok, _, _ = evaluate_matching_pairs_question(q, request.form, medium_key)
+                return ok
             if is_box_input_question(q):
                 ok, _, _ = evaluate_box_question(q, request.form)
                 return ok
