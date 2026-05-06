@@ -1,4 +1,5 @@
 import json
+import html
 import os
 import random
 import re
@@ -3363,7 +3364,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const render=(txt)=>{{ if(!p) return; const esc=(v)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const lines=(txt||"").split(/\n/).map((line)=>{{ const m=line.trim().toLowerCase(); if(m==="---single---") return "<div class=\"math-single-line\"></div>"; if(m==="===double===") return "<div class=\"math-double-line\"><div></div><div></div></div>"; const html=esc(line).replace(/ /g,"&nbsp;").replace(/\[box(\d+)\]/gi,"<input class=\"math-box\" disabled>"); return `<div>${html}</div>`; }}); p.innerHTML = lines.join("") || "Live preview..."; }}; const u=()=>render(t?.value||""); if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const render=(txt)=>{{ if(!p) return; const esc=(v)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const lines=(txt||"").split(/\n/).map((line)=>{{ const m=line.trim().toLowerCase(); if(m==="---single---") return "<div class=\"math-single-line\"></div>"; if(m==="===double===") return "<div class=\"math-double-line\"><div></div><div></div></div>"; const html=esc(line).replace(/ /g,"&nbsp;").replace(/\\[box(\d+)\\]/gi,"<input class=\"math-box\" disabled>"); return `<div>${html}</div>`; }}); p.innerHTML = lines.join("") || "Live preview..."; }}; const u=()=>render(t?.value||""); if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
