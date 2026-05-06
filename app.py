@@ -214,13 +214,29 @@ def parse_box_answers_json(raw: str) -> tuple[dict[str, str], str | None]:
 
 
 def render_box_template_with_inputs(question: "Question", input_prefix: str) -> str:
-    template = escape(question.box_template or "")
-    def repl(match):
-        num = match.group(1)
-        key = f"box{int(num)}"
-        return f"<input type='text' name='{input_prefix}_{question.id}_{key}' class='box-input' inputmode='text' autocomplete='off'>"
-    html = re.sub(r"\[box(\d+)\]", repl, template, flags=re.IGNORECASE)
-    return f"<pre class='box-layout'>{html}</pre>"
+    template = question.box_template or ""
+
+    def replace_boxes(line: str) -> str:
+        escaped_line = escape(line)
+
+        def repl(match):
+            num = match.group(1)
+            key = f"box{int(num)}"
+            return f"<input type='text' name='{input_prefix}_{question.id}_{key}' class='box-input' inputmode='text' autocomplete='off'>"
+
+        return re.sub(r"\[box(\d+)\]", repl, escaped_line, flags=re.IGNORECASE)
+
+    rows = []
+    for raw_line in template.splitlines() or [""]:
+        line = raw_line.strip()
+        if line == "---single---":
+            rows.append("<div class='box-layout-line box-layout-line-single' aria-hidden='true'></div>")
+        elif line == "===double===":
+            rows.append("<div class='box-layout-line box-layout-line-double' aria-hidden='true'></div>")
+        else:
+            rows.append(f"<div class='box-layout-row'>{replace_boxes(raw_line)}</div>")
+
+    return f"<div class='box-layout'>{''.join(rows)}</div>"
 
 
 def evaluate_box_question(question: "Question", form) -> tuple[bool, dict[str, str], dict[str, str]]:
@@ -3289,7 +3305,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     return f"""
     <!doctype html>
     <html lang="en">
-      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title></head>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title><style>.box-layout,.box-layout-preview{font-family:monospace;line-height:1.4;white-space:pre;background:#f8fafc;padding:8px;border:1px solid #ddd;display:inline-block;max-width:100%;overflow:auto}.box-layout-row{min-height:1.2em}.box-layout-line{height:0;border-top:2px solid #444;margin:6px 0}.box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px}.box-preview-square{display:inline-block;min-width:1ch}</style></head>
       <body>
         <h1>{page_title}</h1>
         {error_html}
@@ -3325,11 +3341,15 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           </div>
 
           <div id="box_input_fields" style="{box_hidden}">
-            <p>Use placeholders like [box1], [box2], [box3] where students should enter answers.</p>
-            <p>You can freely arrange numbers, operators, and box positions.</p>
+            <p>Use:</p>
+            <ul>
+              <li>[box1], [box2] for answer boxes</li>
+              <li>---single--- for single line</li>
+              <li>===double=== for double answer line</li>
+            </ul>
             <label>Box Template:<br><textarea name="box_template" rows="6" cols="80">{escape(data.get('box_template', ''))}</textarea></label><br><br>
             <label>Correct Box Answers (JSON):<br><textarea name="box_answers" rows="6" cols="80">{escape(data.get('box_answers', ''))}</textarea></label><br><br>
-            <pre id='box_preview' style='font-family:monospace;background:#f8fafc;padding:8px;border:1px solid #ddd;'></pre>
+            <div id='box_preview' class='box-layout-preview'></div>
           </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
@@ -3350,7 +3370,28 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const u=() => {{ if (p && t) {{ p.textContent=t.value||"Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{
+          const t = document.querySelector("textarea[name=box_template]");
+          const p = document.getElementById("box_preview");
+          const renderPreview = () => {{
+            if (!p || !t) return;
+            const lines = (t.value || "").split(/\r?\n/);
+            const out = lines.map((rawLine) => {{
+              const token = rawLine.trim();
+              if (token === "---single---") return "<div class='box-layout-line box-layout-line-single'></div>";
+              if (token === "===double===") return "<div class='box-layout-line box-layout-line-double'></div>";
+              const escaped = rawLine
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+              const withBoxes = escaped.replace(/\[box(\d+)\]/gi, "<span class='box-preview-square'>□</span>");
+              return `<div class='box-layout-row'>${{withBoxes}}</div>`;
+            }}).join("");
+            p.innerHTML = out || "<div class='box-layout-row'>Live preview...</div>";
+          }};
+          if (t) t.addEventListener("input", renderPreview);
+          renderPreview();
+        }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -5044,7 +5085,7 @@ def test_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
         <style>
-          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
             max-width: 250px;
@@ -5056,7 +5097,7 @@ def test_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+            .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
               max-width: 180px;
@@ -5855,7 +5896,7 @@ def practice_page() -> str:
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
         <style>
-          .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+          .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
             max-width: 250px;
@@ -5867,7 +5908,7 @@ def practice_page() -> str:
             border-radius: 6px;
           }}
           @media (max-width: 768px) {{
-            .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+            .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
               max-width: 180px;
@@ -6122,7 +6163,7 @@ def student_homework_detail(homework_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+      .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
         max-width: 250px;
@@ -6134,7 +6175,7 @@ def student_homework_detail(homework_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+        .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
           max-width: 180px;
@@ -6238,7 +6279,7 @@ def student_take_test(test_id: int):
   <head>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
-      .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+      .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
         max-width: 250px;
@@ -6250,7 +6291,7 @@ def student_take_test(test_id: int):
         border-radius: 6px;
       }}
       @media (max-width: 768px) {{
-        .box-layout {font-family:monospace;white-space:pre;line-height:1.4;}
+        .box-layout {font-family:monospace;line-height:1.4;display:inline-block;max-width:100%;overflow:auto;} .box-layout-row{white-space:pre;min-height:1.2em;} .box-layout-line{height:0;border-top:2px solid #444;margin:6px 0;} .box-layout-line-double{border-top:none;border-bottom:3px double #444;height:4px;}
           .box-input {width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}
           .question-image {{
           max-width: 180px;
