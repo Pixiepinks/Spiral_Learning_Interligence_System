@@ -262,6 +262,36 @@ class Class(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+
+
+class SubjectMaster(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    grade = db.Column(db.String(20), nullable=False)
+    subject_code = db.Column(db.String(50), nullable=False)
+    subject_name_en = db.Column(db.String(150), nullable=False)
+    subject_name_si = db.Column(db.String(150), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+def get_subjects_for_grade(grade: str | None, active_only: bool = True):
+    normalized = normalize_grade(grade)
+    query = SubjectMaster.query
+    if normalized:
+        query = query.filter_by(grade=normalized)
+    if active_only:
+        query = query.filter_by(is_active=True)
+    return query.order_by(SubjectMaster.subject_name_en.asc()).all()
+
+
+def subject_options_html(selected_grade: str = "", selected_subject: str = "", active_only: bool = True) -> str:
+    subjects = get_subjects_for_grade(selected_grade, active_only=active_only)
+    options = ["<option value=''>Select subject</option>"]
+    for item in subjects:
+        sel = " selected" if item.subject_name_en == (selected_subject or "") else ""
+        options.append(f"<option value=\"{escape(item.subject_name_en)}\"{sel}>{escape(item.subject_name_en)} ({escape(item.subject_code)})</option>")
+    return "".join(options)
+
 class SyllabusTerm(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -2546,7 +2576,7 @@ def teacher_assign_homework(class_id: int):
     <h1>Assign Homework - {escape(classroom.class_name)}</h1>
     <form method='post'>
       <label>Title: <input type='text' name='title' required></label><br><br>
-      <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
+      <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
       <label>Topic (English): <input type='text' name='topic_en' required></label><br><br>
       <label>Topic (Sinhala): <input type='text' name='topic_si' required></label><br><br>
       <label>Difficulty (1-5): <input type='number' min='1' max='5' name='difficulty_level' value='1' required></label><br><br>
@@ -3092,7 +3122,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         {error_html}
         <form method="post" action="{action}" enctype="multipart/form-data">
           <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
-          <label>Subject: <input type="text" name="subject" value="{escape(data.get('subject', ''))}" required></label><br><br>
+          <label>Subject: <select name="subject" required>{subject_options_html(grade, subject, active_only=False)}</select></label><br><br>
           <label>Term: <select name="term_id">{term_options}</select></label><br><br>
           <label>Module: <select name="module_id">{module_options}</select></label><br><br>
           <label>Chapter: <select name="chapter_id">{chapter_options}</select></label><br><br>
@@ -3242,7 +3272,7 @@ def admin_dashboard():
         <p><a href='/admin/students'>Manage Students</a></p>
         <p><a href='/register-form'>Register Student</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
-        <p><a href='/admin/syllabus'>Syllabus Management</a></p>
+        <p><a href='/admin/syllabus'>Syllabus Management</a></p><p><a href='/admin/subjects'>Subject Management</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
@@ -3834,6 +3864,38 @@ def admin_questions():
     """
 
 
+@app.route("/admin/subjects", methods=["GET"])
+def admin_subjects():
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    grade = normalize_grade(request.args.get("grade"))
+    query = SubjectMaster.query
+    if grade:
+        query = query.filter_by(grade=grade)
+    subjects = query.order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
+    rows = "".join([f"<tr><td>{display_grade(x.grade)}</td><td>{escape(x.subject_code)}</td><td>{escape(x.subject_name_en)}</td><td>{escape(x.subject_name_si)}</td><td>{'Yes' if x.is_active else 'No'}</td><td><a href='/admin/subject/edit/{x.id}'>Edit</a></td></tr>" for x in subjects])
+    return f"<h1>Subject Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/subject/add'>Add Subject</a></p><form><label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject Code</th><th>Subject Name EN</th><th>Subject Name SI</th><th>Active</th><th>Action</th></tr>{rows or '<tr><td colspan=6>No subjects found</td></tr>'}</table>"
+
+
+@app.route("/admin/subject/add", methods=["GET", "POST"])
+@app.route("/admin/subject/edit/<int:subject_id>", methods=["GET", "POST"])
+def admin_subject_form(subject_id: int | None = None):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    obj = SubjectMaster.query.get(subject_id) if subject_id else SubjectMaster()
+    if request.method == "POST":
+        obj.grade = normalize_grade(request.form.get("grade"))
+        obj.subject_code = (request.form.get("subject_code") or "").strip().upper()
+        obj.subject_name_en = (request.form.get("subject_name_en") or "").strip()
+        obj.subject_name_si = (request.form.get("subject_name_si") or "").strip()
+        obj.is_active = (request.form.get("is_active") or "false").lower() in {"1","true","yes","on"}
+        if not subject_id:
+            db.session.add(obj)
+        db.session.commit()
+        return redirect("/admin/subjects")
+    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='post'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
+
+
 @app.route("/admin/syllabus", methods=["GET"])
 def admin_syllabus():
     admin_redirect = admin_session_required()
@@ -3856,7 +3918,7 @@ def admin_syllabus():
             chapter_html = "".join([f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a></li>" for c in chapters])
             module_html += f"<li>Module {m.module_order}: {escape(m.module_name_en)} - <a href='/admin/syllabus/module/edit/{m.id}'>Edit</a> | <a href='/admin/syllabus/chapter/add/{m.id}'>Add Chapter</a><ul>{chapter_html or '<li>No chapters</li>'}</ul></li>"
         rows += f"<tr><td>{escape(t_item.grade)}</td><td>{escape(t_item.subject)}</td><td>{t_item.term_number}</td><td>{escape(t_item.term_name_en)}</td><td><a href='/admin/syllabus/term/edit/{t_item.id}'>Edit</a> | <a href='/admin/syllabus/module/add/{t_item.id}'>Add Module</a><ul>{module_html or '<li>No modules</li>'}</ul></td></tr>"
-    return f"<h1>Syllabus Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/syllabus/term/add'>Add Term</a></p><form method='get'><label>Grade <input name='grade' value='{escape(grade)}'></label><label> Subject <input name='subject' value='{escape(subject)}'></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject</th><th>Term #</th><th>Term Name</th><th>Hierarchy</th></tr>{rows or '<tr><td colspan=5>No terms found</td></tr>'}</table>"
+    return f"<h1>Syllabus Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/syllabus/term/add'>Add Term</a> | <a href='/admin/subjects'>Manage Subjects</a></p><form method='get'><label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label><label> Subject <select name='subject'>{subject_options_html(grade, subject, active_only=False)}</select></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject</th><th>Term #</th><th>Term Name</th><th>Hierarchy</th></tr>{rows or '<tr><td colspan=5>No terms found</td></tr>'}</table>"
 
 
 @app.route("/admin/add-question", methods=["GET", "POST"])
@@ -3933,7 +3995,7 @@ def admin_syllabus_term_form(term_id: int | None = None):
             db.session.add(obj)
         db.session.commit()
         return redirect("/admin/syllabus")
-    return f"<h1>{'Edit' if term else 'Add'} Term</h1><form method='post'><label>Grade <input name='grade' value='{escape(term.grade if term else '')}' required></label><br><label>Subject <input name='subject' value='{escape(term.subject if term else '')}' required></label><br><label>Term Number <input type='number' name='term_number' value='{term.term_number if term else 1}' required></label><br><label>Term Name EN <input name='term_name_en' value='{escape(term.term_name_en if term else '')}' required></label><br><label>Term Name SI <input name='term_name_si' value='{escape(term.term_name_si if term else '')}' required></label><br><button type='submit'>Save</button></form>"
+    return f"<h1>{'Edit' if term else 'Add'} Term</h1><form method='post'><label>Grade <select name='grade' required>{grade_options_html(term.grade if term else '')}</select></label><br><label>Subject <select name='subject' required>{subject_options_html(term.grade if term else '', term.subject if term else '')}</select></label><br><label>Term Number <input type='number' name='term_number' value='{term.term_number if term else 1}' required></label><br><label>Term Name EN <input name='term_name_en' value='{escape(term.term_name_en if term else '')}' required></label><br><label>Term Name SI <input name='term_name_si' value='{escape(term.term_name_si if term else '')}' required></label><br><button type='submit'>Save</button></form>"
 
 
 @app.route("/admin/syllabus/module/add/<int:term_id>", methods=["GET", "POST"])
@@ -4071,7 +4133,7 @@ def admin_generate_questions():
         <h2>Generate Questions (Bulk)</h2>
         <form method='post' action='/admin/generate-questions'>
           <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
-          <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
+          <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
           <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
           <label>Number of questions: <input type='number' name='question_count' min='1' max='200' value='10' required></label><br><br>
           <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
@@ -4124,7 +4186,7 @@ def admin_ai_generate_questions():
         <h2>AI Question Generator</h2>
         <form method='post' action='/admin/ai-generate'>
           <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
-          <label>Subject: <input type='text' name='subject' value='Math' required></label><br><br>
+          <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
           <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
           <label>Number of questions: <input type='number' name='question_count' min='1' max='100' value='10' required></label><br><br>
           <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
@@ -4274,6 +4336,32 @@ def update_syllabus_db() -> tuple[str, int]:
     except Exception as exc:
         db.session.rollback()
         return f"Syllabus DB update failed: {exc}", 500
+
+
+@app.route("/update-subject-master-db", methods=["GET"])
+def update_subject_master_db() -> tuple:
+    try:
+        SubjectMaster.__table__.create(bind=db.engine, checkfirst=True)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Subject master database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Subject master DB update failed: {exc}"}), 500
+
+
+@app.route("/seed-basic-subjects", methods=["GET"])
+def seed_basic_subjects() -> tuple:
+    try:
+        SubjectMaster.__table__.create(bind=db.engine, checkfirst=True)
+        existing = SubjectMaster.query.filter_by(grade="6", subject_code="MATH").first()
+        if not existing:
+            db.session.add(SubjectMaster(grade="6", subject_code="MATH", subject_name_en="Math", subject_name_si="ගණිතය", is_active=True))
+            db.session.commit()
+            return jsonify({"success": True, "message": "Seeded Grade 6 Math subject"}), 200
+        return jsonify({"success": True, "message": "Grade 6 Math subject already exists"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Seed failed: {exc}"}), 500
 
 
 @app.route("/update-login-db", methods=["GET"])
