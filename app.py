@@ -4258,6 +4258,20 @@ def update_question_topics_db() -> tuple:
         return jsonify({"success": False, "message": f"Question topic column update failed: {exc}"}), 500
 
 
+@app.route("/update-question-format-db", methods=["GET"])
+def update_question_format_db() -> tuple[str, int]:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'mcq'"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS correct_answer_text TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS image_url TEXT"))
+        db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
+        db.session.commit()
+        return "Question format database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Question format DB update failed: {exc}"}), 500
+
+
 @app.route("/update-results-db", methods=["GET"])
 def update_results_db() -> tuple:
     try:
