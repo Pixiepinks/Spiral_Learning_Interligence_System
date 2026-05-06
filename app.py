@@ -11,6 +11,7 @@ from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
@@ -19,6 +20,39 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+
+UPLOAD_DIR = os.path.join(app.root_path, "static", "images", "questions")
+UPLOAD_URL_PREFIX = "/static/images/questions/"
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
+
+
+def save_question_image_upload(file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid image filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "Invalid file type. Allowed: png, jpg, jpeg, webp."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_SIZE:
+        return None, "Image size must be 2MB or less."
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    timestamp = int(datetime.utcnow().timestamp())
+    random_part = random.randint(100000, 999999)
+    filename = secure_filename(f"question_{timestamp}_{random_part}.{ext}")
+    file_storage.save(os.path.join(UPLOAD_DIR, filename))
+    return f"{UPLOAD_URL_PREFIX}{filename}", None
+
 
 SUPPORTED_MEDIA = {"English", "Sinhala"}
 
@@ -2986,13 +3020,15 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
       <body>
         <h1>{page_title}</h1>
         {error_html}
-        <form method="post" action="{action}">
+        <form method="post" action="{action}" enctype="multipart/form-data">
           <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
           <label>Subject: <input type="text" name="subject" value="{escape(data.get('subject', ''))}" required></label><br><br>
           <label>Topic: <input type="text" name="topic" value="{escape(data.get('topic', ''))}" required></label><br><br>
           <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
           <label>Question text SI:<br><textarea name="question_text_si" rows="4" cols="80" required>{escape(data.get('question_text_si', ''))}</textarea></label><br><br>
           <label>Image URL (optional): <input type="text" name="image_url" value="{escape(data.get('image_url', ''))}"></label><br><br>
+          <label>Question Image (optional): <input type="file" name="question_image" accept=".png,.jpg,.jpeg,.webp"></label><br><br>
+          {f"<p>Current image:<br><img src='{escape(data.get('image_url', ''))}' alt='Current question image' style='max-width:500px;height:auto;border:1px solid #ddd;'></p>" if data.get("image_url") else ""}
           <label>Question Type:
             <select name="question_type" id="question_type" onchange="toggleQuestionType()" required>
               <option value="mcq" {"selected" if question_type == "mcq" else ""}>MCQ</option>
@@ -3736,6 +3772,12 @@ def admin_add_question():
     if error:
         return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", error), 400
 
+    uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
+    if upload_error:
+        return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", upload_error), 400
+    if uploaded_image_url:
+        form_data["image_url"] = uploaded_image_url
+
     question = Question(
         grade=form_data["grade"],
         subject=form_data["subject"],
@@ -3799,6 +3841,10 @@ def admin_edit_question(question_id: int):
     if error:
         return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", error), 400
 
+    uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
+    if upload_error:
+        return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", upload_error), 400
+
     question.grade = form_data["grade"]
     question.subject = form_data["subject"]
     question.topic = form_data["topic"]
@@ -3816,7 +3862,7 @@ def admin_edit_question(question_id: int):
     question.option_d_si = form_data["option_d"]
     question.question_type = form_data["question_type"]
     question.correct_answer_text = form_data["correct_answer_text"] or None
-    question.image_url = form_data["image_url"] or None
+    question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
     db.session.commit()
@@ -4399,7 +4445,7 @@ def test_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:100%;height:auto;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -5166,7 +5212,7 @@ def practice_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:100%;height:auto;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -5426,10 +5472,15 @@ def student_homework_detail(homework_id: int):
         return "<h2>Homework not found</h2>", 404
     questions = get_questions_for_homework(homework.grade, homework.subject, homework.topic_en, homework.topic_si, homework.difficulty_level)
     medium_key = "si" if student.medium == "Sinhala" else "en"
-    q_html = "".join(
-        f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p><label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label></div>"
-        for q in questions
-    )
+    q_html_parts = []
+    for q in questions:
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        if is_short_answer_question(q):
+            answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
+        else:
+            answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
+    q_html = "".join(q_html_parts)
     return f"<!doctype html><html><body><h1>{escape(homework.title)}</h1><p>Due: {homework.due_date.strftime('%Y-%m-%d')}</p><form method='post' action='/student/homework/{homework.id}/submit'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/homework'>Back</a></p></body></html>"
 
 
@@ -5501,7 +5552,15 @@ def student_take_test(test_id: int):
         db.session.commit()
         return redirect(url_for("student_test_result_summary", test_id=test.id))
     medium_key = "si" if student.medium == "Sinhala" else "en"
-    q_html = "".join(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p><label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label></div>" for q in questions)
+    q_html_parts = []
+    for q in questions:
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        if is_short_answer_question(q):
+            answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
+        else:
+            answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
+    q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"<!doctype html><html><body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p>{timer_html}<form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit' style='padding:10px 16px;font-weight:bold;'>{'යවන්න' if student.medium=='Sinhala' else 'Submit Test'}</button></form><p><a href='/student/tests'>Back</a></p></body></html>"
 
