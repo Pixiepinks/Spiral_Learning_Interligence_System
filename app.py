@@ -153,6 +153,10 @@ def t(medium: str, key: str) -> str:
     return UI_TEXT[resolve_medium(medium)][key]
 
 
+def is_short_answer_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "short_answer"
+
+
 def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int):
     effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
     return (
@@ -239,6 +243,9 @@ class Question(db.Model):
     option_c_si = db.Column(db.Text, nullable=False)
     option_d_en = db.Column(db.Text, nullable=False)
     option_d_si = db.Column(db.Text, nullable=False)
+    question_type = db.Column(db.String(20), nullable=False, default="mcq")
+    correct_answer_text = db.Column(db.Text, nullable=True)
+    image_url = db.Column(db.Text, nullable=True)
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
     explanation_si = db.Column(db.Text, nullable=False)
@@ -2915,25 +2922,23 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     topic = (request.form.get("topic") or "").strip()
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
+    question_type = (request.form.get("question_type") or "mcq").strip().lower()
+    if question_type not in {"mcq", "short_answer"}:
+        return {}, "Question type must be MCQ or Short Answer."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = (request.form.get("correct_option") or "").strip().upper()
+    correct_answer_text = (request.form.get("correct_answer_text") or "").strip()
+    image_url = (request.form.get("image_url") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
-    required_values = [
-        grade,
-        subject,
-        topic,
-        question_text_en,
-        question_text_si,
-        option_a,
-        option_b,
-        option_c,
-        option_d,
-        correct_option,
-    ]
+    required_values = [grade, subject, topic, question_text_en, question_text_si]
+    if question_type == "mcq":
+        required_values.extend([option_a, option_b, option_c, option_d, correct_option])
+    else:
+        required_values.append(correct_answer_text)
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
@@ -2941,7 +2946,7 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     if not is_valid_grade(grade):
         return {}, "Grade must be one of: 1-10, OL, AL."
 
-    if correct_option not in {"A", "B", "C", "D"}:
+    if question_type == "mcq" and correct_option not in {"A", "B", "C", "D"}:
         return {}, "Correct answer must be one of A, B, C, or D."
     try:
         difficulty_level = int(difficulty_level_raw)
@@ -2961,6 +2966,9 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         "option_c": option_c,
         "option_d": option_d,
         "correct_option": correct_option,
+        "question_type": question_type,
+        "correct_answer_text": correct_answer_text,
+        "image_url": image_url,
         "difficulty_level": difficulty_level,
     }, None
 
@@ -2968,6 +2976,9 @@ def parse_question_form_data() -> tuple[dict, str | None]:
 def render_question_form(action: str, data: dict, page_title: str, submit_label: str, error: str = "") -> str:
     error_html = f"<p style='color:red;'>{escape(error)}</p>" if error else ""
     difficulty_level = str(data.get("difficulty_level", "1"))
+    question_type = data.get("question_type", "mcq")
+    mcq_hidden = "" if question_type == "mcq" else "display:none;"
+    short_hidden = "" if question_type == "short_answer" else "display:none;"
     return f"""
     <!doctype html>
     <html lang="en">
@@ -2981,11 +2992,23 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <label>Topic: <input type="text" name="topic" value="{escape(data.get('topic', ''))}" required></label><br><br>
           <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
           <label>Question text SI:<br><textarea name="question_text_si" rows="4" cols="80" required>{escape(data.get('question_text_si', ''))}</textarea></label><br><br>
-          <label>Option A: <input type="text" name="option_a" value="{escape(data.get('option_a', ''))}" required></label><br><br>
-          <label>Option B: <input type="text" name="option_b" value="{escape(data.get('option_b', ''))}" required></label><br><br>
-          <label>Option C: <input type="text" name="option_c" value="{escape(data.get('option_c', ''))}" required></label><br><br>
-          <label>Option D: <input type="text" name="option_d" value="{escape(data.get('option_d', ''))}" required></label><br><br>
-          <label>Correct Answer (A/B/C/D): <input type="text" name="correct_option" maxlength="1" value="{escape(data.get('correct_option', ''))}" required></label><br><br>
+          <label>Image URL (optional): <input type="text" name="image_url" value="{escape(data.get('image_url', ''))}"></label><br><br>
+          <label>Question Type:
+            <select name="question_type" id="question_type" onchange="toggleQuestionType()" required>
+              <option value="mcq" {"selected" if question_type == "mcq" else ""}>MCQ</option>
+              <option value="short_answer" {"selected" if question_type == "short_answer" else ""}>Short Answer</option>
+            </select>
+          </label><br><br>
+          <div id="mcq_fields" style="{mcq_hidden}">
+          <label>Option A: <input type="text" name="option_a" value="{escape(data.get('option_a', ''))}"></label><br><br>
+          <label>Option B: <input type="text" name="option_b" value="{escape(data.get('option_b', ''))}"></label><br><br>
+          <label>Option C: <input type="text" name="option_c" value="{escape(data.get('option_c', ''))}"></label><br><br>
+          <label>Option D: <input type="text" name="option_d" value="{escape(data.get('option_d', ''))}"></label><br><br>
+          <label>Correct Answer (A/B/C/D): <input type="text" name="correct_option" maxlength="1" value="{escape(data.get('correct_option', ''))}"></label><br><br>
+          </div>
+          <div id="short_answer_fields" style="{short_hidden}">
+            <label>Correct Answer (text or number): <input type="text" name="correct_answer_text" value="{escape(data.get('correct_answer_text', ''))}"></label><br><br>
+          </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
               <option value="1" {"selected" if difficulty_level == "1" else ""}>1 Easy</option>
@@ -2998,6 +3021,13 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <button type="submit">{submit_label}</button>
         </form>
         <p><a href="/admin/questions">Back to Questions</a></p>
+        <script>
+          function toggleQuestionType() {{
+            const isMcq = document.getElementById("question_type").value === "mcq";
+            document.getElementById("mcq_fields").style.display = isMcq ? "block" : "none";
+            document.getElementById("short_answer_fields").style.display = isMcq ? "none" : "block";
+          }}
+        </script>
       </body>
     </html>
     """
@@ -3722,6 +3752,9 @@ def admin_add_question():
         option_c_si=form_data["option_c"],
         option_d_en=form_data["option_d"],
         option_d_si=form_data["option_d"],
+        question_type=form_data["question_type"],
+        correct_answer_text=form_data["correct_answer_text"] or None,
+        image_url=form_data["image_url"] or None,
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
         explanation_si="N/A",
@@ -3753,6 +3786,9 @@ def admin_edit_question(question_id: int):
                 "option_c": question.option_c_en,
                 "option_d": question.option_d_en,
                 "correct_option": question.correct_option,
+                "question_type": question.question_type or "mcq",
+                "correct_answer_text": question.correct_answer_text or "",
+                "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
             },
             "Edit Question",
@@ -3778,6 +3814,9 @@ def admin_edit_question(question_id: int):
     question.option_c_si = form_data["option_c"]
     question.option_d_en = form_data["option_d"]
     question.option_d_si = form_data["option_d"]
+    question.question_type = form_data["question_type"]
+    question.correct_answer_text = form_data["correct_answer_text"] or None
+    question.image_url = form_data["image_url"] or None
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
     db.session.commit()
@@ -4360,22 +4399,16 @@ def test_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        option_a = getattr(q, f"option_a_{medium_key}")
-        option_b = getattr(q, f"option_b_{medium_key}")
-        option_c = getattr(q, f"option_c_{medium_key}")
-        option_d = getattr(q, f"option_d_{medium_key}")
-
-        question_blocks.append(
-            f"""
-            <div style='margin:16px 0;padding:12px;border:1px solid #ddd;'>
-              <p><strong>Q{q.id}.</strong> {question_text}</p>
-              <label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>
-            </div>
-            """
-        )
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:100%;height:auto;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        if is_short_answer_question(q):
+            answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
+        else:
+            option_a = getattr(q, f"option_a_{medium_key}")
+            option_b = getattr(q, f"option_b_{medium_key}")
+            option_c = getattr(q, f"option_c_{medium_key}")
+            option_d = getattr(q, f"option_d_{medium_key}")
+            answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
 
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
@@ -4458,10 +4491,16 @@ def submit_test() -> str:
             },
         )
         topic_stats[topic_name]["total"] += 1
-        student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
-        correct_answer = q.correct_option.strip().upper()
+        if is_short_answer_question(q):
+            student_answer = request.form.get(f"q_{q.id}", "").strip()
+            correct_answer = (q.correct_answer_text or "").strip()
+            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+        else:
+            student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+            correct_answer = q.correct_option.strip().upper()
+            is_correct = student_answer == correct_answer
 
-        if student_answer == correct_answer:
+        if is_correct:
             correct_answers += 1
             topic_stats[topic_name]["correct"] += 1
         db.session.add(
@@ -4469,21 +4508,24 @@ def submit_test() -> str:
                 student_id=session.get("student_id"),
                 question_id=q.id,
                 source_type="SkillScan",
-                is_correct=(student_answer == correct_answer),
+                is_correct=is_correct,
             )
         )
-        if student_answer == correct_answer:
+        if is_correct:
             continue
 
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
 
-        if student_answer in option_label_key:
+        if is_short_answer_question(q):
+            student_answer_text = student_answer or t(selected_medium, "not_answered")
+            correct_answer_text = correct_answer or t(selected_medium, "not_answered")
+        elif student_answer in option_label_key:
             student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
+            correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
         else:
             student_answer_text = t(selected_medium, "not_answered")
-
-        correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
+            correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
         wrong_answer_rows.append(
             f"""
             <tr>
@@ -5124,21 +5166,16 @@ def practice_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        option_a = getattr(q, f"option_a_{medium_key}")
-        option_b = getattr(q, f"option_b_{medium_key}")
-        option_c = getattr(q, f"option_c_{medium_key}")
-        option_d = getattr(q, f"option_d_{medium_key}")
-        question_blocks.append(
-            f"""
-            <div style='margin:16px 0;padding:12px;border:1px solid #ddd;'>
-              <p><strong>Q{q.id}.</strong> {question_text}</p>
-              <label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br>
-              <label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>
-            </div>
-            """
-        )
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:100%;height:auto;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        if is_short_answer_question(q):
+            answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
+        else:
+            option_a = getattr(q, f"option_a_{medium_key}")
+            option_b = getattr(q, f"option_b_{medium_key}")
+            option_c = getattr(q, f"option_c_{medium_key}")
+            option_d = getattr(q, f"option_d_{medium_key}")
+            answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
 
     english_selected = "selected" if selected_medium == "English" else ""
     sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
@@ -5205,27 +5242,33 @@ def submit_practice() -> str:
     student_id = session.get("student_id")
 
     for q in questions:
-        student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
-        correct_answer = q.correct_option.strip().upper()
-        if student_answer == correct_answer:
+        if is_short_answer_question(q):
+            student_answer = request.form.get(f"q_{q.id}", "").strip()
+            correct_answer = (q.correct_answer_text or "").strip()
+            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+        else:
+            student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
+            correct_answer = q.correct_option.strip().upper()
+            is_correct = student_answer == correct_answer
+        if is_correct:
             correct_answers += 1
         db.session.add(
             StudentQuestionAttempt(
                 student_id=student_id,
                 question_id=q.id,
                 source_type="Practice",
-                is_correct=(student_answer == correct_answer),
+                is_correct=is_correct,
             )
         )
 
         question_text = getattr(q, f"question_text_{medium_key}")
         explanation_text = getattr(q, f"explanation_{medium_key}")
-        student_answer_text = (
-            getattr(q, f"{option_label_key[student_answer]}_{medium_key}")
-            if student_answer in option_label_key
-            else t(selected_medium, "not_answered")
-        )
-        correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
+        if is_short_answer_question(q):
+            student_answer_text = student_answer or t(selected_medium, "not_answered")
+            correct_answer_text = correct_answer or t(selected_medium, "not_answered")
+        else:
+            student_answer_text = getattr(q, f"{option_label_key[student_answer]}_{medium_key}") if student_answer in option_label_key else t(selected_medium, "not_answered")
+            correct_answer_text = getattr(q, f"{option_label_key[correct_answer]}_{medium_key}")
 
         answer_rows.append(
             f"""
