@@ -4459,7 +4459,7 @@ def test_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -4480,6 +4480,22 @@ def test_page() -> str:
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Test Page</title>
+        <style>
+          .question-image {{
+            max-width: 250px;
+            width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+          }}
+          @media (max-width: 768px) {{
+            .question-image {{
+              max-width: 180px;
+            }}
+          }}
+        </style>
       </head>
       <body>
         <h1>{t(selected_medium, 'test_title')}</h1>
@@ -5226,7 +5242,7 @@ def practice_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -5248,6 +5264,22 @@ def practice_page() -> str:
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
+        <style>
+          .question-image {{
+            max-width: 250px;
+            width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+          }}
+          @media (max-width: 768px) {{
+            .question-image {{
+              max-width: 180px;
+            }}
+          }}
+        </style>
       </head>
       <body>
         <h1>{t(selected_medium, 'practice_title')}</h1>
@@ -5488,14 +5520,36 @@ def student_homework_detail(homework_id: int):
     medium_key = "si" if student.medium == "Sinhala" else "en"
     q_html_parts = []
     for q in questions:
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
         q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
-    return f"<!doctype html><html><body><h1>{escape(homework.title)}</h1><p>Due: {homework.due_date.strftime('%Y-%m-%d')}</p><form method='post' action='/student/homework/{homework.id}/submit'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/homework'>Back</a></p></body></html>"
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <style>
+      .question-image {{
+        max-width: 250px;
+        width: 100%;
+        height: auto;
+        display: block;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      }}
+      @media (max-width: 768px) {{
+        .question-image {{
+          max-width: 180px;
+        }}
+      }}
+    </style>
+  </head>
+  <body><h1>{escape(homework.title)}</h1><p>Due: {homework.due_date.strftime('%Y-%m-%d')}</p><form method='post' action='/student/homework/{homework.id}/submit'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/homework'>Back</a></p></body>
+</html>"""
 
 
 @app.route("/student/homework/<int:homework_id>/submit", methods=["POST"])
@@ -5568,7 +5622,7 @@ def student_take_test(test_id: int):
     medium_key = "si" if student.medium == "Sinhala" else "en"
     q_html_parts = []
     for q in questions:
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' style='max-width:500px;height:auto;border:1px solid #ddd;display:block;margin-bottom:10px;'>" if q.image_url else ""
+        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -5576,7 +5630,29 @@ def student_take_test(test_id: int):
         q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
-    return f"<!doctype html><html><body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p>{timer_html}<form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit' style='padding:10px 16px;font-weight:bold;'>{'යවන්න' if student.medium=='Sinhala' else 'Submit Test'}</button></form><p><a href='/student/tests'>Back</a></p></body></html>"
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <style>
+      .question-image {{
+        max-width: 250px;
+        width: 100%;
+        height: auto;
+        display: block;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      }}
+      @media (max-width: 768px) {{
+        .question-image {{
+          max-width: 180px;
+        }}
+      }}
+    </style>
+  </head>
+  <body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p>{timer_html}<form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit' style='padding:10px 16px;font-weight:bold;'>{'යවන්න' if student.medium=='Sinhala' else 'Submit Test'}</button></form><p><a href='/student/tests'>Back</a></p></body>
+</html>"""
 
 @app.route("/student/test/<int:test_id>/result", methods=["GET"])
 def student_test_result_summary(test_id: int):
