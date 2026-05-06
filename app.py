@@ -3323,24 +3323,24 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <label>Question Image (optional): <input type="file" name="question_image" accept=".png,.jpg,.jpeg,.webp"></label><br><br>
           {f"<p>Current image:<br><img src='{escape(data.get('image_url', ''))}' alt='Current question image' style='max-width:500px;height:auto;border:1px solid #ddd;'></p>" if data.get("image_url") else ""}
           <label>Question Type:
-            <select name="question_type" id="question_type" onchange="toggleQuestionType()" required>
+            <select name="question_type" id="question_type" onchange="toggleQuestionFields()" required>
               <option value="mcq" {"selected" if question_type == "mcq" else ""}>MCQ</option>
               <option value="short_answer" {"selected" if question_type == "short_answer" else ""}>Short Answer</option>
               <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
             </select>
           </label><br><br>
-          <div id="mcq_fields" style="{mcq_hidden}">
+          <div id="mcq-fields" style="{mcq_hidden}">
           <label>Option A: <input type="text" name="option_a" value="{escape(data.get('option_a', ''))}"></label><br><br>
           <label>Option B: <input type="text" name="option_b" value="{escape(data.get('option_b', ''))}"></label><br><br>
           <label>Option C: <input type="text" name="option_c" value="{escape(data.get('option_c', ''))}"></label><br><br>
           <label>Option D: <input type="text" name="option_d" value="{escape(data.get('option_d', ''))}"></label><br><br>
           <label>Correct Answer (A/B/C/D): <input type="text" name="correct_option" maxlength="1" value="{escape(data.get('correct_option', ''))}"></label><br><br>
           </div>
-          <div id="short_answer_fields" style="{short_hidden}">
+          <div id="short-answer-fields" style="{short_hidden}">
             <label>Correct Answer (text or number): <input type="text" name="correct_answer_text" value="{escape(data.get('correct_answer_text', ''))}"></label><br><br>
           </div>
 
-          <div id="box_input_fields" style="{box_hidden}">
+          <div id="box-input-fields" style="{box_hidden}">
             <p>Use:</p>
             <ul>
               <li>[box1], [box2] for answer boxes</li>
@@ -3364,13 +3364,14 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         </form>
         <p><a href="/admin/questions">Back to Questions</a></p>
         <script>
-          function toggleQuestionType() {{
+          function toggleQuestionFields() {{
             const selectedType = document.getElementById("question_type").value;
-            document.getElementById("mcq_fields").style.display = selectedType === "mcq" ? "block" : "none";
-            document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
-            document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
+            document.getElementById("mcq-fields").style.display = selectedType === "mcq" ? "block" : "none";
+            document.getElementById("short-answer-fields").style.display = selectedType === "short_answer" ? "block" : "none";
+            document.getElementById("box-input-fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
         document.addEventListener("DOMContentLoaded", () => {{
+          toggleQuestionFields();
           const t = document.querySelector("textarea[name=box_template]");
           const p = document.getElementById("box_preview");
           const renderPreview = () => {{
