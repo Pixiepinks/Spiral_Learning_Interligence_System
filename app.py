@@ -191,18 +191,20 @@ def is_short_answer_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "short_answer"
 
 
-def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int):
+def get_questions_for_homework(grade: str, subject: str, topic_en: str, topic_si: str, difficulty_level: int, chapter_id: int | None = None):
     effective_difficulty = db.func.coalesce(Question.difficulty_level, 1)
-    return (
-        Question.query.filter(
-            Question.grade == grade,
-            Question.subject == subject,
-            effective_difficulty == difficulty_level,
-            db.or_(Question.topic_en == topic_en, Question.topic_si == topic_si, Question.topic == topic_en),
-        )
-        .order_by(Question.id.asc())
-        .all()
-    )
+    filters = [Question.grade == grade, Question.subject == subject, effective_difficulty == difficulty_level]
+    if chapter_id:
+        filters.append(Question.chapter_id == chapter_id)
+    else:
+        filters.append(db.or_(Question.topic_en == topic_en, Question.topic_si == topic_si, Question.topic == topic_en))
+    return Question.query.filter(*filters).order_by(Question.id.asc()).all()
+
+
+def get_chapter_display_for_medium(item, medium: str) -> str:
+    if medium == "Sinhala":
+        return (getattr(item, "chapter_si", None) or getattr(item, "topic_si", None) or getattr(item, "topic_en", None) or "")
+    return (getattr(item, "chapter_en", None) or getattr(item, "topic_en", None) or getattr(item, "topic", None) or "")
 
 
 class Student(db.Model):
@@ -260,6 +262,37 @@ class Class(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SyllabusTerm(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    grade = db.Column(db.String(20), nullable=False)
+    subject = db.Column(db.String(100), nullable=False)
+    term_number = db.Column(db.Integer, nullable=False)
+    term_name_en = db.Column(db.String(150), nullable=False)
+    term_name_si = db.Column(db.String(150), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SyllabusModule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    term_id = db.Column(db.Integer, nullable=False)
+    module_order = db.Column(db.Integer, nullable=False)
+    module_name_en = db.Column(db.String(150), nullable=False)
+    module_name_si = db.Column(db.String(150), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SyllabusChapter(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    module_id = db.Column(db.Integer, nullable=False)
+    chapter_order = db.Column(db.Integer, nullable=False)
+    chapter_name_en = db.Column(db.String(150), nullable=False)
+    chapter_name_si = db.Column(db.String(150), nullable=False)
+    competency_levels = db.Column(db.String(255), nullable=True)
+    estimated_periods = db.Column(db.Integer, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -267,6 +300,11 @@ class Question(db.Model):
     topic = db.Column(db.String(150), nullable=False)
     topic_en = db.Column(db.String(150), nullable=False)
     topic_si = db.Column(db.String(150), nullable=False)
+    term_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=True)
+    chapter_en = db.Column(db.String(150), nullable=True)
+    chapter_si = db.Column(db.String(150), nullable=True)
     question_text_en = db.Column(db.Text, nullable=False)
     question_text_si = db.Column(db.Text, nullable=False)
     option_a_en = db.Column(db.Text, nullable=False)
@@ -349,6 +387,9 @@ class HomeworkAssignment(db.Model):
     subject = db.Column(db.String(100), nullable=False, default="Math")
     topic_en = db.Column(db.String(150), nullable=False)
     topic_si = db.Column(db.String(150), nullable=False)
+    term_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=True)
     difficulty_level = db.Column(db.Integer, nullable=False, default=1)
     due_date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -373,6 +414,9 @@ class ClassTest(db.Model):
     subject = db.Column(db.String(100), nullable=False, default="Math")
     topic_en = db.Column(db.String(150), nullable=False)
     topic_si = db.Column(db.String(150), nullable=False)
+    term_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=True)
     difficulty_level = db.Column(db.Integer, nullable=False, default=1)
     test_date = db.Column(db.Date, nullable=False)
     duration_minutes = db.Column(db.Integer, nullable=False, default=30)
@@ -2954,6 +2998,9 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     grade = (request.form.get("grade") or "").strip()
     subject = (request.form.get("subject") or "").strip()
     topic = (request.form.get("topic") or "").strip()
+    term_id_raw = (request.form.get("term_id") or "").strip()
+    module_id_raw = (request.form.get("module_id") or "").strip()
+    chapter_id_raw = (request.form.get("chapter_id") or "").strip()
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
@@ -2968,7 +3015,7 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     image_url = (request.form.get("image_url") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
-    required_values = [grade, subject, topic, question_text_en, question_text_si]
+    required_values = [grade, subject, question_text_en, question_text_si]
     if question_type == "mcq":
         required_values.extend([option_a, option_b, option_c, option_d, correct_option])
     else:
@@ -2989,10 +3036,22 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     if difficulty_level not in {1, 2, 3, 4, 5}:
         return {}, "Difficulty level must be between 1 and 5."
 
+    term_id = int(term_id_raw) if term_id_raw.isdigit() else None
+    module_id = int(module_id_raw) if module_id_raw.isdigit() else None
+    chapter_id = int(chapter_id_raw) if chapter_id_raw.isdigit() else None
+    chapter = SyllabusChapter.query.get(chapter_id) if chapter_id else None
+    chapter_en = chapter.chapter_name_en if chapter else topic
+    chapter_si = chapter.chapter_name_si if chapter else topic
+
     return {
         "grade": grade,
         "subject": subject,
-        "topic": topic,
+        "topic": chapter_en or topic,
+        "term_id": term_id,
+        "module_id": module_id,
+        "chapter_id": chapter_id,
+        "chapter_en": chapter_en,
+        "chapter_si": chapter_si,
         "question_text_en": question_text_en,
         "question_text_si": question_text_si,
         "option_a": option_a,
@@ -3013,6 +3072,17 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     question_type = data.get("question_type", "mcq")
     mcq_hidden = "" if question_type == "mcq" else "display:none;"
     short_hidden = "" if question_type == "short_answer" else "display:none;"
+    grade = (data.get("grade") or "").strip()
+    subject = (data.get("subject") or "").strip()
+    selected_term_id = int(data.get("term_id") or 0)
+    selected_module_id = int(data.get("module_id") or 0)
+    selected_chapter_id = int(data.get("chapter_id") or 0)
+    terms = SyllabusTerm.query.filter_by(grade=grade, subject=subject).order_by(SyllabusTerm.term_number.asc()).all() if grade and subject else []
+    modules = SyllabusModule.query.filter_by(term_id=selected_term_id).order_by(SyllabusModule.module_order.asc()).all() if selected_term_id else []
+    chapters = SyllabusChapter.query.filter_by(module_id=selected_module_id, is_active=True).order_by(SyllabusChapter.chapter_order.asc()).all() if selected_module_id else []
+    term_options = "<option value=''>Select term</option>" + "".join([f"<option value='{t.id}' {'selected' if t.id==selected_term_id else ''}>T{t.term_number} - {escape(t.term_name_en)}</option>" for t in terms])
+    module_options = "<option value=''>Select module</option>" + "".join([f"<option value='{m.id}' {'selected' if m.id==selected_module_id else ''}>{m.module_order} - {escape(m.module_name_en)}</option>" for m in modules])
+    chapter_options = "<option value=''>Select chapter</option>" + "".join([f"<option value='{c.id}' {'selected' if c.id==selected_chapter_id else ''}>{c.chapter_order} - {escape(c.chapter_name_en)}</option>" for c in chapters])
     return f"""
     <!doctype html>
     <html lang="en">
@@ -3023,7 +3093,10 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         <form method="post" action="{action}" enctype="multipart/form-data">
           <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
           <label>Subject: <input type="text" name="subject" value="{escape(data.get('subject', ''))}" required></label><br><br>
-          <label>Topic: <input type="text" name="topic" value="{escape(data.get('topic', ''))}" required></label><br><br>
+          <label>Term: <select name="term_id">{term_options}</select></label><br><br>
+          <label>Module: <select name="module_id">{module_options}</select></label><br><br>
+          <label>Chapter: <select name="chapter_id">{chapter_options}</select></label><br><br>
+          <label>Topic (legacy fallback): <input type="text" name="topic" value="{escape(data.get('topic', ''))}"></label><br><br>
           <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
           <label>Question text SI:<br><textarea name="question_text_si" rows="4" cols="80" required>{escape(data.get('question_text_si', ''))}</textarea></label><br><br>
           <label>Image URL (optional): <input type="text" name="image_url" value="{escape(data.get('image_url', ''))}"></label><br><br>
@@ -3169,6 +3242,7 @@ def admin_dashboard():
         <p><a href='/admin/students'>Manage Students</a></p>
         <p><a href='/register-form'>Register Student</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
+        <p><a href='/admin/syllabus'>Syllabus Management</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
@@ -3760,6 +3834,31 @@ def admin_questions():
     """
 
 
+@app.route("/admin/syllabus", methods=["GET"])
+def admin_syllabus():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    grade = (request.args.get("grade") or "").strip()
+    subject = (request.args.get("subject") or "").strip()
+    term_query = SyllabusTerm.query
+    if grade:
+        term_query = term_query.filter_by(grade=grade)
+    if subject:
+        term_query = term_query.filter_by(subject=subject)
+    terms = term_query.order_by(SyllabusTerm.grade.asc(), SyllabusTerm.subject.asc(), SyllabusTerm.term_number.asc()).all()
+    rows = ""
+    for t_item in terms:
+        modules = SyllabusModule.query.filter_by(term_id=t_item.id).order_by(SyllabusModule.module_order.asc()).all()
+        module_html = ""
+        for m in modules:
+            chapters = SyllabusChapter.query.filter_by(module_id=m.id).order_by(SyllabusChapter.chapter_order.asc()).all()
+            chapter_html = "".join([f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a></li>" for c in chapters])
+            module_html += f"<li>Module {m.module_order}: {escape(m.module_name_en)} - <a href='/admin/syllabus/module/edit/{m.id}'>Edit</a> | <a href='/admin/syllabus/chapter/add/{m.id}'>Add Chapter</a><ul>{chapter_html or '<li>No chapters</li>'}</ul></li>"
+        rows += f"<tr><td>{escape(t_item.grade)}</td><td>{escape(t_item.subject)}</td><td>{t_item.term_number}</td><td>{escape(t_item.term_name_en)}</td><td><a href='/admin/syllabus/term/edit/{t_item.id}'>Edit</a> | <a href='/admin/syllabus/module/add/{t_item.id}'>Add Module</a><ul>{module_html or '<li>No modules</li>'}</ul></td></tr>"
+    return f"<h1>Syllabus Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/syllabus/term/add'>Add Term</a></p><form method='get'><label>Grade <input name='grade' value='{escape(grade)}'></label><label> Subject <input name='subject' value='{escape(subject)}'></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject</th><th>Term #</th><th>Term Name</th><th>Hierarchy</th></tr>{rows or '<tr><td colspan=5>No terms found</td></tr>'}</table>"
+
+
 @app.route("/admin/add-question", methods=["GET", "POST"])
 def admin_add_question():
     admin_redirect = admin_session_required()
@@ -3782,8 +3881,13 @@ def admin_add_question():
         grade=form_data["grade"],
         subject=form_data["subject"],
         topic=form_data["topic"],
-        topic_en=form_data["topic"],
-        topic_si=form_data["topic"],
+        topic_en=form_data["chapter_en"],
+        topic_si=form_data["chapter_si"],
+        term_id=form_data["term_id"],
+        module_id=form_data["module_id"],
+        chapter_id=form_data["chapter_id"],
+        chapter_en=form_data["chapter_en"],
+        chapter_si=form_data["chapter_si"],
         question_text_en=form_data["question_text_en"],
         question_text_si=form_data["question_text_si"],
         option_a_en=form_data["option_a"],
@@ -3807,6 +3911,74 @@ def admin_add_question():
     return redirect("/admin/questions")
 
 
+def _syllabus_bool(value: str | None) -> bool:
+    return (value or "").strip().lower() not in {"0", "false", "no", "off"}
+
+
+@app.route("/admin/syllabus/term/add", methods=["GET", "POST"])
+@app.route("/admin/syllabus/term/edit/<int:term_id>", methods=["GET", "POST"])
+def admin_syllabus_term_form(term_id: int | None = None):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    term = SyllabusTerm.query.get(term_id) if term_id else None
+    if request.method == "POST":
+        obj = term or SyllabusTerm()
+        obj.grade = normalize_grade(request.form.get("grade"))
+        obj.subject = (request.form.get("subject") or "").strip()
+        obj.term_number = int(request.form.get("term_number") or 1)
+        obj.term_name_en = (request.form.get("term_name_en") or "").strip()
+        obj.term_name_si = (request.form.get("term_name_si") or "").strip()
+        if not term:
+            db.session.add(obj)
+        db.session.commit()
+        return redirect("/admin/syllabus")
+    return f"<h1>{'Edit' if term else 'Add'} Term</h1><form method='post'><label>Grade <input name='grade' value='{escape(term.grade if term else '')}' required></label><br><label>Subject <input name='subject' value='{escape(term.subject if term else '')}' required></label><br><label>Term Number <input type='number' name='term_number' value='{term.term_number if term else 1}' required></label><br><label>Term Name EN <input name='term_name_en' value='{escape(term.term_name_en if term else '')}' required></label><br><label>Term Name SI <input name='term_name_si' value='{escape(term.term_name_si if term else '')}' required></label><br><button type='submit'>Save</button></form>"
+
+
+@app.route("/admin/syllabus/module/add/<int:term_id>", methods=["GET", "POST"])
+@app.route("/admin/syllabus/module/edit/<int:module_id>", methods=["GET", "POST"])
+def admin_syllabus_module_form(term_id: int | None = None, module_id: int | None = None):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    module = SyllabusModule.query.get(module_id) if module_id else None
+    if request.method == "POST":
+        obj = module or SyllabusModule()
+        obj.term_id = int(request.form.get("term_id") or term_id or 0)
+        obj.module_order = int(request.form.get("module_order") or 1)
+        obj.module_name_en = (request.form.get("module_name_en") or "").strip()
+        obj.module_name_si = (request.form.get("module_name_si") or "").strip()
+        if not module:
+            db.session.add(obj)
+        db.session.commit()
+        return redirect("/admin/syllabus")
+    return f"<h1>{'Edit' if module else 'Add'} Module</h1><form method='post'><label>Term ID <input name='term_id' value='{module.term_id if module else term_id}' required></label><br><label>Module Order <input type='number' name='module_order' value='{module.module_order if module else 1}' required></label><br><label>Module Name EN <input name='module_name_en' value='{escape(module.module_name_en if module else '')}' required></label><br><label>Module Name SI <input name='module_name_si' value='{escape(module.module_name_si if module else '')}' required></label><br><button type='submit'>Save</button></form>"
+
+
+@app.route("/admin/syllabus/chapter/add/<int:module_id>", methods=["GET", "POST"])
+@app.route("/admin/syllabus/chapter/edit/<int:chapter_id>", methods=["GET", "POST"])
+def admin_syllabus_chapter_form(module_id: int | None = None, chapter_id: int | None = None):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    chapter = SyllabusChapter.query.get(chapter_id) if chapter_id else None
+    if request.method == "POST":
+        obj = chapter or SyllabusChapter()
+        obj.module_id = int(request.form.get("module_id") or module_id or 0)
+        obj.chapter_order = int(request.form.get("chapter_order") or 1)
+        obj.chapter_name_en = (request.form.get("chapter_name_en") or "").strip()
+        obj.chapter_name_si = (request.form.get("chapter_name_si") or "").strip()
+        obj.competency_levels = (request.form.get("competency_levels") or "").strip()
+        obj.estimated_periods = int(request.form.get("estimated_periods") or 0) or None
+        obj.is_active = _syllabus_bool(request.form.get("is_active"))
+        if not chapter:
+            db.session.add(obj)
+        db.session.commit()
+        return redirect("/admin/syllabus")
+    return f"<h1>{'Edit' if chapter else 'Add'} Chapter</h1><form method='post'><label>Module ID <input name='module_id' value='{chapter.module_id if chapter else module_id}' required></label><br><label>Chapter Order <input type='number' name='chapter_order' value='{chapter.chapter_order if chapter else 1}' required></label><br><label>Chapter Name EN <input name='chapter_name_en' value='{escape(chapter.chapter_name_en if chapter else '')}' required></label><br><label>Chapter Name SI <input name='chapter_name_si' value='{escape(chapter.chapter_name_si if chapter else '')}' required></label><br><label>Competency Levels <input name='competency_levels' value='{escape(chapter.competency_levels if chapter else '')}'></label><br><label>Estimated Periods <input type='number' name='estimated_periods' value='{chapter.estimated_periods if chapter and chapter.estimated_periods else ''}'></label><br><label>Is Active <input type='checkbox' name='is_active' {'checked' if (chapter.is_active if chapter else True) else ''}></label><br><button type='submit'>Save</button></form>"
+
+
 @app.route("/admin/edit-question/<int:question_id>", methods=["GET", "POST"])
 def admin_edit_question(question_id: int):
     admin_redirect = admin_session_required()
@@ -3821,6 +3993,9 @@ def admin_edit_question(question_id: int):
                 "grade": question.grade,
                 "subject": question.subject,
                 "topic": question.topic_en,
+                "term_id": question.term_id or "",
+                "module_id": question.module_id or "",
+                "chapter_id": question.chapter_id or "",
                 "question_text_en": question.question_text_en,
                 "question_text_si": question.question_text_si,
                 "option_a": question.option_a_en,
@@ -3848,8 +4023,13 @@ def admin_edit_question(question_id: int):
     question.grade = form_data["grade"]
     question.subject = form_data["subject"]
     question.topic = form_data["topic"]
-    question.topic_en = form_data["topic"]
-    question.topic_si = form_data["topic"]
+    question.topic_en = form_data["chapter_en"]
+    question.topic_si = form_data["chapter_si"]
+    question.term_id = form_data["term_id"]
+    question.module_id = form_data["module_id"]
+    question.chapter_id = form_data["chapter_id"]
+    question.chapter_en = form_data["chapter_en"]
+    question.chapter_si = form_data["chapter_si"]
     question.question_text_en = form_data["question_text_en"]
     question.question_text_si = form_data["question_text_si"]
     question.option_a_en = form_data["option_a"]
@@ -4067,6 +4247,33 @@ def admin_ai_generate_questions():
 def admin_logout():
     session.pop("admin_logged_in", None)
     return redirect(url_for("admin_login"))
+
+
+@app.route("/update-syllabus-db", methods=["GET"])
+def update_syllabus_db() -> tuple[str, int]:
+    try:
+        SyllabusTerm.__table__.create(bind=db.engine, checkfirst=True)
+        SyllabusModule.__table__.create(bind=db.engine, checkfirst=True)
+        SyllabusChapter.__table__.create(bind=db.engine, checkfirst=True)
+        for col_def in [
+            "ALTER TABLE question ADD COLUMN IF NOT EXISTS term_id INTEGER",
+            "ALTER TABLE question ADD COLUMN IF NOT EXISTS module_id INTEGER",
+            "ALTER TABLE question ADD COLUMN IF NOT EXISTS chapter_id INTEGER",
+            "ALTER TABLE question ADD COLUMN IF NOT EXISTS chapter_en VARCHAR(150)",
+            "ALTER TABLE question ADD COLUMN IF NOT EXISTS chapter_si VARCHAR(150)",
+            "ALTER TABLE homework_assignment ADD COLUMN IF NOT EXISTS term_id INTEGER",
+            "ALTER TABLE homework_assignment ADD COLUMN IF NOT EXISTS module_id INTEGER",
+            "ALTER TABLE homework_assignment ADD COLUMN IF NOT EXISTS chapter_id INTEGER",
+            "ALTER TABLE class_test ADD COLUMN IF NOT EXISTS term_id INTEGER",
+            "ALTER TABLE class_test ADD COLUMN IF NOT EXISTS module_id INTEGER",
+            "ALTER TABLE class_test ADD COLUMN IF NOT EXISTS chapter_id INTEGER",
+        ]:
+            db.session.execute(db.text(col_def))
+        db.session.commit()
+        return "Syllabus database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return f"Syllabus DB update failed: {exc}", 500
 
 
 @app.route("/update-login-db", methods=["GET"])
