@@ -3329,7 +3329,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             <p>You can freely arrange numbers, operators, and box positions.</p>
             <label>Box Template:<br><textarea name="box_template" rows="6" cols="80">{escape(data.get('box_template', ''))}</textarea></label><br><br>
             <label>Correct Box Answers (JSON):<br><textarea name="box_answers" rows="6" cols="80">{escape(data.get('box_answers', ''))}</textarea></label><br><br>
-            <pre id='box_preview' style='font-family:monospace;background:#f8fafc;padding:8px;border:1px solid #ddd;'></pre>
+            <pre id='box_preview' style='font-family:monospace;white-space:pre;line-height:1.25;background:#f8fafc;padding:8px;border:1px solid #ddd;'></pre>
           </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
@@ -3350,7 +3350,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const u=() => {{ if (p && t) {{ p.textContent=t.value||"Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\[box(\d+)\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -5045,7 +5045,7 @@ def test_page() -> str:
         <title>Test Page</title>
         <style>
           .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5057,7 +5057,7 @@ def test_page() -> str:
           }}
           @media (max-width: 768px) {{
             .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
               max-width: 180px;
             }}
@@ -5856,7 +5856,7 @@ def practice_page() -> str:
         <title>{t(selected_medium, 'practice_title')}</title>
         <style>
           .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
             max-width: 250px;
             width: 100%;
@@ -5868,7 +5868,7 @@ def practice_page() -> str:
           }}
           @media (max-width: 768px) {{
             .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
               max-width: 180px;
             }}
@@ -6123,7 +6123,7 @@ def student_homework_detail(homework_id: int):
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
       .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6135,7 +6135,7 @@ def student_homework_detail(homework_id: int):
       }}
       @media (max-width: 768px) {{
         .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
           max-width: 180px;
         }}
@@ -6239,7 +6239,7 @@ def student_take_test(test_id: int):
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
       .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
         max-width: 250px;
         width: 100%;
@@ -6251,7 +6251,7 @@ def student_take_test(test_id: int):
       }}
       @media (max-width: 768px) {{
         .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
-          .box-input {{width:42px;height:42px;text-align:center;font-size:16px;border:1px solid #888;border-radius:6px;vertical-align:middle;}}
+          .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
           .question-image {{
           max-width: 180px;
         }}
