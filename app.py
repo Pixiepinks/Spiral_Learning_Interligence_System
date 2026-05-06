@@ -4933,19 +4933,21 @@ def update_box_question_db() -> tuple[str, int]:
 
 
 @app.route("/update-matching-pairs-db", methods=["GET"])
-def update_matching_pairs_db():
+def update_matching_pairs_db() -> tuple[str, int]:
     try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'mcq'"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_left_en TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_right_en TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_answers_en TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_left_si TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_right_si TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS matching_answers_si TEXT"))
+        db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
         db.session.commit()
-        return "<h2>Matching pairs DB update complete</h2>"
+        return "Matching pairs database updated successfully", 200
     except Exception as exc:
         db.session.rollback()
-        return f"<h2>Matching pairs DB update failed</h2><p>{escape(str(exc))}</p>", 500
+        return jsonify({"success": False, "message": f"Matching pairs DB update failed: {exc}"}), 500
 
 @app.route("/update-results-db", methods=["GET"])
 def update_results_db() -> tuple:
