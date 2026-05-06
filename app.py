@@ -292,6 +292,102 @@ def subject_options_html(selected_grade: str = "", selected_subject: str = "", a
         options.append(f"<option value=\"{escape(item.subject_name_en)}\"{sel}>{escape(item.subject_name_en)} ({escape(item.subject_code)})</option>")
     return "".join(options)
 
+
+def _normalized_subject(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _syllabus_terms_for_grade_subject(grade: str | None, subject: str | None):
+    normalized_grade = normalize_grade(grade)
+    normalized_subject = _normalized_subject(subject)
+    if not normalized_grade or not normalized_subject:
+        return []
+    terms = SyllabusTerm.query.filter_by(grade=normalized_grade).order_by(SyllabusTerm.term_number.asc()).all()
+    return [item for item in terms if _normalized_subject(item.subject) == normalized_subject]
+
+
+def dependent_dropdown_script(
+    grade_selector: str = "select[name='grade']",
+    subject_selector: str = "select[name='subject']",
+    term_selector: str = "select[name='term_id']",
+    module_selector: str = "select[name='module_id']",
+    chapter_selector: str = "select[name='chapter_id']",
+    debug_selector: str = "#syllabus-debug-message",
+) -> str:
+    return f"""
+    <script>
+      (function () {{
+        const gradeEl = document.querySelector({json.dumps(grade_selector)});
+        const subjectEl = document.querySelector({json.dumps(subject_selector)});
+        const termEl = document.querySelector({json.dumps(term_selector)});
+        const moduleEl = document.querySelector({json.dumps(module_selector)});
+        const chapterEl = document.querySelector({json.dumps(chapter_selector)});
+        const debugEl = document.querySelector({json.dumps(debug_selector)});
+        if (!gradeEl || !subjectEl) return;
+        const setOptions = (el, items, placeholder, selectedValue = "") => {{
+          if (!el) return;
+          const opts = [`<option value="">${{placeholder}}</option>`];
+          for (const item of items) {{
+            const selected = String(item.id) === String(selectedValue) ? " selected" : "";
+            opts.push(`<option value="${{item.id}}"${{selected}}>${{item.label}}</option>`);
+          }}
+          el.innerHTML = opts.join("");
+        }};
+        const resetChain = (from) => {{
+          if (from <= 1) setOptions(termEl, [], "Select term");
+          if (from <= 2) setOptions(moduleEl, [], "Select module");
+          if (from <= 3) setOptions(chapterEl, [], "Select chapter");
+        }};
+        const get = async (url) => (await fetch(url)).json();
+        const loadSubjects = async () => {{
+          const grade = gradeEl.value.trim();
+          const subject = subjectEl.value.trim();
+          if (!grade) return;
+          const payload = await get(`/api/subjects?grade=${{encodeURIComponent(grade)}}`);
+          const options = (payload.subjects || []).map(s => ({{ id: s.subject_name_en, label: `${{s.subject_name_en}} (${{s.subject_code}})` }}));
+          const selected = options.some(s => s.id === subject) ? subject : "";
+          setOptions(subjectEl, options, "Select subject", selected);
+        }};
+        const loadTerms = async () => {{
+          resetChain(1);
+          if (debugEl) debugEl.textContent = "";
+          const grade = gradeEl.value.trim();
+          const subject = subjectEl.value.trim();
+          if (!grade || !subject) return;
+          const payload = await get(`/api/syllabus/terms?grade=${{encodeURIComponent(grade)}}&subject=${{encodeURIComponent(subject)}}`);
+          setOptions(termEl, payload.terms || [], "Select term", termEl?.dataset.selected || "");
+          if ((payload.terms || []).length === 0 && debugEl) {{
+            debugEl.textContent = "No terms found for selected grade and subject";
+          }}
+        }};
+        const loadModules = async () => {{
+          resetChain(2);
+          const termId = termEl?.value || "";
+          if (!termId) return;
+          const payload = await get(`/api/syllabus/modules?term_id=${{encodeURIComponent(termId)}}`);
+          setOptions(moduleEl, payload.modules || [], "Select module", moduleEl?.dataset.selected || "");
+        }};
+        const loadChapters = async () => {{
+          resetChain(3);
+          const moduleId = moduleEl?.value || "";
+          if (!moduleId) return;
+          const payload = await get(`/api/syllabus/chapters?module_id=${{encodeURIComponent(moduleId)}}`);
+          setOptions(chapterEl, payload.chapters || [], "Select chapter", chapterEl?.dataset.selected || "");
+        }};
+        gradeEl.addEventListener("change", async () => {{ await loadSubjects(); await loadTerms(); }});
+        subjectEl.addEventListener("change", loadTerms);
+        termEl?.addEventListener("change", loadModules);
+        moduleEl?.addEventListener("change", loadChapters);
+        (async () => {{
+          await loadSubjects();
+          await loadTerms();
+          if (termEl?.value) await loadModules();
+          if (moduleEl?.value) await loadChapters();
+        }})();
+      }})();
+    </script>
+    """
+
 class SyllabusTerm(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -2546,6 +2642,7 @@ def teacher_assign_homework(class_id: int):
     if request.method == "POST":
         title = (request.form.get("title") or "").strip()
         subject = (request.form.get("subject") or "Math").strip() or "Math"
+        subject = (request.form.get("subject") or "Math").strip() or "Math"
         topic_en = (request.form.get("topic_en") or "").strip()
         topic_si = (request.form.get("topic_si") or "").strip()
         due_date_raw = (request.form.get("due_date") or "").strip()
@@ -2575,8 +2672,13 @@ def teacher_assign_homework(class_id: int):
     <!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Homework</title></head><body>
     <h1>Assign Homework - {escape(classroom.class_name)}</h1>
     <form method='post'>
+      <input type='hidden' name='grade' value='{escape(classroom.grade)}'>
       <label>Title: <input type='text' name='title' required></label><br><br>
       <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
+      <label>Term: <select name='term_id'><option value=''>Select term</option></select></label><br><br>
+      <label>Module: <select name='module_id'><option value=''>Select module</option></select></label><br><br>
+      <label>Chapter: <select name='chapter_id'><option value=''>Select chapter</option></select></label><br><br>
+      <p id='syllabus-debug-message' style='color:#b45309;'></p>
       <label>Topic (English): <input type='text' name='topic_en' required></label><br><br>
       <label>Topic (Sinhala): <input type='text' name='topic_si' required></label><br><br>
       <label>Difficulty (1-5): <input type='number' min='1' max='5' name='difficulty_level' value='1' required></label><br><br>
@@ -2584,6 +2686,7 @@ def teacher_assign_homework(class_id: int):
       <button type='submit'>Save Homework</button>
     </form>
     <p><a href='/teacher/class/{classroom.id}'>Back to Class</a></p>
+    {dependent_dropdown_script(grade_selector="input[name='grade']", subject_selector="select[name='subject']")}
     </body></html>
     """
 
@@ -2753,10 +2856,18 @@ def teacher_create_class_test(class_id: int):
             return "<h2>Invalid test date</h2><p><a href=''>Try again</a></p>", 400
         if not title or not topic_en or difficulty_level < 1 or difficulty_level > 5 or duration_minutes <= 0:
             return "<h2>Invalid test data</h2><p><a href=''>Try again</a></p>", 400
-        db.session.add(ClassTest(class_id=classroom.id, teacher_id=int(teacher_id), title=title, grade=classroom.grade, subject="Math", topic_en=topic_en, topic_si=topic_si, difficulty_level=difficulty_level, test_date=test_date, duration_minutes=duration_minutes))
+        db.session.add(ClassTest(class_id=classroom.id, teacher_id=int(teacher_id), title=title, grade=classroom.grade, subject=subject, topic_en=topic_en, topic_si=topic_si, difficulty_level=difficulty_level, test_date=test_date, duration_minutes=duration_minutes))
         db.session.commit()
         return redirect(url_for("teacher_class_details", class_id=classroom.id))
-    return f"<!doctype html><html><body><h1>Create Test - {escape(classroom.class_name)}</h1><form method='post'><label>Title: <input type='text' name='title' required></label><br><br><label>Topic (English): <input type='text' name='topic_en' required></label><br><br><label>Topic (Sinhala): <input type='text' name='topic_si'></label><br><br><label>Difficulty (1-5): <input type='number' min='1' max='5' name='difficulty_level' value='1' required></label><br><br><label>Test date: <input type='date' name='test_date' required></label><br><br><label>Duration (minutes): <input type='number' min='1' name='duration_minutes' value='30' required></label><br><br><button type='submit'>Save Test</button></form><p><a href='/teacher/class/{classroom.id}'>Back to Class</a></p></body></html>"
+    return f"""<!doctype html><html><body><h1>Create Test - {escape(classroom.class_name)}</h1><form method='post'>
+    <input type='hidden' name='grade' value='{escape(classroom.grade)}'>
+    <label>Title: <input type='text' name='title' required></label><br><br>
+    <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
+    <label>Term: <select name='term_id'><option value=''>Select term</option></select></label><br><br>
+    <label>Module: <select name='module_id'><option value=''>Select module</option></select></label><br><br>
+    <label>Chapter: <select name='chapter_id'><option value=''>Select chapter</option></select></label><br><br>
+    <p id='syllabus-debug-message' style='color:#b45309;'></p>
+    <label>Topic (English): <input type='text' name='topic_en' required></label><br><br><label>Topic (Sinhala): <input type='text' name='topic_si'></label><br><br><label>Difficulty (1-5): <input type='number' min='1' max='5' name='difficulty_level' value='1' required></label><br><br><label>Test date: <input type='date' name='test_date' required></label><br><br><label>Duration (minutes): <input type='number' min='1' name='duration_minutes' value='30' required></label><br><br><button type='submit'>Save Test</button></form><p><a href='/teacher/class/{classroom.id}'>Back to Class</a></p>{dependent_dropdown_script(grade_selector="input[name='grade']", subject_selector="select[name='subject']")}</body></html>"""
 
 @app.route("/teacher-logout", methods=["GET"])
 def teacher_logout():
@@ -3107,7 +3218,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     selected_term_id = int(data.get("term_id") or 0)
     selected_module_id = int(data.get("module_id") or 0)
     selected_chapter_id = int(data.get("chapter_id") or 0)
-    terms = SyllabusTerm.query.filter_by(grade=grade, subject=subject).order_by(SyllabusTerm.term_number.asc()).all() if grade and subject else []
+    terms = _syllabus_terms_for_grade_subject(grade, subject)
     modules = SyllabusModule.query.filter_by(term_id=selected_term_id).order_by(SyllabusModule.module_order.asc()).all() if selected_term_id else []
     chapters = SyllabusChapter.query.filter_by(module_id=selected_module_id, is_active=True).order_by(SyllabusChapter.chapter_order.asc()).all() if selected_module_id else []
     term_options = "<option value=''>Select term</option>" + "".join([f"<option value='{t.id}' {'selected' if t.id==selected_term_id else ''}>T{t.term_number} - {escape(t.term_name_en)}</option>" for t in terms])
@@ -3123,9 +3234,10 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         <form method="post" action="{action}" enctype="multipart/form-data">
           <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
           <label>Subject: <select name="subject" required>{subject_options_html(grade, subject, active_only=False)}</select></label><br><br>
-          <label>Term: <select name="term_id">{term_options}</select></label><br><br>
-          <label>Module: <select name="module_id">{module_options}</select></label><br><br>
-          <label>Chapter: <select name="chapter_id">{chapter_options}</select></label><br><br>
+          <label>Term: <select name="term_id" data-selected="{selected_term_id or ''}">{term_options}</select></label><br><br>
+          <label>Module: <select name="module_id" data-selected="{selected_module_id or ''}">{module_options}</select></label><br><br>
+          <label>Chapter: <select name="chapter_id" data-selected="{selected_chapter_id or ''}">{chapter_options}</select></label><br><br>
+          <p id="syllabus-debug-message" style="color:#b45309;"></p>
           <label>Topic (legacy fallback): <input type="text" name="topic" value="{escape(data.get('topic', ''))}"></label><br><br>
           <label>Question text EN:<br><textarea name="question_text_en" rows="4" cols="80" required>{escape(data.get('question_text_en', ''))}</textarea></label><br><br>
           <label>Question text SI:<br><textarea name="question_text_si" rows="4" cols="80" required>{escape(data.get('question_text_si', ''))}</textarea></label><br><br>
@@ -3166,7 +3278,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("mcq_fields").style.display = isMcq ? "block" : "none";
             document.getElementById("short_answer_fields").style.display = isMcq ? "none" : "block";
           }}
-        </script>
+        </script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -4122,6 +4234,48 @@ def admin_delete_question(question_id: int):
     return redirect("/admin/questions")
 
 
+@app.route("/api/subjects", methods=["GET"])
+def api_subjects():
+    grade = request.args.get("grade")
+    subjects = get_subjects_for_grade(grade, active_only=True)
+    return jsonify(
+        {
+            "subjects": [
+                {"id": item.id, "grade": item.grade, "subject_code": item.subject_code, "subject_name_en": item.subject_name_en}
+                for item in subjects
+            ]
+        }
+    )
+
+
+@app.route("/api/syllabus/terms", methods=["GET"])
+def api_syllabus_terms():
+    grade = request.args.get("grade")
+    subject = request.args.get("subject")
+    terms = _syllabus_terms_for_grade_subject(grade, subject)
+    return jsonify({"terms": [{"id": t.id, "label": f"T{t.term_number} - {t.term_name_en}"} for t in terms]})
+
+
+@app.route("/api/syllabus/modules", methods=["GET"])
+def api_syllabus_modules():
+    term_id_raw = (request.args.get("term_id") or "").strip()
+    term_id = int(term_id_raw) if term_id_raw.isdigit() else 0
+    modules = SyllabusModule.query.filter_by(term_id=term_id).order_by(SyllabusModule.module_order.asc()).all() if term_id else []
+    return jsonify({"modules": [{"id": m.id, "label": f"{m.module_order} - {m.module_name_en}"} for m in modules]})
+
+
+@app.route("/api/syllabus/chapters", methods=["GET"])
+def api_syllabus_chapters():
+    module_id_raw = (request.args.get("module_id") or "").strip()
+    module_id = int(module_id_raw) if module_id_raw.isdigit() else 0
+    chapters = (
+        SyllabusChapter.query.filter_by(module_id=module_id, is_active=True).order_by(SyllabusChapter.chapter_order.asc()).all()
+        if module_id
+        else []
+    )
+    return jsonify({"chapters": [{"id": c.id, "label": f"{c.chapter_order} - {c.chapter_name_en}"} for c in chapters]})
+
+
 @app.route("/admin/generate-questions", methods=["GET", "POST"])
 def admin_generate_questions():
     admin_redirect = admin_session_required()
@@ -4129,17 +4283,22 @@ def admin_generate_questions():
         return admin_redirect
 
     if request.method == "GET":
-        return """
+        return f"""
         <h2>Generate Questions (Bulk)</h2>
         <form method='post' action='/admin/generate-questions'>
-          <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
-          <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
+          <label>Grade: <select name='grade' required>{grade_options_html('6')}</select></label><br><br>
+          <label>Subject: <select name='subject' required>{subject_options_html('6', 'Math')}</select></label><br><br>
+          <label>Term: <select name='term_id'><option value=''>Select term</option></select></label><br><br>
+          <label>Module: <select name='module_id'><option value=''>Select module</option></select></label><br><br>
+          <label>Chapter: <select name='chapter_id'><option value=''>Select chapter</option></select></label><br><br>
+          <p id='syllabus-debug-message' style='color:#b45309;'></p>
           <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
           <label>Number of questions: <input type='number' name='question_count' min='1' max='200' value='10' required></label><br><br>
           <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
           <button type='submit'>Generate</button>
         </form>
         <p><a href='/admin/questions'>Back to Questions</a></p>
+        {dependent_dropdown_script()}
         """
 
     grade = (request.form.get("grade") or "").strip()
@@ -4182,17 +4341,22 @@ def admin_ai_generate_questions():
         return admin_redirect
 
     if request.method == "GET":
-        return """
+        return f"""
         <h2>AI Question Generator</h2>
         <form method='post' action='/admin/ai-generate'>
-          <label>Grade: <input type='text' name='grade' value='6' required></label><br><br>
-          <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
+          <label>Grade: <select name='grade' required>{grade_options_html('6')}</select></label><br><br>
+          <label>Subject: <select name='subject' required>{subject_options_html('6', 'Math')}</select></label><br><br>
+          <label>Term: <select name='term_id'><option value=''>Select term</option></select></label><br><br>
+          <label>Module: <select name='module_id'><option value=''>Select module</option></select></label><br><br>
+          <label>Chapter: <select name='chapter_id'><option value=''>Select chapter</option></select></label><br><br>
+          <p id='syllabus-debug-message' style='color:#b45309;'></p>
           <label>Topic: <input type='text' name='topic' value='Fractions' required></label><br><br>
           <label>Number of questions: <input type='number' name='question_count' min='1' max='100' value='10' required></label><br><br>
           <label>Difficulty level (1–5): <input type='number' name='difficulty_level' min='1' max='5' value='1' required></label><br><br>
           <button type='submit'>Generate with AI</button>
         </form>
         <p><a href='/admin/questions'>Back to Questions</a></p>
+        {dependent_dropdown_script()}
         """
 
     grade = (request.form.get("grade") or "").strip()
