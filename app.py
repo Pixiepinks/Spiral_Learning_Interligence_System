@@ -495,6 +495,54 @@ class Class(db.Model):
 
 
 
+def is_tap_select_image_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "tap_select_image"
+
+
+def parse_tap_areas_json(raw: str) -> tuple[list[dict], str | None]:
+    try:
+        payload = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return [], "Selectable Areas JSON must be valid JSON."
+    if not isinstance(payload, list) or not payload:
+        return [], "Selectable Areas JSON must be a non-empty JSON array."
+    normalized = []
+    for item in payload:
+        if not isinstance(item, dict):
+            return [], "Each selectable area must be an object."
+        area_id = str(item.get("id") or "").strip()
+        if not area_id:
+            return [], "Each selectable area must include a non-empty id."
+        try:
+            x = float(item.get("x")); y = float(item.get("y")); w = float(item.get("width")); h = float(item.get("height"))
+        except (TypeError, ValueError):
+            return [], "Each area must include numeric x, y, width, and height."
+        if w <= 0 or h <= 0:
+            return [], "Each area width/height must be greater than 0."
+        normalized.append({"id": area_id, "x": x, "y": y, "width": w, "height": h})
+    return normalized, None
+
+
+def render_tap_select_image_input(question: "Question", input_prefix: str = "q") -> str:
+    areas = json.loads(question.tap_areas_json or "[]")
+    areas_json = escape(json.dumps(areas, ensure_ascii=False))
+    selected_name = f"{input_prefix}_{question.id}"
+    return f"""
+    <div class='tap-select-wrap' data-areas='{areas_json}' data-hidden-name='{selected_name}'>
+      <img src='{escape(question.image_url or "")}' alt='Tap select question image' class='tap-select-image'>
+      <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'></svg>
+      <input type='hidden' name='{selected_name}' value=''>
+    </div>
+    """
+
+
+def evaluate_tap_select_question(question: "Question", form) -> tuple[bool, str, str]:
+    student_answer = (form.get(f"q_{question.id}") or "").strip()
+    correct_answer = (question.correct_area_id or "").strip()
+    return bool(student_answer) and student_answer == correct_answer, student_answer, correct_answer
+
+
+
 class SubjectMaster(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -682,6 +730,8 @@ class Question(db.Model):
     matching_left_si = db.Column(db.Text, nullable=True)
     matching_right_si = db.Column(db.Text, nullable=True)
     matching_answers_si = db.Column(db.Text, nullable=True)
+    tap_areas_json = db.Column(db.Text, nullable=True)
+    correct_area_id = db.Column(db.String(100), nullable=True)
     image_url = db.Column(db.Text, nullable=True)
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
@@ -3384,8 +3434,8 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
-    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs"}:
-        return {}, "Question type must be MCQ, Short Answer, Box Input, or Matching Pairs."
+    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs", "tap_select_image"}:
+        return {}, "Question type must be MCQ, Short Answer, Box Input, Matching Pairs, or Tap Select Image."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
@@ -3401,6 +3451,8 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     matching_right_si = request.form.get("matching_right_si") or ""
     matching_answers_si_raw = request.form.get("matching_answers_si") or ""
     image_url = (request.form.get("image_url") or "").strip()
+    tap_areas_json_raw = request.form.get("tap_areas_json") or ""
+    correct_area_id = (request.form.get("correct_area_id") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
     required_values = [grade, subject, question_text_en, question_text_si]
@@ -3410,8 +3462,10 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         required_values.append(correct_answer_text)
     elif question_type == "box_input":
         required_values.extend([box_template.strip(), box_answers_raw.strip()])
-    else:
+    elif question_type == "matching_pairs":
         required_values.extend([matching_left_en.strip(), matching_right_en.strip(), matching_answers_en_raw.strip(), matching_left_si.strip(), matching_right_si.strip(), matching_answers_si_raw.strip()])
+    elif question_type == "tap_select_image":
+        required_values.extend([image_url, tap_areas_json_raw.strip(), correct_area_id])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
@@ -3429,6 +3483,15 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         for key in extract_box_keys(box_template):
             if key not in normalized_box_answers:
                 return {}, f"Missing answer for {key}"
+
+    normalized_tap_areas = None
+    if question_type == "tap_select_image":
+        normalized_tap_areas, tap_err = parse_tap_areas_json(tap_areas_json_raw)
+        if tap_err:
+            return {}, tap_err
+        valid_ids = {item["id"] for item in normalized_tap_areas}
+        if correct_area_id not in valid_ids:
+            return {}, "Correct Answer Area ID must exist in Selectable Areas JSON."
 
     normalized_matching_answers_en = None
     normalized_matching_answers_si = None
@@ -3484,6 +3547,8 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         "matching_left_si": json.dumps(parse_matching_items(matching_left_si), ensure_ascii=False) if question_type == "matching_pairs" else "",
         "matching_right_si": json.dumps(parse_matching_items(matching_right_si), ensure_ascii=False) if question_type == "matching_pairs" else "",
         "matching_answers_si": json.dumps(normalized_matching_answers_si, ensure_ascii=False) if normalized_matching_answers_si is not None else "",
+        "tap_areas_json": json.dumps(normalized_tap_areas, ensure_ascii=False) if normalized_tap_areas is not None else "",
+        "correct_area_id": correct_area_id,
         "image_url": image_url,
         "difficulty_level": difficulty_level,
     }, None
@@ -3497,6 +3562,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     short_hidden = "" if question_type == "short_answer" else "display:none;"
     box_hidden = "" if question_type == "box_input" else "display:none;"
     matching_hidden = "" if question_type == "matching_pairs" else "display:none;"
+    tap_select_hidden = "" if question_type == "tap_select_image" else "display:none;"
     grade = (data.get("grade") or "").strip()
     subject = (data.get("subject") or "").strip()
     selected_term_id = int(data.get("term_id") or 0)
@@ -3534,6 +3600,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               <option value="short_answer" {"selected" if question_type == "short_answer" else ""}>Short Answer</option>
               <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
               <option value="matching_pairs" {"selected" if question_type == "matching_pairs" else ""}>Matching Pairs / Join the Pairs</option>
+              <option value="tap_select_image" {"selected" if question_type == "tap_select_image" else ""}>Tap / Color Correct Picture</option>
             </select>
           </label><br><br>
           <div id="mcq_fields" style="{mcq_hidden}">
@@ -3584,6 +3651,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("short_answer_fields").style.display = selectedType === "short_answer" ? "block" : "none";
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
             document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
+            document.getElementById("tap_select_fields").style.display = selectedType === "tap_select_image" ? "block" : "none";
           }}
         document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\[box(\d+)\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
@@ -4389,6 +4457,8 @@ def admin_add_question():
         matching_left_si=form_data["matching_left_si"] or None,
         matching_right_si=form_data["matching_right_si"] or None,
         matching_answers_si=form_data["matching_answers_si"] or None,
+        tap_areas_json=form_data["tap_areas_json"] or None,
+        correct_area_id=form_data["correct_area_id"] or None,
         image_url=form_data["image_url"] or None,
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
@@ -4502,6 +4572,8 @@ def admin_edit_question(question_id: int):
                 "matching_left_si": "\n".join(json.loads(question.matching_left_si or "[]")),
                 "matching_right_si": "\n".join(json.loads(question.matching_right_si or "[]")),
                 "matching_answers_si": question.matching_answers_si or "",
+                "tap_areas_json": question.tap_areas_json or "",
+                "correct_area_id": question.correct_area_id or "",
                 "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
             },
@@ -4547,6 +4619,8 @@ def admin_edit_question(question_id: int):
     question.matching_left_si = form_data["matching_left_si"] or None
     question.matching_right_si = form_data["matching_right_si"] or None
     question.matching_answers_si = form_data["matching_answers_si"] or None
+    question.tap_areas_json = form_data["tap_areas_json"] or None
+    question.correct_area_id = form_data["correct_area_id"] or None
     question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
@@ -5054,6 +5128,8 @@ def update_question_format_db() -> tuple[str, int]:
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'mcq'"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS correct_answer_text TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS image_url TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS tap_areas_json TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS correct_area_id VARCHAR(100)"))
         db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
         db.session.commit()
         return "Question format database updated successfully", 200
@@ -5288,6 +5364,8 @@ def test_page() -> str:
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_tap_select_image_question(q):
+            answer_html = render_tap_select_image_input(q)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -5410,6 +5488,8 @@ def submit_test() -> str:
             is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
             student_answer = json.dumps(student_box_answers, ensure_ascii=False)
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
+        elif is_tap_select_image_question(q):
+            is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
         elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
@@ -5453,6 +5533,14 @@ def submit_test() -> str:
                 parts.append(f"<div><strong>{k}</strong>: <span style='color:{color}'>{escape(sval or '-')}</span> / {escape(str(v))}</div>")
             student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
+        elif is_tap_select_image_question(q):
+            if student_answer and student_answer == correct_answer:
+                student_answer_text = f"Selected area: {escape(student_answer)} ✅"
+            elif student_answer:
+                student_answer_text = f"Selected area: <span style='color:#dc2626'>{escape(student_answer)}</span>"
+            else:
+                student_answer_text = t(selected_medium, "not_answered")
+            correct_answer_text = f"<span style='color:#16a34a'>Correct area: {escape(correct_answer or '-')}</span>"
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -5843,6 +5931,8 @@ def retest_weak() -> str:
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_tap_select_image_question(q):
+            answer_html = render_tap_select_image_input(q)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -6111,6 +6201,8 @@ def practice_page() -> str:
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_tap_select_image_question(q):
+            answer_html = render_tap_select_image_input(q)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -6217,6 +6309,8 @@ def submit_practice() -> str:
             is_correct, student_box_answers, correct_box_answers = evaluate_box_question(q, request.form)
             student_answer = json.dumps(student_box_answers, ensure_ascii=False)
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
+        elif is_tap_select_image_question(q):
+            is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
         elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
@@ -6255,6 +6349,14 @@ def submit_practice() -> str:
                 parts.append(f"<div><strong>{k}</strong>: <span style='color:{color}'>{escape(sval or '-')}</span> / {escape(str(v))}</div>")
             student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
+        elif is_tap_select_image_question(q):
+            if student_answer and student_answer == correct_answer:
+                student_answer_text = f"Selected area: {escape(student_answer)} ✅"
+            elif student_answer:
+                student_answer_text = f"Selected area: <span style='color:#dc2626'>{escape(student_answer)}</span>"
+            else:
+                student_answer_text = t(selected_medium, "not_answered")
+            correct_answer_text = f"<span style='color:#16a34a'>Correct area: {escape(correct_answer or '-')}</span>"
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -6428,6 +6530,8 @@ def student_homework_detail(homework_id: int):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_tap_select_image_question(q):
+            answer_html = render_tap_select_image_input(q)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -6537,6 +6641,9 @@ def student_take_test(test_id: int):
             if is_box_input_question(q):
                 ok, _, _ = evaluate_box_question(q, request.form)
                 return ok
+            if is_tap_select_image_question(q):
+                ok, _, _ = evaluate_tap_select_question(q, request.form)
+                return ok
             if is_short_answer_question(q):
                 return (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
             return (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
@@ -6558,6 +6665,8 @@ def student_take_test(test_id: int):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
+        elif is_tap_select_image_question(q):
+            answer_html = render_tap_select_image_input(q)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
