@@ -544,8 +544,11 @@ def tap_select_common_assets() -> str:
       .tap-select-wrap { position: relative; display: inline-block; max-width: 420px; width: 100%; }
       .tap-select-image { width: 100%; height: auto; display: block; border: 1px solid #ddd; border-radius: 6px; }
       .tap-select-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
-      .tap-area { fill: rgba(59,130,246,0.12); stroke: rgba(59,130,246,0.65); stroke-width: 0.6; cursor: pointer; pointer-events: all; }
-      .tap-area.selected { fill: rgba(144,238,144,0.45); stroke: rgba(22,163,74,0.9); }
+      .tap-area { fill: transparent; opacity: 0; stroke: none; stroke-width: 0; cursor: pointer; pointer-events: all; }
+      .tap-area.selected { fill: rgba(0, 255, 0, 0.25); opacity: 1; stroke: #22aa22; stroke-width: 2; }
+      @media (hover: hover) and (pointer: fine) {
+        .tap-area:hover { fill: rgba(0,0,0,0.05); opacity: 1; }
+      }
       .tap-area.review-wrong { fill: rgba(239,68,68,0.35); stroke: rgba(220,38,38,0.8); }
       .tap-area.review-correct { fill: rgba(34,197,94,0.35); stroke: rgba(22,163,74,0.9); }
       .tap-select-empty-msg { margin-top: 8px; color: #b45309; font-size: 14px; }
