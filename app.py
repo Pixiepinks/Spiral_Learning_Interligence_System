@@ -3424,7 +3424,7 @@ def school_admin_students():
     <p><a href='/school-admin/dashboard'>Back</a></p></body></html>"""
 
 
-def parse_question_form_data() -> tuple[dict, str | None]:
+def parse_question_form_data(has_uploaded_image: bool = False, existing_image_url: str = "") -> tuple[dict, str | None]:
     grade = (request.form.get("grade") or "").strip()
     subject = (request.form.get("subject") or "").strip()
     topic = (request.form.get("topic") or "").strip()
@@ -3455,7 +3455,20 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     correct_area_id = (request.form.get("correct_area_id") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
-    required_values = [grade, subject, question_text_en, question_text_si]
+    common_required_values = [
+        grade,
+        subject,
+        term_id_raw,
+        module_id_raw,
+        chapter_id_raw,
+        question_text_en,
+        question_text_si,
+        difficulty_level_raw,
+    ]
+    if any(value == "" for value in common_required_values):
+        return {}, "Please complete grade, subject, term, module, chapter, question text, and difficulty."
+
+    required_values: list[str] = []
     if question_type == "mcq":
         required_values.extend([option_a, option_b, option_c, option_d, correct_option])
     elif question_type == "short_answer":
@@ -3464,10 +3477,12 @@ def parse_question_form_data() -> tuple[dict, str | None]:
         required_values.extend([box_template.strip(), box_answers_raw.strip()])
     elif question_type == "matching_pairs":
         required_values.extend([matching_left_en.strip(), matching_right_en.strip(), matching_answers_en_raw.strip(), matching_left_si.strip(), matching_right_si.strip(), matching_answers_si_raw.strip()])
-    elif question_type == "tap_select_image":
-        required_values.extend([term_id_raw, module_id_raw, chapter_id_raw, image_url])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
+    if question_type == "tap_select_image":
+        effective_image_url = image_url or existing_image_url
+        if not effective_image_url and not has_uploaded_image:
+            return {}, "Please upload an image or enter image URL."
 
     grade = normalize_grade(grade)
     if not is_valid_grade(grade):
@@ -4439,7 +4454,7 @@ def admin_add_question():
     if request.method == "GET":
         return render_question_form("/admin/add-question", {}, "Add New Question", "Save Question")
 
-    form_data, error = parse_question_form_data()
+    form_data, error = parse_question_form_data(has_uploaded_image=bool(request.files.get("question_image") and request.files.get("question_image").filename))
     if error:
         return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", error), 400
 
@@ -4604,7 +4619,10 @@ def admin_edit_question(question_id: int):
             "Update Question",
         )
 
-    form_data, error = parse_question_form_data()
+    form_data, error = parse_question_form_data(
+        has_uploaded_image=bool(request.files.get("question_image") and request.files.get("question_image").filename),
+        existing_image_url=question.image_url or "",
+    )
     if error:
         return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", error), 400
 
