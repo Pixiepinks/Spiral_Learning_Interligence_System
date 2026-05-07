@@ -3760,11 +3760,13 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           }}
         document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u();
           const imageInput=document.querySelector("input[name='image_url']");
+          const imageFileInput=document.querySelector("input[name='question_image']");
           const imageEl=document.getElementById("tap_editor_image");
           const overlay=document.getElementById("tap_editor_overlay");
           const listEl=document.getElementById("tap_area_list");
           const jsonEl=document.getElementById("tap_areas_json");
           const correctEl=document.getElementById("correct_area_id");
+          let previewObjectUrl=null;
           let areas=[]; let drawing=false; let start=null;
           const norm=(v)=>Math.max(0,Math.min(100,v));
           const parseAreas=()=>{{ try{{ const p=JSON.parse(jsonEl.value||"[]"); return Array.isArray(p)?p:[]; }}catch(e){{ return []; }} }};
@@ -3777,7 +3779,25 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           }};
           if (correctEl) correctEl.dataset.current="{escape(data.get('correct_area_id',''))}";
           areas=parseAreas(); render();
-          if(imageInput&&imageEl) imageInput.addEventListener("input",()=>{{ imageEl.src=imageInput.value||""; }});
+          const setEditorImage=(src)=>{{
+            if(!imageEl) return;
+            imageEl.src=src||"";
+          }};
+          if (imageEl) imageEl.addEventListener("load",()=>{{ render(); }});
+          if(imageInput&&imageEl) imageInput.addEventListener("input",()=>{{
+            if (previewObjectUrl) {{
+              URL.revokeObjectURL(previewObjectUrl);
+              previewObjectUrl=null;
+            }}
+            setEditorImage(imageInput.value||"");
+          }});
+          if(imageFileInput&&imageEl) imageFileInput.addEventListener("change",()=>{{
+            const file=imageFileInput.files && imageFileInput.files[0];
+            if (!file) return;
+            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+            previewObjectUrl=URL.createObjectURL(file);
+            setEditorImage(previewObjectUrl);
+          }});
           const startDraw=(ev)=>{{ if(!overlay) return; drawing=true; const p=overlay.createSVGPoint(); p.x=(ev.touches?ev.touches[0].clientX:ev.clientX); p.y=(ev.touches?ev.touches[0].clientY:ev.clientY); const c=p.matrixTransform(overlay.getScreenCTM().inverse()); start={{x:norm(c.x),y:norm(c.y)}}; }};
           const endDraw=(ev)=>{{ if(!drawing||!start) return; drawing=false; const p=overlay.createSVGPoint(); p.x=(ev.changedTouches?ev.changedTouches[0].clientX:ev.clientX); p.y=(ev.changedTouches?ev.changedTouches[0].clientY:ev.clientY); const c=p.matrixTransform(overlay.getScreenCTM().inverse()); const end={{x:norm(c.x),y:norm(c.y)}}; const x=Math.min(start.x,end.x), y=Math.min(start.y,end.y), w=Math.abs(end.x-start.x), h=Math.abs(end.y-start.y); if(w<1||h<1) return; const id=`area${{areas.length+1}}`; areas.push({{id,x,y,width:w,height:h}}); render(); }};
           if(overlay){{ overlay.addEventListener("pointerdown",startDraw); overlay.addEventListener("pointerup",endDraw); overlay.addEventListener("touchstart",startDraw,{{passive:true}}); overlay.addEventListener("touchend",endDraw); }}
