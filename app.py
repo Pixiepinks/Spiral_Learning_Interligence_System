@@ -3465,7 +3465,7 @@ def parse_question_form_data() -> tuple[dict, str | None]:
     elif question_type == "matching_pairs":
         required_values.extend([matching_left_en.strip(), matching_right_en.strip(), matching_answers_en_raw.strip(), matching_left_si.strip(), matching_right_si.strip(), matching_answers_si_raw.strip()])
     elif question_type == "tap_select_image":
-        required_values.extend([image_url, tap_areas_json_raw.strip(), correct_area_id])
+        required_values.extend([term_id_raw, module_id_raw, chapter_id_raw, image_url])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
 
@@ -3485,12 +3485,12 @@ def parse_question_form_data() -> tuple[dict, str | None]:
                 return {}, f"Missing answer for {key}"
 
     normalized_tap_areas = None
-    if question_type == "tap_select_image":
+    if question_type == "tap_select_image" and (tap_areas_json_raw.strip() or correct_area_id):
         normalized_tap_areas, tap_err = parse_tap_areas_json(tap_areas_json_raw)
         if tap_err:
             return {}, tap_err
         valid_ids = {item["id"] for item in normalized_tap_areas}
-        if correct_area_id not in valid_ids:
+        if correct_area_id and correct_area_id not in valid_ids:
             return {}, "Correct Answer Area ID must exist in Selectable Areas JSON."
 
     normalized_matching_answers_en = None
@@ -3653,7 +3653,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
             document.getElementById("tap_select_fields").style.display = selectedType === "tap_select_image" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\[box(\d+)\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -4277,9 +4277,32 @@ def admin_student_details(student_id: int):
     """
 
 
+
+
+def ensure_tap_question_columns() -> None:
+    db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS tap_areas_json TEXT"))
+    db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS correct_area_id TEXT"))
+    db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'mcq'"))
+    db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
+
+
+@app.route("/update-tap-question-db", methods=["GET"])
+def update_tap_question_db() -> tuple[str, int]:
+    try:
+        ensure_tap_question_columns()
+        db.session.commit()
+        return "Tap question database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Tap question DB update failed: {exc}"}), 500
 @app.route("/admin/questions", methods=["GET"])
 def admin_questions():
     admin_redirect = admin_session_required()
+    try:
+        ensure_tap_question_columns()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
     if admin_redirect:
         return admin_redirect
 
