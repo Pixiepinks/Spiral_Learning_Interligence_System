@@ -527,12 +527,60 @@ def render_tap_select_image_input(question: "Question", input_prefix: str = "q")
     areas = json.loads(question.tap_areas_json or "[]")
     areas_json = escape(json.dumps(areas, ensure_ascii=False))
     selected_name = f"{input_prefix}_{question.id}"
+    empty_note = "<p class='tap-select-empty-msg'>Tap areas not configured yet.</p>" if not areas else ""
     return f"""
     <div class='tap-select-wrap' data-areas='{areas_json}' data-hidden-name='{selected_name}'>
       <img src='{escape(question.image_url or "")}' alt='Tap select question image' class='tap-select-image'>
       <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'></svg>
       <input type='hidden' name='{selected_name}' value=''>
+      {empty_note}
     </div>
+    """
+
+
+def tap_select_common_assets() -> str:
+    return """
+    <style>
+      .tap-select-wrap { position: relative; display: inline-block; max-width: 420px; width: 100%; }
+      .tap-select-image { width: 100%; height: auto; display: block; border: 1px solid #ddd; border-radius: 6px; }
+      .tap-select-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
+      .tap-area { fill: rgba(59,130,246,0.12); stroke: rgba(59,130,246,0.65); stroke-width: 0.6; cursor: pointer; pointer-events: all; }
+      .tap-area.selected { fill: rgba(59,130,246,0.35); }
+      .tap-area.review-wrong { fill: rgba(239,68,68,0.35); stroke: rgba(220,38,38,0.8); }
+      .tap-area.review-correct { fill: rgba(34,197,94,0.35); stroke: rgba(22,163,74,0.9); }
+      .tap-select-empty-msg { margin-top: 8px; color: #b45309; font-size: 14px; }
+    </style>
+    <script>
+      function initTapSelectUI(root=document) {
+        root.querySelectorAll('.tap-select-wrap').forEach((wrap) => {
+          const svg = wrap.querySelector('.tap-select-overlay');
+          const hidden = wrap.querySelector("input[type='hidden']");
+          if (!svg || !hidden) return;
+          if (svg.dataset.ready === '1') return;
+          svg.dataset.ready = '1';
+          let areas = [];
+          try { areas = JSON.parse(wrap.dataset.areas || "[]"); } catch(e) { areas = []; }
+          if (!Array.isArray(areas) || !areas.length) return;
+          const draw = (selectedId) => {
+            svg.innerHTML = "";
+            areas.forEach((area) => {
+              const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              rect.setAttribute("x", area.x); rect.setAttribute("y", area.y);
+              rect.setAttribute("width", area.width); rect.setAttribute("height", area.height);
+              rect.setAttribute("class", "tap-area" + (selectedId === area.id ? " selected" : ""));
+              rect.dataset.areaId = area.id;
+              const choose = (ev) => { ev.preventDefault(); hidden.value = area.id; draw(area.id); };
+              rect.addEventListener("click", choose);
+              rect.addEventListener("touchstart", choose, {passive:false});
+              rect.addEventListener("pointerdown", choose);
+              svg.appendChild(rect);
+            });
+          }};
+          draw(hidden.value || "");
+        });
+      }
+      document.addEventListener("DOMContentLoaded", () => initTapSelectUI(document));
+    </script>
     """
 
 
@@ -540,6 +588,28 @@ def evaluate_tap_select_question(question: "Question", form) -> tuple[bool, str,
     student_answer = (form.get(f"q_{question.id}") or "").strip()
     correct_answer = (question.correct_area_id or "").strip()
     return bool(student_answer) and student_answer == correct_answer, student_answer, correct_answer
+
+
+def render_tap_select_review(question: "Question", selected_area_id: str, correct_area_id: str) -> str:
+    areas = json.loads(question.tap_areas_json or "[]")
+    if not areas:
+        return "<p>Tap areas not configured yet.</p>"
+    rects = []
+    for area in areas:
+        cls = "tap-area"
+        if area.get("id") == selected_area_id and selected_area_id != correct_area_id:
+            cls += " review-wrong"
+        if area.get("id") == correct_area_id:
+            cls += " review-correct"
+        rects.append(
+            f"<rect class='{cls}' x='{area.get('x',0)}' y='{area.get('y',0)}' width='{area.get('width',0)}' height='{area.get('height',0)}'></rect>"
+        )
+    return f"""
+    <div class='tap-select-wrap'>
+      <img src='{escape(question.image_url or "")}' alt='Tap select review image' class='tap-select-image'>
+      <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'>{"".join(rects)}</svg>
+    </div>
+    """
 
 
 
@@ -3652,6 +3722,21 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             <label>Correct Matches JSON SI:<br><textarea name='matching_answers_si' rows='6' cols='80'>{escape(data.get('matching_answers_si',''))}</textarea></label><br><br>
             <div id='matching_preview'></div>
           </div>
+          <div id="tap_select_fields" style="{tap_select_hidden}">
+            <p>Tap Area Editor (values are percentages on a 0-100 scale).</p>
+            <div id="tap_editor_canvas" style="position:relative;display:inline-block;max-width:520px;width:100%;border:1px solid #ddd;">
+              <img id="tap_editor_image" src="{escape(data.get('image_url', ''))}" alt="Tap area editor image" style="width:100%;height:auto;display:block;">
+              <svg id="tap_editor_overlay" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;"></svg>
+            </div>
+            <p id="tap_editor_help">Click and drag on image to create area rectangles.</p>
+            <ul id="tap_area_list"></ul>
+            <label>Selectable Areas JSON:<br><textarea name="tap_areas_json" id="tap_areas_json" rows="6" cols="80">{escape(data.get('tap_areas_json',''))}</textarea></label><br><br>
+            <label>Correct Area ID:
+              <select name="correct_area_id" id="correct_area_id">
+                <option value="">Select correct area</option>
+              </select>
+            </label><br><br>
+          </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
               <option value="1" {"selected" if difficulty_level == "1" else ""}>1 Easy</option>
@@ -3673,7 +3758,30 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
             document.getElementById("tap_select_fields").style.display = selectedType === "tap_select_image" ? "block" : "none";
           }}
-        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u(); }});</script>{dependent_dropdown_script()}
+        document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u();
+          const imageInput=document.querySelector("input[name='image_url']");
+          const imageEl=document.getElementById("tap_editor_image");
+          const overlay=document.getElementById("tap_editor_overlay");
+          const listEl=document.getElementById("tap_area_list");
+          const jsonEl=document.getElementById("tap_areas_json");
+          const correctEl=document.getElementById("correct_area_id");
+          let areas=[]; let drawing=false; let start=null;
+          const norm=(v)=>Math.max(0,Math.min(100,v));
+          const parseAreas=()=>{{ try{{ const p=JSON.parse(jsonEl.value||"[]"); return Array.isArray(p)?p:[]; }}catch(e){{ return []; }} }};
+          const render=()=>{{ if(!overlay) return; overlay.innerHTML=""; if(listEl) listEl.innerHTML=""; if(correctEl){{ const current=correctEl.dataset.current||correctEl.value||""; correctEl.innerHTML="<option value=''>Select correct area</option>"; }}
+            areas.forEach((a,idx)=>{{ const rect=document.createElementNS("http://www.w3.org/2000/svg","rect"); rect.setAttribute("x",a.x);rect.setAttribute("y",a.y);rect.setAttribute("width",a.width);rect.setAttribute("height",a.height); rect.setAttribute("fill","rgba(59,130,246,0.2)"); rect.setAttribute("stroke","rgba(30,64,175,0.9)"); rect.setAttribute("stroke-width","0.6"); overlay.appendChild(rect);
+              if(listEl){{ const li=document.createElement("li"); li.textContent=`${{a.id}} (x:${{a.x.toFixed(2)}}, y:${{a.y.toFixed(2)}}, w:${{a.width.toFixed(2)}}, h:${{a.height.toFixed(2)}})`; listEl.appendChild(li); }}
+              if(correctEl){{ const o=document.createElement("option"); o.value=a.id; o.textContent=a.id; if(o.value===(correctEl.dataset.current||"")) o.selected=true; correctEl.appendChild(o); }}
+            }});
+            jsonEl.value=JSON.stringify(areas);
+          }};
+          if (correctEl) correctEl.dataset.current="{escape(data.get('correct_area_id',''))}";
+          areas=parseAreas(); render();
+          if(imageInput&&imageEl) imageInput.addEventListener("input",()=>{{ imageEl.src=imageInput.value||""; }});
+          const startDraw=(ev)=>{{ if(!overlay) return; drawing=true; const p=overlay.createSVGPoint(); p.x=(ev.touches?ev.touches[0].clientX:ev.clientX); p.y=(ev.touches?ev.touches[0].clientY:ev.clientY); const c=p.matrixTransform(overlay.getScreenCTM().inverse()); start={{x:norm(c.x),y:norm(c.y)}}; }};
+          const endDraw=(ev)=>{{ if(!drawing||!start) return; drawing=false; const p=overlay.createSVGPoint(); p.x=(ev.changedTouches?ev.changedTouches[0].clientX:ev.clientX); p.y=(ev.changedTouches?ev.changedTouches[0].clientY:ev.clientY); const c=p.matrixTransform(overlay.getScreenCTM().inverse()); const end={{x:norm(c.x),y:norm(c.y)}}; const x=Math.min(start.x,end.x), y=Math.min(start.y,end.y), w=Math.abs(end.x-start.x), h=Math.abs(end.y-start.y); if(w<1||h<1) return; const id=`area${{areas.length+1}}`; areas.push({{id,x,y,width:w,height:h}}); render(); }};
+          if(overlay){{ overlay.addEventListener("pointerdown",startDraw); overlay.addEventListener("pointerup",endDraw); overlay.addEventListener("touchstart",startDraw,{{passive:true}}); overlay.addEventListener("touchend",endDraw); }}
+        }});</script>{dependent_dropdown_script()}
       </body>
     </html>
     """
@@ -5471,6 +5579,7 @@ def test_page() -> str:
             }}
           }}
         </style>
+        {tap_select_common_assets()}
       </head>
       <body>
         <h1>{t(selected_medium, 'test_title').format(grade=selected_grade, subject=selected_subject)}</h1>
@@ -5601,13 +5710,8 @@ def submit_test() -> str:
             student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
         elif is_tap_select_image_question(q):
-            if student_answer and student_answer == correct_answer:
-                student_answer_text = f"Selected area: {escape(student_answer)} ✅"
-            elif student_answer:
-                student_answer_text = f"Selected area: <span style='color:#dc2626'>{escape(student_answer)}</span>"
-            else:
-                student_answer_text = t(selected_medium, "not_answered")
-            correct_answer_text = f"<span style='color:#16a34a'>Correct area: {escape(correct_answer or '-')}</span>"
+            student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
+            correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -6070,6 +6174,7 @@ def upgrade_page() -> str:
           .btn-primary {{ background: #25d366; color: #fff; }}
           .btn-secondary {{ background: #e7ecf7; color: #102036; }}
         </style>
+        {tap_select_common_assets()}
       </head>
       <body>
         <main class='wrap'>
@@ -6324,6 +6429,7 @@ def practice_page() -> str:
             }}
           }}
         </style>
+        {tap_select_common_assets()}
       </head>
       <body>
         <h1>{t(selected_medium, 'practice_title')}</h1>
@@ -6417,13 +6523,8 @@ def submit_practice() -> str:
             student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
         elif is_tap_select_image_question(q):
-            if student_answer and student_answer == correct_answer:
-                student_answer_text = f"Selected area: {escape(student_answer)} ✅"
-            elif student_answer:
-                student_answer_text = f"Selected area: <span style='color:#dc2626'>{escape(student_answer)}</span>"
-            else:
-                student_answer_text = t(selected_medium, "not_answered")
-            correct_answer_text = f"<span style='color:#16a34a'>Correct area: {escape(correct_answer or '-')}</span>"
+            student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
+            correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -6629,6 +6730,7 @@ def student_homework_detail(homework_id: int):
         }}
       }}
     </style>
+    {tap_select_common_assets()}
   </head>
   <body><h1>{escape(homework.title)}</h1><p>Due: {homework.due_date.strftime('%Y-%m-%d')}</p><form method='post' action='/student/homework/{homework.id}/submit'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/homework'>Back</a></p></body>
 </html>"""
@@ -6651,6 +6753,8 @@ def student_homework_submit(homework_id: int):
             is_correct, _, _ = evaluate_matching_pairs_question(q, request.form, medium_key)
         elif is_box_input_question(q):
             is_correct, _, _ = evaluate_box_question(q, request.form)
+        elif is_tap_select_image_question(q):
+            is_correct, _, _ = evaluate_tap_select_question(q, request.form)
         elif is_short_answer_question(q):
             is_correct = (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
         else:
