@@ -103,8 +103,8 @@ UI_TEXT = {
         "change_language": "Change Language",
         "selected_language": "Selected language",
         "submit": "Submit",
-        "no_questions": "No Grade 6 Math questions available.",
-        "test_title": "SkillScan Test - Grade 6 Math",
+        "no_questions": "No SkillScan questions available for Grade {grade} yet.",
+        "test_title": "SkillScan Test - Grade {grade} {subject}",
         "result_title": "SkillScan Test Result",
         "total_questions": "Total questions",
         "correct_answers": "Correct answers",
@@ -145,8 +145,8 @@ UI_TEXT = {
         "change_language": "භාෂාව මාරු කරන්න",
         "selected_language": "තෝරාගත් භාෂාව",
         "submit": "යවන්න",
-        "no_questions": "6 ශ්‍රේණියේ ගණිත ප්‍රශ්න නොමැත.",
-        "test_title": "SkillScan පරීක්ෂණය - 6 ශ්‍රේණිය ගණිතය",
+        "no_questions": "{grade} ශ්‍රේණිය සඳහා SkillScan ප්‍රශ්න තවම නොමැත.",
+        "test_title": "SkillScan පරීක්ෂණය - {grade} ශ්‍රේණිය {subject}",
         "result_title": "SkillScan පරීක්ෂණ ප්‍රතිඵලය",
         "total_questions": "මුළු ප්‍රශ්න ගණන",
         "correct_answers": "නිවැරදි පිළිතුරු",
@@ -1498,8 +1498,13 @@ def student_dashboard():
     student_id = session.get("student_id")
     previous_result = None
     if student_id:
+        student_for_result = db.session.get(Student, student_id)
         previous_result = (
-            StudentResult.query.filter_by(student_id=student_id, grade="6", subject="Math")
+            StudentResult.query.filter_by(
+                student_id=student_id,
+                grade=normalize_grade(student_for_result.grade) if student_for_result else "6",
+                subject="Math",
+            )
             .order_by(StudentResult.created_at.desc(), StudentResult.id.desc())
             .first()
         )
@@ -5387,10 +5392,19 @@ def test_page() -> str:
     db.create_all()
     student_id = session.get("student_id")
     student = db.session.get(Student, student_id) if student_id else None
-    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.args.get("medium"))
+    if student:
+        selected_grade = normalize_grade(student.grade)
+        selected_medium = resolve_medium(student.medium)
+        selected_subject = "Math"
+    else:
+        selected_grade = normalize_grade(request.args.get("grade") or "6")
+        if not is_valid_grade(selected_grade):
+            selected_grade = "6"
+        selected_medium = resolve_medium(request.args.get("medium"))
+        selected_subject = (request.args.get("subject") or "Math").strip() or "Math"
 
     questions = (
-        Question.query.filter_by(grade="6", subject="Math")
+        Question.query.filter_by(grade=selected_grade, subject=selected_subject)
         .order_by(Question.id.asc())
         .all()
     )
@@ -5436,7 +5450,7 @@ def test_page() -> str:
       <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <title>Test Page</title>
+        <title>{t(selected_medium, 'test_title').format(grade=selected_grade, subject=selected_subject)}</title>
         <style>
           .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
           .box-input {{width:14px;height:14px;min-width:14px;padding:1px;text-align:center;font-size:12px;line-height:12px;border:1.5px solid #000;border-radius:2px;display:inline-block;vertical-align:middle;margin:0 1px;font-family:monospace;box-sizing:border-box;}}
@@ -5459,11 +5473,14 @@ def test_page() -> str:
         </style>
       </head>
       <body>
-        <h1>{t(selected_medium, 'test_title')}</h1>
+        <h1>{t(selected_medium, 'test_title').format(grade=selected_grade, subject=selected_subject)}</h1>
         {language_controls_html}
         <form method='post' action='/submit-test'>
+          <input type='hidden' name='grade' value='{selected_grade}'>
+          <input type='hidden' name='subject' value='{escape(selected_subject)}'>
+          <input type='hidden' name='medium' value='{selected_medium}'>
           <p>{t(selected_medium, 'selected_language')}: <strong>{selected_medium}</strong></p>
-          {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions')}</p>"}
+          {''.join(question_blocks) if question_blocks else f"<p>{t(selected_medium, 'no_questions').format(grade=selected_grade)}</p>"}
           <button type='submit'>{t(selected_medium, 'submit')}</button>
         </form>
       </body>
@@ -5491,12 +5508,21 @@ def submit_test() -> str:
     db.create_all()
     student_id = session.get("student_id")
     student = db.session.get(Student, student_id) if student_id else None
-    selected_medium = resolve_medium(student.medium) if student else resolve_medium(request.form.get("medium") or request.args.get("medium"))
+    if student:
+        selected_grade = normalize_grade(student.grade)
+        selected_medium = resolve_medium(student.medium)
+        selected_subject = "Math"
+    else:
+        selected_grade = normalize_grade(request.form.get("grade") or request.args.get("grade") or "6")
+        if not is_valid_grade(selected_grade):
+            selected_grade = "6"
+        selected_medium = resolve_medium(request.form.get("medium") or request.args.get("medium"))
+        selected_subject = (request.form.get("subject") or request.args.get("subject") or "Math").strip() or "Math"
     streak_message = ""
 
     medium_key = "en" if selected_medium == "English" else "si"
     questions = (
-        Question.query.filter_by(grade="6", subject="Math")
+        Question.query.filter_by(grade=selected_grade, subject=selected_subject)
         .order_by(Question.id.asc())
         .all()
     )
@@ -5695,8 +5721,8 @@ def submit_test() -> str:
 
     student_result = StudentResult(
         student_id=student_id,
-        grade="6",
-        subject="Math",
+        grade=selected_grade,
+        subject=selected_subject,
         medium=resolve_medium(student.medium) if student else selected_medium,
         score=percentage_score,
         level=level_name,
@@ -5725,8 +5751,8 @@ def submit_test() -> str:
         )
         upsert_student_topic_progress(
             student_id=student_id,
-            grade="6",
-            subject="Math",
+            grade=selected_grade,
+            subject=selected_subject,
             topic_en=stats["topic_en"],
             topic_si=stats["topic_si"],
             score=topic_percentage,
