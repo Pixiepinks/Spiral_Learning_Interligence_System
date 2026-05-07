@@ -526,7 +526,7 @@ def parse_tap_areas_json(raw: str) -> tuple[list[dict], str | None]:
 def render_tap_select_image_input(question: "Question", input_prefix: str = "q") -> str:
     areas = json.loads(question.tap_areas_json or "[]")
     areas_json = escape(json.dumps(areas, ensure_ascii=False))
-    selected_name = f"{input_prefix}_{question.id}"
+    selected_name = f"answer_{question.id}"
     empty_note = "<p class='tap-select-empty-msg'>Tap areas not configured yet.</p>" if not areas else ""
     return f"""
     <div class='tap-select-wrap' data-areas='{areas_json}' data-hidden-name='{selected_name}'>
@@ -545,7 +545,7 @@ def tap_select_common_assets() -> str:
       .tap-select-image { width: 100%; height: auto; display: block; border: 1px solid #ddd; border-radius: 6px; }
       .tap-select-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
       .tap-area { fill: rgba(59,130,246,0.12); stroke: rgba(59,130,246,0.65); stroke-width: 0.6; cursor: pointer; pointer-events: all; }
-      .tap-area.selected { fill: rgba(59,130,246,0.35); }
+      .tap-area.selected { fill: rgba(144,238,144,0.45); stroke: rgba(22,163,74,0.9); }
       .tap-area.review-wrong { fill: rgba(239,68,68,0.35); stroke: rgba(220,38,38,0.8); }
       .tap-area.review-correct { fill: rgba(34,197,94,0.35); stroke: rgba(22,163,74,0.9); }
       .tap-select-empty-msg { margin-top: 8px; color: #b45309; font-size: 14px; }
@@ -571,11 +571,10 @@ def tap_select_common_assets() -> str:
               rect.dataset.areaId = area.id;
               const choose = (ev) => { ev.preventDefault(); hidden.value = area.id; draw(area.id); };
               rect.addEventListener("click", choose);
-              rect.addEventListener("touchstart", choose, {passive:false});
               rect.addEventListener("pointerdown", choose);
               svg.appendChild(rect);
             });
-          }};
+          };
           draw(hidden.value || "");
         });
       }
@@ -585,7 +584,7 @@ def tap_select_common_assets() -> str:
 
 
 def evaluate_tap_select_question(question: "Question", form) -> tuple[bool, str, str]:
-    student_answer = (form.get(f"q_{question.id}") or "").strip()
+    student_answer = (form.get(f"answer_{question.id}") or "").strip()
     correct_answer = (question.correct_area_id or "").strip()
     return bool(student_answer) and student_answer == correct_answer, student_answer, correct_answer
 
@@ -5557,7 +5556,7 @@ def test_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -6403,7 +6402,7 @@ def practice_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -6724,7 +6723,7 @@ def student_homework_detail(homework_id: int):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     return f"""<!doctype html>
 <html>
@@ -6862,7 +6861,7 @@ def student_take_test(test_id: int):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"""<!doctype html>
