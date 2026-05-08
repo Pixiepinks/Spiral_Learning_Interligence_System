@@ -4895,25 +4895,28 @@ def student_chapter_page(chapter_id: int):
                 "question_text": q.question_text_si if student.medium == "Sinhala" else q.question_text_en,
                 "question_text_en": q.question_text_en,
                 "question_text_si": q.question_text_si,
-                "options": {
-                    "option_a_en": q.option_a_en,
-                    "option_b_en": q.option_b_en,
-                    "option_c_en": q.option_c_en,
-                    "option_d_en": q.option_d_en,
-                    "option_a_si": q.option_a_si,
-                    "option_b_si": q.option_b_si,
-                    "option_c_si": q.option_c_si,
-                    "option_d_si": q.option_d_si,
-                },
+                "image_url": q.image_url,
+                "option_a_en": q.option_a_en,
+                "option_b_en": q.option_b_en,
+                "option_c_en": q.option_c_en,
+                "option_d_en": q.option_d_en,
+                "option_a_si": q.option_a_si,
+                "option_b_si": q.option_b_si,
+                "option_c_si": q.option_c_si,
+                "option_d_si": q.option_d_si,
+                "correct_option": q.correct_option,
+                "correct_answer_text": q.correct_answer_text,
+                "box_template": q.box_template,
+                "box_answers": q.box_answers,
+                "matching_left_en": q.matching_left_en,
+                "matching_right_en": q.matching_right_en,
+                "matching_answers_en": q.matching_answers_en,
+                "matching_left_si": q.matching_left_si,
+                "matching_right_si": q.matching_right_si,
+                "matching_answers_si": q.matching_answers_si,
+                "tap_areas_json": q.tap_areas_json,
+                "correct_area_id": q.correct_area_id,
                 "answer_data": {
-                    "option_a_en": q.option_a_en,
-                    "option_b_en": q.option_b_en,
-                    "option_c_en": q.option_c_en,
-                    "option_d_en": q.option_d_en,
-                    "option_a_si": q.option_a_si,
-                    "option_b_si": q.option_b_si,
-                    "option_c_si": q.option_c_si,
-                    "option_d_si": q.option_d_si,
                     "correct_answer": correct_answer,
                     "explanation_en": q.explanation_en,
                     "explanation_si": q.explanation_si,
@@ -4930,7 +4933,7 @@ def student_chapter_page(chapter_id: int):
     db.session.commit()
     return f"""<h1>Chapter Learning</h1>
     <script src='https://www.youtube.com/iframe_api'></script>
-    <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:24px;border-radius:16px;max-width:560px;width:95%}} .quiz-card button{{font-size:22px;padding:14px 18px;margin:6px;width:100%}}</style>
+    <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto}} .quiz-card button{{font-size:16px;padding:10px 14px;margin:6px 0}} .quiz-options label{{display:block;margin:8px 0}} .tap-select-wrap{{position:relative;display:inline-block;max-width:100%}} .tap-select-image{{max-width:100%;display:block;border:1px solid #ddd}} .tap-select-overlay{{position:absolute;inset:0;width:100%;height:100%}} .tap-area{{fill:transparent;cursor:pointer}} .tap-area.selected{{fill:rgba(34,197,94,.35);stroke:#16a34a;stroke-width:2}}</style>
     <div id='quiz-overlay' class='quiz-overlay'><div class='quiz-card'><div id='quiz-body'></div></div></div>
     <ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>
     <script>
@@ -4955,13 +4958,12 @@ def student_chapter_page(chapter_id: int):
     }}
 
     function getInteractionOptions(interaction) {{
-      const d = interaction.answer_data || {{}};
       const useSi = (medium || '').toLowerCase() === 'sinhala';
       const opts = [
-        {{key:'A', label: useSi ? d.option_a_si : d.option_a_en}},
-        {{key:'B', label: useSi ? d.option_b_si : d.option_b_en}},
-        {{key:'C', label: useSi ? d.option_c_si : d.option_c_en}},
-        {{key:'D', label: useSi ? d.option_d_si : d.option_d_en}},
+        {{key:'A', label: useSi ? interaction.option_a_si : interaction.option_a_en}},
+        {{key:'B', label: useSi ? interaction.option_b_si : interaction.option_b_en}},
+        {{key:'C', label: useSi ? interaction.option_c_si : interaction.option_c_en}},
+        {{key:'D', label: useSi ? interaction.option_d_si : interaction.option_d_en}},
       ];
       return opts.filter(o => o.label);
     }}
@@ -4971,11 +4973,63 @@ def student_chapter_page(chapter_id: int):
       const overlay = document.getElementById('quiz-overlay');
       const body = document.getElementById('quiz-body');
       const qText = getInteractionQuestionText(interaction);
-      const options = getInteractionOptions(interaction);
-      const buttonsHtml = options.map(o => `<button type='button' data-answer='${{o.key}}'>${{escapeHtml(o.label)}}</button>`).join('');
-      body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{buttonsHtml || "<button type='button' data-answer='SKIP'>Continue</button>"}}`;
-      body.querySelectorAll('button[data-answer]').forEach(btn => {{
-        btn.addEventListener('click', () => handleInteractionAnswer(btn.getAttribute('data-answer')));
+      const qType = (interaction.question_type || 'mcq').toLowerCase();
+      const imageHtml = interaction.image_url ? `<p><img src='${{escapeHtml(interaction.image_url)}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
+      let controlHtml = '';
+      if (qType === 'mcq') {{
+        const options = getInteractionOptions(interaction);
+        controlHtml = `<div class='quiz-options'>${{options.map(o => `<label><input type='radio' name='interactive_answer' value='${{o.key}}'> ${{escapeHtml(o.key)}}. ${{escapeHtml(o.label)}}</label>`).join('')}}</div>`;
+      }} else if (qType === 'short_answer') {{
+        controlHtml = "<input id='interactive_text_answer' type='text' style='width:100%;padding:8px;' placeholder='Type your answer'>";
+      }} else if (qType === 'box_input') {{
+        controlHtml = `<div>${{escapeHtml(interaction.box_template || '')}}</div><input id='interactive_box_answer' type='text' style='width:100%;padding:8px;margin-top:8px;' placeholder='Enter box input answer'>`;
+      }} else if (qType === 'matching_pairs') {{
+        controlHtml = "<p>Match the pairs (left->right) using format: 1:A,2:B</p><input id='interactive_matching_answer' type='text' style='width:100%;padding:8px;' placeholder='1:A,2:B'>";
+      }} else if (qType === 'tap_select_image') {{
+        let areas = [];
+        try {{ areas = JSON.parse(interaction.tap_areas_json || '[]'); }} catch (e) {{ areas = []; }}
+        controlHtml = `<div class='tap-select-wrap'><img src='${{escapeHtml(interaction.image_url || '')}}' class='tap-select-image'><svg id='interactive_tap_svg' class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'></svg></div><input id='interactive_tap_answer' type='hidden'><p id='tap_help'>Select an area to continue.</p>`;
+        setTimeout(() => {{
+          const svg = document.getElementById('interactive_tap_svg');
+          if (!svg) return;
+          let selected = '';
+          areas.forEach(area => {{
+            const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+            rect.setAttribute('x', Number(area.x || 0));
+            rect.setAttribute('y', Number(area.y || 0));
+            rect.setAttribute('width', Number(area.w || 0));
+            rect.setAttribute('height', Number(area.h || 0));
+            rect.setAttribute('class','tap-area');
+            rect.addEventListener('click', () => {{
+              selected = String(area.id || '');
+              document.getElementById('interactive_tap_answer').value = selected;
+              svg.querySelectorAll('.tap-area').forEach(n => n.classList.remove('selected'));
+              rect.classList.add('selected');
+              document.getElementById('interactive_continue').disabled = !selected;
+            }});
+            svg.appendChild(rect);
+          }});
+        }}, 0);
+      }}
+      body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{imageHtml}}${{controlHtml}}<button type='button' id='interactive_continue'>Continue</button>`;
+      const continueBtn = document.getElementById('interactive_continue');
+      if (qType === 'tap_select_image') continueBtn.disabled = true;
+      continueBtn.addEventListener('click', () => {{
+        let answerValue = 'SKIP';
+        if (qType === 'mcq') {{
+          const checked = body.querySelector(\"input[name='interactive_answer']:checked\");
+          answerValue = checked ? checked.value : 'SKIP';
+        }} else if (qType === 'short_answer') {{
+          answerValue = (document.getElementById('interactive_text_answer') || {{value:''}}).value || '';
+        }} else if (qType === 'box_input') {{
+          answerValue = (document.getElementById('interactive_box_answer') || {{value:''}}).value || '';
+        }} else if (qType === 'matching_pairs') {{
+          answerValue = (document.getElementById('interactive_matching_answer') || {{value:''}}).value || '';
+        }} else if (qType === 'tap_select_image') {{
+          answerValue = (document.getElementById('interactive_tap_answer') || {{value:''}}).value || '';
+          if (!answerValue) return;
+        }}
+        handleInteractionAnswer(answerValue);
       }});
       overlay.style.display = 'flex';
     }}
