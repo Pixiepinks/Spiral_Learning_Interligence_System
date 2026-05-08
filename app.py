@@ -2215,7 +2215,7 @@ def ensure_chapter_learning_tables() -> None:
     db.session.execute(
         db.text(
             """
-            CREATE TABLE IF NOT EXISTS video_interactions (
+            CREATE TABLE IF NOT EXISTS video_interaction (
                 id SERIAL PRIMARY KEY,
                 content_id INTEGER NOT NULL,
                 question_id INTEGER NOT NULL,
@@ -2332,7 +2332,10 @@ def admin_chapter_content(chapter_id: int):
     video_rows = [r for r in rows if r.content_type == "video"]
     questions = Question.query.order_by(Question.id.desc()).limit(200).all()
     question_options = "".join([f"<option value='{q.id}'>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>" for q in questions])
-    interactions = VideoInteraction.query.join(ChapterLearningContent, VideoInteraction.content_id == ChapterLearningContent.id).filter(ChapterLearningContent.chapter_id == chapter_id).order_by(VideoInteraction.content_id.asc(), VideoInteraction.trigger_seconds.asc()).all()
+    try:
+        interactions = VideoInteraction.query.join(ChapterLearningContent, VideoInteraction.content_id == ChapterLearningContent.id).filter(ChapterLearningContent.chapter_id == chapter_id).order_by(VideoInteraction.content_id.asc(), VideoInteraction.trigger_seconds.asc()).all()
+    except Exception:
+        interactions = []
 
     list_html = "".join(f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td></tr>" for r in rows)
     inter_html = "".join([
@@ -5795,6 +5798,33 @@ def update_results_db() -> tuple:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Results DB update failed: {exc}"}), 500
 
+
+
+
+@app.route("/update-video-interaction-db", methods=["GET"])
+def update_video_interaction_db():
+    try:
+        db.create_all()
+        db.session.execute(
+            db.text(
+                """
+                CREATE TABLE IF NOT EXISTS video_interaction (
+                    id SERIAL PRIMARY KEY,
+                    content_id INTEGER NOT NULL REFERENCES chapter_learning_content(id),
+                    question_id INTEGER NOT NULL REFERENCES question(id),
+                    trigger_seconds INTEGER NOT NULL,
+                    pause_video BOOLEAN NOT NULL DEFAULT TRUE,
+                    required_answer BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        db.session.commit()
+        return "Video interaction database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Video interaction DB update failed: {exc}"}), 500
 
 @app.route("/update-chapter-learning-db", methods=["GET"])
 def update_chapter_learning_db():
