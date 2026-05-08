@@ -4854,7 +4854,8 @@ def student_chapter_page(chapter_id: int):
         if c.content_type == "video":
             normalized_video_url = normalize_youtube_embed_url(c.content_url)
             if normalized_video_url:
-                video_html = f"<div id='video-wrap-{c.id}'><div id='player-{c.id}' data-embed-url='{escape(normalized_video_url)}' style='max-width:800px;height:450px;'></div><button id='continue-{c.id}' style='display:none;'>Continue</button><div id='analytics-{c.id}'></div></div>"
+                embed_with_api = f"{normalized_video_url}{'&' if '?' in normalized_video_url else '?'}enablejsapi=1"
+                video_html = f"<div id='video-wrap-{c.id}'><div id='player-{c.id}' data-embed-url='{escape(embed_with_api)}' style='max-width:800px;height:450px;'></div><button id='continue-{c.id}' style='display:none;'>Continue</button><div id='analytics-{c.id}'></div></div>"
             else:
                 video_html = "<span>Invalid video URL</span>" if c.content_url else ""
         else:
@@ -4870,7 +4871,30 @@ def student_chapter_page(chapter_id: int):
         for i in inters:
             q = db.session.get(Question, i.question_id)
             if not q: continue
-            packed.append({"id": i.id, "question_id": q.id, "trigger": i.trigger_seconds, "required": i.required_answer, "pause": i.pause_video, "type": (q.question_type or 'mcq'), "text": q.question_text_en, "a": q.option_a_en, "b": q.option_b_en, "c": q.option_c_en, "d": q.option_d_en, "explanation": q.explanation_en})
+            packed.append({
+                "id": i.id,
+                "content_id": c.id,
+                "trigger_seconds": i.trigger_seconds,
+                "question_id": q.id,
+                "question_type": (q.question_type or "mcq"),
+                "required": i.required_answer,
+                "pause": i.pause_video,
+                "question_text_en": q.question_text_en,
+                "question_text_si": q.question_text_si,
+                "answer_data": {
+                    "option_a_en": q.option_a_en,
+                    "option_b_en": q.option_b_en,
+                    "option_c_en": q.option_c_en,
+                    "option_d_en": q.option_d_en,
+                    "option_a_si": q.option_a_si,
+                    "option_b_si": q.option_b_si,
+                    "option_c_si": q.option_c_si,
+                    "option_d_si": q.option_d_si,
+                    "correct_answer": q.correct_answer,
+                    "explanation_en": q.explanation_en,
+                    "explanation_si": q.explanation_si,
+                },
+            })
         interaction_payload[c.id] = packed
 
     required_by_content = {c.id: [i.id for i in VideoInteraction.query.filter_by(content_id=c.id, required_answer=True).all()] for c in video_contents}
@@ -4888,14 +4912,94 @@ def student_chapter_page(chapter_id: int):
     <script>
     const interactions = {json.dumps(interaction_payload)};
     const requiredByContent = {json.dumps(required_by_content)};
-    const players = {{}}; const fired={{}}; const answered={{}};
+    const medium = {json.dumps(student.medium)};
+    const players = {{}};
+    const shownInteractionIds = new Set();
+    const answeredInteractionIds = new Set();
+    const pollers = {{}};
+    let activeInteraction = null;
+
+    function escapeHtml(value) {{
+      return String(value || '').replace(/[&<>'"]/g, function(ch) {{
+        return ({{'&':'&amp;','<':'&lt;','>':'&gt;',\"'\":'&#39;','\"':'&quot;'}})[ch] || ch;
+      }});
+    }}
+
+    function getInteractionQuestionText(interaction) {{
+      if ((medium || '').toLowerCase() === 'sinhala' && interaction.question_text_si) return interaction.question_text_si;
+      return interaction.question_text_en || interaction.question_text_si || 'Question';
+    }}
+
+    function getInteractionOptions(interaction) {{
+      const d = interaction.answer_data || {{}};
+      const useSi = (medium || '').toLowerCase() === 'sinhala';
+      const opts = [
+        {{key:'A', label: useSi ? d.option_a_si : d.option_a_en}},
+        {{key:'B', label: useSi ? d.option_b_si : d.option_b_en}},
+        {{key:'C', label: useSi ? d.option_c_si : d.option_c_en}},
+        {{key:'D', label: useSi ? d.option_d_si : d.option_d_en}},
+      ];
+      return opts.filter(o => o.label);
+    }}
+
+    function showInteractionModal(contentId, interaction) {{
+      activeInteraction = {{contentId, interaction}};
+      const overlay = document.getElementById('quiz-overlay');
+      const body = document.getElementById('quiz-body');
+      const qText = getInteractionQuestionText(interaction);
+      const options = getInteractionOptions(interaction);
+      const buttonsHtml = options.map(o => `<button type='button' data-answer='${{o.key}}'>${{escapeHtml(o.label)}}</button>`).join('');
+      body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{buttonsHtml || "<button type='button' data-answer='SKIP'>Continue</button>"}}`;
+      body.querySelectorAll('button[data-answer]').forEach(btn => {{
+        btn.addEventListener('click', () => handleInteractionAnswer(btn.getAttribute('data-answer')));
+      }});
+      overlay.style.display = 'flex';
+    }}
+
+    function handleInteractionAnswer(answerValue) {{
+      if (!activeInteraction) return;
+      const {{contentId, interaction}} = activeInteraction;
+      answeredInteractionIds.add(interaction.id);
+      document.getElementById('quiz-overlay').style.display = 'none';
+      activeInteraction = null;
+      const player = players[contentId];
+      if (player && typeof player.playVideo === 'function') player.playVideo();
+    }}
+
+    function startInteractionWatcher(contentId) {{
+      if (pollers[contentId]) return;
+      pollers[contentId] = setInterval(() => {{
+        const player = players[contentId];
+        if (!player || typeof player.getCurrentTime !== 'function') return;
+        const contentInteractions = interactions[contentId] || [];
+        if (!contentInteractions.length) return;
+        const currentTime = player.getCurrentTime();
+        for (const inter of contentInteractions) {{
+          if (shownInteractionIds.has(inter.id)) continue;
+          if (currentTime >= Number(inter.trigger_seconds || 0)) {{
+            shownInteractionIds.add(inter.id);
+            if (inter.pause !== false && typeof player.pauseVideo === 'function') player.pauseVideo();
+            showInteractionModal(contentId, inter);
+            break;
+          }}
+        }}
+      }}, 500);
+    }}
+
     function onYouTubeIframeAPIReady() {{
       Object.keys(interactions).forEach(cid => {{
         const el = document.getElementById('player-'+cid); if(!el) return;
         const embedUrl = el.dataset.embedUrl || '';
         const videoId = (embedUrl.split('/embed/')[1] || '').split(/[?&/]/)[0];
         if(!videoId) return;
-        players[cid] = new YT.Player('player-'+cid, {{videoId:videoId, events:{{onReady:(e)=>{{const u = e.target.getVideoUrl();}}, onStateChange:()=>{{}} }} }});
+        players[cid] = new YT.Player('player-'+cid, {{
+          videoId: videoId,
+          playerVars: {{ enablejsapi: 1 }},
+          events: {{
+            onReady: () => startInteractionWatcher(cid),
+            onStateChange: () => {{}}
+          }}
+        }});
       }});
     }}
     </script>"""
