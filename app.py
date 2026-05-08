@@ -2402,6 +2402,22 @@ def admin_chapter_content_edit(content_id: int):
         return "<h2>Content not found</h2>", 404
 
     if request.method == "POST":
+        action = (request.form.get("action") or "update_content").strip().lower()
+        if action == "add_interaction":
+            if content.content_type == "video":
+                question_id = int(request.form.get("question_id") or 0)
+                trigger_seconds = int(request.form.get("trigger_seconds") or 0)
+                if question_id > 0:
+                    db.session.add(VideoInteraction(
+                        content_id=content.id,
+                        question_id=question_id,
+                        trigger_seconds=trigger_seconds,
+                        pause_video=(request.form.get("pause_video") or "yes") == "yes",
+                        required_answer=(request.form.get("required_answer") or "yes") == "yes",
+                    ))
+                    db.session.commit()
+            return redirect(url_for("admin_chapter_content_edit", content_id=content.id))
+
         content.content_type = (request.form.get("content_type") or content.content_type).strip().lower()
         content.title_en = (request.form.get("title_en") or "").strip()
         content.title_si = (request.form.get("title_si") or "").strip()
@@ -2413,9 +2429,36 @@ def admin_chapter_content_edit(content_id: int):
         db.session.commit()
         return redirect(url_for("admin_chapter_content", chapter_id=content.chapter_id))
 
+    interactions = []
+    question_options = ""
+    if content.content_type == "video":
+        interactions = VideoInteraction.query.filter_by(content_id=content.id).order_by(VideoInteraction.trigger_seconds.asc(), VideoInteraction.id.asc()).all()
+        questions = Question.query.order_by(Question.id.desc()).limit(200).all()
+        question_options = "".join([f"<option value='{q.id}'>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>" for q in questions])
+
+    interaction_rows = "".join([
+        f"<tr><td>{escape((i.question.question_text_en or '')[:120])}</td><td>{i.trigger_seconds}</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td><td><a href='/admin/video-interaction/edit/{i.id}'>Edit</a> | <form method='post' action='/admin/video-interaction/delete/{i.id}' style='display:inline;' onsubmit=\"return confirm('Delete this interaction?');\'><button type='submit'>Delete</button></form></td></tr>"
+        for i in interactions
+    ])
+    interaction_section = ""
+    if content.content_type == "video":
+        interaction_section = f"""
+    <h2>Interactive Questions</h2>
+    <table border='1' cellpadding='6'><tr><th>Question</th><th>Trigger Seconds</th><th>Pause Video</th><th>Required Answer</th><th>Action</th></tr>{interaction_rows or "<tr><td colspan='5'>No interactions yet</td></tr>"}</table>
+    <h3>Add Interaction</h3>
+    <form method='post'>
+      <input type='hidden' name='action' value='add_interaction'>
+      <p>Question <select name='question_id' required>{question_options}</select></p>
+      <p>Trigger seconds <input type='number' min='0' name='trigger_seconds' required></p>
+      <p>Pause Video <select name='pause_video'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
+      <p>Required Answer <select name='required_answer'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
+      <button type='submit'>Add Interaction</button>
+    </form>"""
+
     return f"""<h1>Edit Chapter Content</h1>
     <p><a href='/admin/chapters/content/{content.chapter_id}'>Back to Chapter Content</a></p>
     <form method='post'>
+      <input type='hidden' name='action' value='update_content'>
       <p>Content Type <select name='content_type'>
         <option {'selected' if content.content_type == 'video' else ''}>video</option>
         <option {'selected' if content.content_type == 'note' else ''}>note</option>
@@ -2431,7 +2474,55 @@ def admin_chapter_content_edit(content_id: int):
       <p>Order <input type='number' name='content_order' value='{content.content_order}'></p>
       <p>Required <select name='is_required'><option value='yes' {'selected' if content.is_required else ''}>Yes</option><option value='no' {'selected' if not content.is_required else ''}>No</option></select></p>
       <button type='submit'>Update</button>
+    </form>
+    {interaction_section}"""
+
+
+@app.route("/admin/video-interaction/edit/<int:interaction_id>", methods=["GET", "POST"])
+def admin_video_interaction_edit(interaction_id: int):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    ensure_chapter_learning_tables()
+    interaction = db.session.get(VideoInteraction, interaction_id)
+    if not interaction:
+        return "<h2>Interaction not found</h2>", 404
+
+    if request.method == "POST":
+        interaction.question_id = int(request.form.get("question_id") or interaction.question_id)
+        interaction.trigger_seconds = int(request.form.get("trigger_seconds") or interaction.trigger_seconds or 0)
+        interaction.pause_video = (request.form.get("pause_video") or "yes") == "yes"
+        interaction.required_answer = (request.form.get("required_answer") or "yes") == "yes"
+        db.session.commit()
+        return redirect(url_for("admin_chapter_content_edit", content_id=interaction.content_id))
+
+    questions = Question.query.order_by(Question.id.desc()).limit(200).all()
+    question_options = "".join([
+        f"<option value='{q.id}' {'selected' if q.id == interaction.question_id else ''}>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>"
+        for q in questions
+    ])
+    return f"""<h1>Edit Video Interaction</h1>
+    <p><a href='/admin/chapter-content/edit/{interaction.content_id}'>Back to Edit Chapter Content</a></p>
+    <form method='post'>
+      <p>Question <select name='question_id' required>{question_options}</select></p>
+      <p>Trigger seconds <input type='number' min='0' name='trigger_seconds' value='{interaction.trigger_seconds}' required></p>
+      <p>Pause Video <select name='pause_video'><option value='yes' {'selected' if interaction.pause_video else ''}>Yes</option><option value='no' {'selected' if not interaction.pause_video else ''}>No</option></select></p>
+      <p>Required Answer <select name='required_answer'><option value='yes' {'selected' if interaction.required_answer else ''}>Yes</option><option value='no' {'selected' if not interaction.required_answer else ''}>No</option></select></p>
+      <button type='submit'>Update Interaction</button>
     </form>"""
+
+
+@app.route("/admin/video-interaction/delete/<int:interaction_id>", methods=["POST"])
+def admin_video_interaction_delete(interaction_id: int):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    ensure_chapter_learning_tables()
+    interaction = db.session.get(VideoInteraction, interaction_id)
+    if not interaction:
+        return "<h2>Interaction not found</h2>", 404
+    content_id = interaction.content_id
+    db.session.delete(interaction)
+    db.session.commit()
+    return redirect(url_for("admin_chapter_content_edit", content_id=content_id))
 
 @app.route("/learning-path", methods=["GET"])
 def learning_path() -> str:
