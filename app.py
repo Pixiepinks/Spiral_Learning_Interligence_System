@@ -4871,16 +4871,40 @@ def student_chapter_page(chapter_id: int):
         for i in inters:
             q = db.session.get(Question, i.question_id)
             if not q: continue
+            question_type = (q.question_type or "mcq")
+            if question_type == "mcq":
+                correct_answer = q.correct_option
+            elif question_type == "short_answer":
+                correct_answer = q.correct_answer_text
+            elif question_type == "box_input":
+                correct_answer = q.box_answers
+            elif question_type == "matching_pairs":
+                correct_answer = q.matching_answers_si if student.medium == "Sinhala" else q.matching_answers_en
+            elif question_type == "tap_select_image":
+                correct_answer = q.correct_area_id
+            else:
+                correct_answer = None
             packed.append({
                 "id": i.id,
                 "content_id": c.id,
                 "trigger_seconds": i.trigger_seconds,
                 "question_id": q.id,
-                "question_type": (q.question_type or "mcq"),
+                "question_type": question_type,
                 "required": i.required_answer,
                 "pause": i.pause_video,
+                "question_text": q.question_text_si if student.medium == "Sinhala" else q.question_text_en,
                 "question_text_en": q.question_text_en,
                 "question_text_si": q.question_text_si,
+                "options": {
+                    "option_a_en": q.option_a_en,
+                    "option_b_en": q.option_b_en,
+                    "option_c_en": q.option_c_en,
+                    "option_d_en": q.option_d_en,
+                    "option_a_si": q.option_a_si,
+                    "option_b_si": q.option_b_si,
+                    "option_c_si": q.option_c_si,
+                    "option_d_si": q.option_d_si,
+                },
                 "answer_data": {
                     "option_a_en": q.option_a_en,
                     "option_b_en": q.option_b_en,
@@ -4890,7 +4914,7 @@ def student_chapter_page(chapter_id: int):
                     "option_b_si": q.option_b_si,
                     "option_c_si": q.option_c_si,
                     "option_d_si": q.option_d_si,
-                    "correct_answer": q.correct_answer,
+                    "correct_answer": correct_answer,
                     "explanation_en": q.explanation_en,
                     "explanation_si": q.explanation_si,
                 },
