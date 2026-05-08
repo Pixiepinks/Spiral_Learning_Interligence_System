@@ -770,6 +770,37 @@ class SyllabusChapter(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ChapterLearningContent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    chapter_id = db.Column(db.Integer, nullable=False)
+    content_order = db.Column(db.Integer, nullable=False, default=1)
+    content_type = db.Column(db.String(20), nullable=False)  # video, note, activity, practice, test
+    title_en = db.Column(db.String(200), nullable=False)
+    title_si = db.Column(db.String(200), nullable=False)
+    content_url = db.Column(db.Text, nullable=True)
+    content_body_en = db.Column(db.Text, nullable=True)
+    content_body_si = db.Column(db.Text, nullable=True)
+    is_required = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentChapterProgress(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    chapter_id = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="locked")
+    completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentContentProgress(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    content_id = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="not_started")
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -2102,6 +2133,113 @@ def get_student_recommendations(student_id: int) -> list[dict[str, str]]:
     return recommendations
 
 
+def ensure_chapter_learning_tables() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS chapter_learning_content (
+                id SERIAL PRIMARY KEY,
+                chapter_id INTEGER NOT NULL,
+                content_order INTEGER NOT NULL DEFAULT 1,
+                content_type VARCHAR(20) NOT NULL,
+                title_en VARCHAR(200) NOT NULL,
+                title_si VARCHAR(200) NOT NULL,
+                content_url TEXT,
+                content_body_en TEXT,
+                content_body_si TEXT,
+                is_required BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_chapter_progress (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                chapter_id INTEGER NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'locked',
+                completed_at TIMESTAMP NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_content_progress (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                content_id INTEGER NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+                completed_at TIMESTAMP NULL
+            )
+            """
+        )
+    )
+    db.session.commit()
+
+
+def _ordered_chapters_for_student(student: Student):
+    return (
+        db.session.query(SyllabusChapter, SyllabusModule, SyllabusTerm)
+        .join(SyllabusModule, SyllabusModule.id == SyllabusChapter.module_id)
+        .join(SyllabusTerm, SyllabusTerm.id == SyllabusModule.term_id)
+        .filter(
+            SyllabusTerm.grade == normalize_grade(student.grade),
+            SyllabusTerm.subject == "Math",
+            SyllabusChapter.is_active.is_(True),
+        )
+        .order_by(SyllabusTerm.term_number.asc(), SyllabusModule.module_order.asc(), SyllabusChapter.chapter_order.asc())
+        .all()
+    )
+
+
+@app.route("/admin/chapters/content/<int:chapter_id>", methods=["GET", "POST"])
+def admin_chapter_content(chapter_id: int):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    ensure_chapter_learning_tables()
+    chapter = db.session.get(SyllabusChapter, chapter_id)
+    if not chapter:
+        return "<h2>Chapter not found</h2>", 404
+    if request.method == "POST":
+        db.session.add(
+            ChapterLearningContent(
+                chapter_id=chapter_id,
+                content_order=int(request.form.get("content_order") or 1),
+                content_type=(request.form.get("content_type") or "video").strip().lower(),
+                title_en=(request.form.get("title_en") or "").strip(),
+                title_si=(request.form.get("title_si") or "").strip(),
+                content_url=(request.form.get("content_url") or "").strip() or None,
+                content_body_en=(request.form.get("content_body_en") or "").strip() or None,
+                content_body_si=(request.form.get("content_body_si") or "").strip() or None,
+                is_required=(request.form.get("is_required") or "yes") == "yes",
+            )
+        )
+        db.session.commit()
+        return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
+    rows = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
+    list_html = "".join(
+        f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td></tr>"
+        for r in rows
+    )
+    return f"""<h1>Chapter Content Manager</h1>
+    <p><a href='/admin/syllabus'>Back</a></p>
+    <table border='1' cellpadding='6'><tr><th>Order</th><th>Type</th><th>Title</th><th>Required</th></tr>{list_html or "<tr><td colspan='4'>No content yet</td></tr>"}</table>
+    <h2>Add Content</h2>
+    <form method='post'>
+      <p>Content Type <select name='content_type'><option>video</option><option>note</option><option>activity</option><option>practice</option><option>test</option></select></p>
+      <p>Title EN <input name='title_en' required></p><p>Title SI <input name='title_si' required></p>
+      <p>URL <input name='content_url'></p><p>Body EN <textarea name='content_body_en'></textarea></p><p>Body SI <textarea name='content_body_si'></textarea></p>
+      <p>Order <input type='number' name='content_order' value='1'></p>
+      <p>Required <select name='is_required'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
+      <button type='submit'>Save</button>
+    </form>"""
+
 @app.route("/learning-path", methods=["GET"])
 def learning_path() -> str:
     student_id = session.get("student_id")
@@ -2423,6 +2561,19 @@ def parent_dashboard():
 def parent_logout():
     session.pop("parent_logged_in", None)
     return redirect(url_for("parent_login"))
+
+
+@app.route("/parent/chapter-progress", methods=["GET"])
+def parent_chapter_progress():
+    if session.get("parent_logged_in") is not True:
+        return redirect(url_for("parent_login"))
+    student_id = session.get("student_id")
+    student = db.session.get(Student, student_id) if student_id else None
+    if not student:
+        return "<h2>Child not linked</h2>", 404
+    progresses = StudentChapterProgress.query.filter_by(student_id=student.id).order_by(StudentChapterProgress.chapter_id.asc()).all()
+    rows = "".join(f"<tr><td>{p.chapter_id}</td><td>{p.status}</td><td>{p.completed_at or '-'}</td></tr>" for p in progresses)
+    return f"<h1>Child Chapter Completion</h1><p>{escape(student.name)}</p><table border='1'><tr><th>Chapter ID</th><th>Status</th><th>Completed At</th></tr>{rows}</table>"
 
 
 def get_teacher_credentials() -> tuple[str, str]:
@@ -3242,6 +3393,23 @@ def teacher_logout():
     return redirect(url_for("teacher_login"))
 
 
+@app.route("/teacher/chapter-progress", methods=["GET"])
+def teacher_chapter_progress():
+    if session.get("teacher_logged_in") is not True:
+        return redirect(url_for("teacher_login"))
+    teacher_id = session.get("teacher_id")
+    teacher = db.session.get(Teacher, teacher_id) if teacher_id else None
+    if not teacher:
+        return "<h2>Teacher not found</h2>", 404
+    students = Student.query.filter_by(class_id=teacher.class_id).order_by(Student.name.asc()).all()
+    rows = []
+    for s in students:
+        completed = StudentChapterProgress.query.filter_by(student_id=s.id, status="completed").count()
+        in_progress = StudentChapterProgress.query.filter_by(student_id=s.id, status="in_progress").count()
+        rows.append(f"<tr><td>{escape(s.name)}</td><td>{completed}</td><td>{in_progress}</td></tr>")
+    return f"<h1>Students by Chapter Progress</h1><table border='1'><tr><th>Student</th><th>Completed Chapters</th><th>In Progress</th></tr>{''.join(rows)}</table>"
+
+
 @app.route("/logout", methods=["GET"])
 def logout():
     session.pop("student_id", None)
@@ -3809,6 +3977,22 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     """
 
 
+@app.route("/school-admin/chapter-summary", methods=["GET"])
+def school_admin_chapter_summary():
+    if session.get("school_admin_logged_in") is not True:
+        return redirect(url_for("login"))
+    school_id = session.get("school_id")
+    classes = Class.query.filter_by(school_id=school_id).order_by(Class.grade.asc(), Class.name.asc()).all()
+    rows = []
+    for c in classes:
+        students = Student.query.filter_by(class_id=c.id).all()
+        student_ids = [s.id for s in students]
+        total = len(student_ids)
+        completed = StudentChapterProgress.query.filter(StudentChapterProgress.student_id.in_(student_ids), StudentChapterProgress.status == "completed").count() if student_ids else 0
+        rows.append(f"<tr><td>{escape(c.name)}</td><td>{display_grade(c.grade)}</td><td>{total}</td><td>{completed}</td></tr>")
+    return f"<h1>Chapter Completion Summary by Class</h1><table border='1'><tr><th>Class</th><th>Grade</th><th>Students</th><th>Total Completed Chapter Records</th></tr>{''.join(rows)}</table>"
+
+
 @app.route("/admin-login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "GET":
@@ -4251,6 +4435,85 @@ def admin_create_school():
     </form>
     <p><a href='/admin/schools'>Back to Manage Schools</a></p>
     """
+
+
+@app.route("/student/learning-path", methods=["GET"])
+def student_learning_path():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_chapter_learning_tables()
+    student = db.session.get(Student, student_id)
+    chapters = _ordered_chapters_for_student(student)
+    chapter_rows = []
+    for idx, (chapter, _module, _term) in enumerate(chapters):
+        progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter.id).first()
+        if not progress:
+            progress = StudentChapterProgress(student_id=student.id, chapter_id=chapter.id, status="unlocked" if idx == 0 else "locked")
+            db.session.add(progress)
+            db.session.flush()
+        contents = ChapterLearningContent.query.filter_by(chapter_id=chapter.id).all()
+        required_ids = [c.id for c in contents if c.is_required]
+        done_count = StudentContentProgress.query.filter(
+            StudentContentProgress.student_id == student.id,
+            StudentContentProgress.content_id.in_(required_ids) if required_ids else db.text("1=0"),
+            StudentContentProgress.status == "completed",
+        ).count() if required_ids else 0
+        pct = int((done_count / len(required_ids)) * 100) if required_ids else 0
+        button = "disabled>Locked" if progress.status == "locked" else f"onclick=\"location.href='/student/chapter/{chapter.id}'\">{'Review' if progress.status == 'completed' else 'Start Learning'}"
+        chapter_name = chapter.chapter_name_si if student.medium == "Sinhala" else chapter.chapter_name_en
+        chapter_rows.append(f"<tr><td>{escape(chapter_name)}</td><td>{progress.status}</td><td>{pct}%</td><td><button {button}</button></td></tr>")
+    db.session.commit()
+    return f"<h1>My Learning Path</h1><table border='1' cellpadding='6'><tr><th>Chapter</th><th>Status</th><th>Progress</th><th>Action</th></tr>{''.join(chapter_rows)}</table><p><a href='/student-dashboard'>Back</a></p>"
+
+
+@app.route("/student/chapter/<int:chapter_id>", methods=["GET", "POST"])
+def student_chapter_page(chapter_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_chapter_learning_tables()
+    student = db.session.get(Student, student_id)
+    progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter_id).first()
+    if not progress or progress.status == "locked":
+        return "<h2>Chapter is locked.</h2>", 403
+    if progress.status == "unlocked":
+        progress.status = "in_progress"
+    if request.method == "POST":
+        content_id = int(request.form.get("content_id"))
+        cp = StudentContentProgress.query.filter_by(student_id=student.id, content_id=content_id).first()
+        if not cp:
+            cp = StudentContentProgress(student_id=student.id, content_id=content_id)
+            db.session.add(cp)
+        cp.status = "completed"
+        cp.completed_at = datetime.utcnow()
+    contents = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
+    required_ids = [c.id for c in contents if c.is_required]
+    completed_ids = {row.content_id for row in StudentContentProgress.query.filter_by(student_id=student.id, status="completed").all()}
+    if required_ids and all(cid in completed_ids for cid in required_ids):
+        progress.status = "completed"
+        progress.completed_at = datetime.utcnow()
+        chapters = _ordered_chapters_for_student(student)
+        ids = [c.id for c, _, _ in chapters]
+        if chapter_id in ids:
+            idx = ids.index(chapter_id)
+            if idx + 1 < len(ids):
+                next_progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=ids[idx + 1]).first()
+                if not next_progress:
+                    db.session.add(StudentChapterProgress(student_id=student.id, chapter_id=ids[idx + 1], status="unlocked"))
+                elif next_progress.status == "locked":
+                    next_progress.status = "unlocked"
+    db.session.commit()
+    body_key = "si" if student.medium == "Sinhala" else "en"
+    items_html = []
+    for c in contents:
+        body = escape(getattr(c, f"content_body_{body_key}") or "")
+        title = escape(getattr(c, f"title_{body_key}") or c.title_en)
+        url = f"<a href='{escape(c.content_url)}' target='_blank'>Open</a>" if c.content_url else ""
+        done = "✅" if c.id in completed_ids else "⬜"
+        mark_btn = "" if c.content_type in {"practice", "test"} else f"<form method='post' style='display:inline;'><input type='hidden' name='content_id' value='{c.id}'><button type='submit'>Mark Completed</button></form>"
+        items_html.append(f"<li>{done} <strong>{title}</strong> ({c.content_type}) {url}<div>{body}</div>{mark_btn}</li>")
+    return f"<h1>Chapter Learning</h1><ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>"
 
 
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
@@ -5355,6 +5618,16 @@ def update_results_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Results DB update failed: {exc}"}), 500
+
+
+@app.route("/update-chapter-learning-db", methods=["GET"])
+def update_chapter_learning_db():
+    try:
+        ensure_chapter_learning_tables()
+        return jsonify({"success": True, "message": "Chapter learning tables ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Chapter learning DB update failed: {exc}"}), 500
 
 
 @app.route("/questions", methods=["POST"])
