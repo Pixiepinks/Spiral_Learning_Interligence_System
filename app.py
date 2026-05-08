@@ -781,6 +781,7 @@ class ChapterLearningContent(db.Model):
     content_body_en = db.Column(db.Text, nullable=True)
     content_body_si = db.Column(db.Text, nullable=True)
     is_required = db.Column(db.Boolean, nullable=False, default=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -2180,8 +2181,17 @@ def ensure_chapter_learning_tables() -> None:
                 content_body_en TEXT,
                 content_body_si TEXT,
                 is_required BOOLEAN NOT NULL DEFAULT TRUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            ALTER TABLE chapter_learning_content
+            ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
             """
         )
     )
@@ -2313,6 +2323,13 @@ def admin_chapter_content(chapter_id: int):
                 ))
                 db.session.commit()
             return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
+        if action == "delete_content":
+            content_id = int(request.form.get("content_id") or 0)
+            content = ChapterLearningContent.query.filter_by(id=content_id, chapter_id=chapter_id).first()
+            if content:
+                content.is_active = False
+                db.session.commit()
+            return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
 
         db.session.add(ChapterLearningContent(
             chapter_id=chapter_id,
@@ -2324,11 +2341,12 @@ def admin_chapter_content(chapter_id: int):
             content_body_en=(request.form.get("content_body_en") or "").strip() or None,
             content_body_si=(request.form.get("content_body_si") or "").strip() or None,
             is_required=(request.form.get("is_required") or "yes") == "yes",
+            is_active=True,
         ))
         db.session.commit()
         return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
 
-    rows = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
+    rows = ChapterLearningContent.query.filter_by(chapter_id=chapter_id, is_active=True).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
     video_rows = [r for r in rows if r.content_type == "video"]
     questions = Question.query.order_by(Question.id.desc()).limit(200).all()
     question_options = "".join([f"<option value='{q.id}'>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>" for q in questions])
@@ -2337,7 +2355,10 @@ def admin_chapter_content(chapter_id: int):
     except Exception:
         interactions = []
 
-    list_html = "".join(f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td></tr>" for r in rows)
+    list_html = "".join(
+        f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td><td><a href='/admin/chapter-content/edit/{r.id}'>Edit</a> | <form method='post' style='display:inline;' onsubmit=\"return confirm('Deactivate this content?');\"><input type='hidden' name='action' value='delete_content'><input type='hidden' name='content_id' value='{r.id}'><button type='submit'>Delete</button></form></td></tr>"
+        for r in rows
+    )
     inter_html = "".join([
         f"<tr><td>{i.content_id}</td><td>Q{i.question_id}</td><td>{i.trigger_seconds}s</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td></tr>"
         for i in interactions
@@ -2346,7 +2367,7 @@ def admin_chapter_content(chapter_id: int):
 
     return f"""<h1>Chapter Content Manager</h1>
     <p><a href='/admin/syllabus'>Back</a></p>
-    <table border='1' cellpadding='6'><tr><th>Order</th><th>Type</th><th>Title</th><th>Required</th></tr>{list_html or "<tr><td colspan='4'>No content yet</td></tr>"}</table>
+    <table border='1' cellpadding='6'><tr><th>Order</th><th>Type</th><th>Title</th><th>Required</th><th>Action</th></tr>{list_html or "<tr><td colspan='5'>No content yet</td></tr>"}</table>
     <h2>Add Content</h2>
     <form method='post'>
       <input type='hidden' name='action' value='add_content'>
@@ -2368,6 +2389,48 @@ def admin_chapter_content(chapter_id: int):
       <p>Pause Video <select name='pause_video'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
       <p>Required Answer <select name='required_answer'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
       <button type='submit'>Save Interaction</button>
+    </form>"""
+
+
+@app.route("/admin/chapter-content/edit/<int:content_id>", methods=["GET", "POST"])
+def admin_chapter_content_edit(content_id: int):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin_login"))
+    ensure_chapter_learning_tables()
+    content = db.session.get(ChapterLearningContent, content_id)
+    if not content:
+        return "<h2>Content not found</h2>", 404
+
+    if request.method == "POST":
+        content.content_type = (request.form.get("content_type") or content.content_type).strip().lower()
+        content.title_en = (request.form.get("title_en") or "").strip()
+        content.title_si = (request.form.get("title_si") or "").strip()
+        content.content_url = (request.form.get("content_url") or "").strip() or None
+        content.content_body_en = (request.form.get("content_body_en") or "").strip() or None
+        content.content_body_si = (request.form.get("content_body_si") or "").strip() or None
+        content.content_order = int(request.form.get("content_order") or content.content_order or 1)
+        content.is_required = (request.form.get("is_required") or "yes") == "yes"
+        db.session.commit()
+        return redirect(url_for("admin_chapter_content", chapter_id=content.chapter_id))
+
+    return f"""<h1>Edit Chapter Content</h1>
+    <p><a href='/admin/chapters/content/{content.chapter_id}'>Back to Chapter Content</a></p>
+    <form method='post'>
+      <p>Content Type <select name='content_type'>
+        <option {'selected' if content.content_type == 'video' else ''}>video</option>
+        <option {'selected' if content.content_type == 'note' else ''}>note</option>
+        <option {'selected' if content.content_type == 'activity' else ''}>activity</option>
+        <option {'selected' if content.content_type == 'practice' else ''}>practice</option>
+        <option {'selected' if content.content_type == 'test' else ''}>test</option>
+      </select></p>
+      <p>Title EN <input name='title_en' value='{escape(content.title_en)}' required></p>
+      <p>Title SI <input name='title_si' value='{escape(content.title_si)}' required></p>
+      <p>URL <input name='content_url' value='{escape(content.content_url or "")}'></p>
+      <p>Body EN <textarea name='content_body_en'>{escape(content.content_body_en or "")}</textarea></p>
+      <p>Body SI <textarea name='content_body_si'>{escape(content.content_body_si or "")}</textarea></p>
+      <p>Order <input type='number' name='content_order' value='{content.content_order}'></p>
+      <p>Required <select name='is_required'><option value='yes' {'selected' if content.is_required else ''}>Yes</option><option value='no' {'selected' if not content.is_required else ''}>No</option></select></p>
+      <button type='submit'>Update</button>
     </form>"""
 
 @app.route("/learning-path", methods=["GET"])
@@ -4598,7 +4661,7 @@ def student_learning_path():
             progress = StudentChapterProgress(student_id=student.id, chapter_id=chapter.id, status="unlocked" if idx == 0 else "locked")
             db.session.add(progress)
             db.session.flush()
-        contents = ChapterLearningContent.query.filter_by(chapter_id=chapter.id).all()
+        contents = ChapterLearningContent.query.filter_by(chapter_id=chapter.id, is_active=True).all()
         required_ids = [c.id for c in contents if c.is_required]
         done_count = StudentContentProgress.query.filter(
             StudentContentProgress.student_id == student.id,
@@ -4635,7 +4698,7 @@ def student_chapter_page(chapter_id: int):
         cp.status = "completed"
         cp.completed_at = datetime.utcnow()
 
-    contents = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
+    contents = ChapterLearningContent.query.filter_by(chapter_id=chapter_id, is_active=True).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
     required_ids = [c.id for c in contents if c.is_required]
     completed_ids = {row.content_id for row in StudentContentProgress.query.filter_by(student_id=student.id, status="completed").all()}
 
