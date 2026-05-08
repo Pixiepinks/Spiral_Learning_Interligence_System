@@ -1979,7 +1979,7 @@ def student_dashboard():
         <p><a href='/test'>{"SkillScan පරීක්ෂාව ලබාගන්න" if language == "si" else "Take SkillScan Test"}</a></p>
 
         <p>
-          <a href='/learning-path'>{text["my_learning_path"]}</a>
+          <a href='/student/learning-path'>My Learning Chapters / මගේ පාඩම් පරිච්ඡේද</a>
           &nbsp;|&nbsp;
           <a href='/student/homework'>{"මගේ ගෙදර වැඩ" if language == "si" else "My Homework"}</a>
           &nbsp;|&nbsp;
@@ -2526,6 +2526,8 @@ def parent_dashboard():
       <body>
         <h1>Parent Dashboard</h1>
         <p><a href='/parent-logout'><button type='button'>Logout</button></a></p>
+        <h2>Chapter Progress</h2>
+        <p><a href='/parent/chapter-progress'>View Child Chapter Progress</a></p>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -2567,13 +2569,23 @@ def parent_logout():
 def parent_chapter_progress():
     if session.get("parent_logged_in") is not True:
         return redirect(url_for("parent_login"))
-    student_id = session.get("student_id")
-    student = db.session.get(Student, student_id) if student_id else None
-    if not student:
+    logged_in_parent_email = os.environ.get("PARENT_EMAIL", "").strip()
+    students = Student.query.filter_by(parent_email=logged_in_parent_email).order_by(Student.name.asc()).all()
+    if not students:
         return "<h2>Child not linked</h2>", 404
-    progresses = StudentChapterProgress.query.filter_by(student_id=student.id).order_by(StudentChapterProgress.chapter_id.asc()).all()
-    rows = "".join(f"<tr><td>{p.chapter_id}</td><td>{p.status}</td><td>{p.completed_at or '-'}</td></tr>" for p in progresses)
-    return f"<h1>Child Chapter Completion</h1><p>{escape(student.name)}</p><table border='1'><tr><th>Chapter ID</th><th>Status</th><th>Completed At</th></tr>{rows}</table>"
+    sections = []
+    for student in students:
+        progresses = StudentChapterProgress.query.filter_by(student_id=student.id).order_by(StudentChapterProgress.chapter_id.asc()).all()
+        current = next((p for p in progresses if p.status == "in_progress"), None)
+        completed = [p for p in progresses if p.status == "completed"]
+        rows = "".join(f"<tr><td>{p.chapter_id}</td><td>{escape(p.status)}</td><td>{p.completed_at or '-'}</td></tr>" for p in progresses)
+        sections.append(
+            f"<h2>{escape(student.name)}</h2>"
+            f"<p><strong>Current Chapter:</strong> {current.chapter_id if current else 'N/A'}</p>"
+            f"<p><strong>Completed Chapters:</strong> {len(completed)}</p>"
+            f"<table border='1'><tr><th>Chapter ID</th><th>Status</th><th>Completed At</th></tr>{rows or '<tr><td colspan=3>No chapter data</td></tr>'}</table>"
+        )
+    return f"<h1>Child Chapter Completion</h1>{''.join(sections)}<p><a href='/parent-dashboard'>Back to Dashboard</a></p>"
 
 
 def get_teacher_credentials() -> tuple[str, str]:
@@ -2702,6 +2714,7 @@ def teacher_dashboard():
       <body>
         <h1>Teacher Dashboard</h1>
         <p><a href='/teacher/create-class'>Create Class</a></p>
+        <p><a href='/teacher/chapter-progress'>Chapter Progress</a></p>
         <table style='border-collapse:collapse;width:100%;'>
           <thead>
             <tr>
@@ -2889,6 +2902,7 @@ def teacher_class_details(class_id: int):
         <p><a href='/teacher/assign-students/{classroom.id}'>Assign Students</a></p>
         <p><a href='/teacher/class/{classroom.id}/assign-homework'>Assign Homework</a></p>
         <p><a href='/teacher/class/{classroom.id}/create-test'>නව පරීක්ෂාවක් සාදන්න / Create Test</a></p>
+        <p><a href='/teacher/chapter-progress'>Chapter Progress</a></p>
         <h2>{labels["en"]["class_overview"]} / {labels["si"]["class_overview"]}</h2>
         <ul>
           <li><strong>{labels["en"]["total_students"]}</strong> / {labels["si"]["total_students"]}: {total_students}</li>
@@ -3607,7 +3621,8 @@ def school_admin_dashboard():
     <h2>{labels['class_performance']}</h2>
     <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Class</th><th style='border:1px solid #ccc;padding:8px;'>Average score</th></tr></thead><tbody>{class_rows if class_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No classes found.</td></tr>"}</tbody></table>
     <p><a href='/school-admin/teachers'>Manage Teachers</a></p>
-    <p><a href='/school-admin/students'>Manage Students</a></p></body></html>"""
+    <p><a href='/school-admin/students'>Manage Students</a></p>
+    <p><a href='/school-admin/chapter-summary'>Chapter Completion Summary</a></p></body></html>"""
 
 
 @app.route("/school-admin/teachers", methods=["GET", "POST"])
@@ -3990,7 +4005,7 @@ def school_admin_chapter_summary():
         total = len(student_ids)
         completed = StudentChapterProgress.query.filter(StudentChapterProgress.student_id.in_(student_ids), StudentChapterProgress.status == "completed").count() if student_ids else 0
         rows.append(f"<tr><td>{escape(c.name)}</td><td>{display_grade(c.grade)}</td><td>{total}</td><td>{completed}</td></tr>")
-    return f"<h1>Chapter Completion Summary by Class</h1><table border='1'><tr><th>Class</th><th>Grade</th><th>Students</th><th>Total Completed Chapter Records</th></tr>{''.join(rows)}</table>"
+    return f"<h1>Chapter Completion Summary by Class</h1><table border='1'><tr><th>Class</th><th>Grade</th><th>Students</th><th>Total Completed Chapter Records</th></tr>{''.join(rows)}</table><p><a href='/school-admin/dashboard'>Back to Dashboard</a></p>"
 
 
 @app.route("/admin-login", methods=["GET", "POST"])
@@ -4094,6 +4109,7 @@ def admin_dashboard():
         <p><a href='/register-form'>Register Student</a></p>
         <p><a href='/admin/questions'>Manage Questions</a></p>
         <p><a href='/admin/syllabus'>Syllabus Management</a></p><p><a href='/admin/subjects'>Subject Management</a></p>
+        <p><a href='/admin/syllabus'>Chapter Content Management</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
@@ -4838,7 +4854,10 @@ def admin_syllabus():
         module_html = ""
         for m in modules:
             chapters = SyllabusChapter.query.filter_by(module_id=m.id).order_by(SyllabusChapter.chapter_order.asc()).all()
-            chapter_html = "".join([f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a></li>" for c in chapters])
+            chapter_html = "".join([
+                f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a> | <a href='/admin/chapters/content/{c.id}'>Manage Learning Content</a></li>"
+                for c in chapters
+            ])
             module_html += f"<li>Module {m.module_order}: {escape(m.module_name_en)} - <a href='/admin/syllabus/module/edit/{m.id}'>Edit</a> | <a href='/admin/syllabus/chapter/add/{m.id}'>Add Chapter</a><ul>{chapter_html or '<li>No chapters</li>'}</ul></li>"
         rows += f"<tr><td>{escape(t_item.grade)}</td><td>{escape(t_item.subject)}</td><td>{t_item.term_number}</td><td>{escape(t_item.term_name_en)}</td><td><a href='/admin/syllabus/term/edit/{t_item.id}'>Edit</a> | <a href='/admin/syllabus/module/add/{t_item.id}'>Add Module</a><ul>{module_html or '<li>No modules</li>'}</ul></td></tr>"
     return f"<h1>Syllabus Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/syllabus/term/add'>Add Term</a> | <a href='/admin/subjects'>Manage Subjects</a></p><form method='get'><label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label><label> Subject <select name='subject'>{subject_options_html(grade, subject, active_only=False)}</select></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject</th><th>Term #</th><th>Term Name</th><th>Hierarchy</th></tr>{rows or '<tr><td colspan=5>No terms found</td></tr>'}</table>"
