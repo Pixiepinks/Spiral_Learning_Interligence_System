@@ -5,7 +5,7 @@ import re
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from html import escape
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 from flask import Flask, jsonify, redirect, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -2305,14 +2305,40 @@ def _ordered_chapters_for_student(student: Student):
 
 
 
-def extract_youtube_video_id(url: str | None) -> str | None:
+def normalize_youtube_embed_url(url: str | None) -> str | None:
     raw = (url or "").strip()
-    patterns = [r"youtu\.be/([\w-]{6,})", r"v=([\w-]{6,})", r"embed/([\w-]{6,})"]
-    for pat in patterns:
-        m = re.search(pat, raw)
-        if m:
-            return m.group(1)
-    return None
+    if not raw:
+        return None
+
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+
+    if host.endswith("youtu.be"):
+        video_id = path.strip("/").split("/")[0]
+    elif "youtube.com" in host:
+        if path.startswith("/watch"):
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+        elif path.startswith("/shorts/"):
+            video_id = path.split("/shorts/", 1)[1].split("/", 1)[0]
+        elif path.startswith("/embed/"):
+            video_id = path.split("/embed/", 1)[1].split("/", 1)[0]
+        else:
+            video_id = ""
+    else:
+        return None
+
+    video_id = (video_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,}", video_id):
+        return None
+    return f"https://www.youtube.com/embed/{video_id}"
+
+
+def extract_youtube_video_id(url: str | None) -> str | None:
+    normalized = normalize_youtube_embed_url(url)
+    if not normalized:
+        return None
+    return normalized.rsplit("/", 1)[-1]
 
 @app.route("/admin/chapters/content/<int:chapter_id>", methods=["GET", "POST"])
 def admin_chapter_content(chapter_id: int):
@@ -2456,6 +2482,14 @@ def admin_chapter_content_edit(content_id: int):
         f"<tr><td>{escape(((i.question.question_text_en if i.question else 'Question not found') or '')[:120])}</td><td>{i.trigger_seconds}</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td><td><a href='/admin/video-interaction/edit/{i.id}'>Edit</a> | <form method='post' action='/admin/video-interaction/delete/{i.id}' style='display:inline;' onsubmit=\"return confirm('Delete this interaction?');\'><button type='submit'>Delete</button></form></td></tr>"
         for i in interactions
     ])
+    preview_section = ""
+    if content.content_type == "video" and content.content_url:
+        normalized_video_url = normalize_youtube_embed_url(content.content_url)
+        if normalized_video_url:
+            preview_section = f"<p><strong>Preview:</strong><br><iframe width='560' height='315' src='{escape(normalized_video_url)}' title='YouTube video preview' frameborder='0' allowfullscreen></iframe></p>"
+        else:
+            preview_section = "<p><strong>Preview:</strong> Invalid video URL</p>"
+
     interaction_section = ""
     if content.content_type == "video":
         interaction_section = f"""
@@ -2485,6 +2519,7 @@ def admin_chapter_content_edit(content_id: int):
       <p>Title EN <input name='title_en' value='{escape(content.title_en)}' required></p>
       <p>Title SI <input name='title_si' value='{escape(content.title_si)}' required></p>
       <p>URL <input name='content_url' value='{escape(content.content_url or "")}'></p>
+      {preview_section}
       <p>Body EN <textarea name='content_body_en'>{escape(content.content_body_en or "")}</textarea></p>
       <p>Body SI <textarea name='content_body_si'>{escape(content.content_body_si or "")}</textarea></p>
       <p>Order <input type='number' name='content_order' value='{content.content_order}'></p>
@@ -4817,11 +4852,11 @@ def student_chapter_page(chapter_id: int):
         done = "✅" if c.id in completed_ids else "⬜"
         video_html = ""
         if c.content_type == "video":
-            youtube_id = extract_youtube_video_id(c.content_url)
-            if youtube_id:
-                video_html = f"<div id='video-wrap-{c.id}'><div id='player-{c.id}' style='max-width:800px;height:450px;'></div><button id='continue-{c.id}' style='display:none;'>Continue</button><div id='analytics-{c.id}'></div></div>"
+            normalized_video_url = normalize_youtube_embed_url(c.content_url)
+            if normalized_video_url:
+                video_html = f"<div id='video-wrap-{c.id}'><div id='player-{c.id}' data-embed-url='{escape(normalized_video_url)}' style='max-width:800px;height:450px;'></div><button id='continue-{c.id}' style='display:none;'>Continue</button><div id='analytics-{c.id}'></div></div>"
             else:
-                video_html = f"<a href='{escape(c.content_url or '')}' target='_blank'>Open Video</a>"
+                video_html = "<span>Invalid video URL</span>" if c.content_url else ""
         else:
             video_html = f"<a href='{escape(c.content_url)}' target='_blank'>Open</a>" if c.content_url else ""
         mark_btn = "" if c.content_type in {"practice", "test"} else f"<form method='post' style='display:inline;'><input type='hidden' name='content_id' value='{c.id}'><button type='submit'>Mark Completed</button></form>"
@@ -4857,7 +4892,10 @@ def student_chapter_page(chapter_id: int):
     function onYouTubeIframeAPIReady() {{
       Object.keys(interactions).forEach(cid => {{
         const el = document.getElementById('player-'+cid); if(!el) return;
-        players[cid] = new YT.Player('player-'+cid, {{videoId:'', events:{{onReady:(e)=>{{const u = e.target.getVideoUrl();}}, onStateChange:()=>{{}} }} }});
+        const embedUrl = el.dataset.embedUrl || '';
+        const videoId = (embedUrl.split('/embed/')[1] || '').split(/[?&/]/)[0];
+        if(!videoId) return;
+        players[cid] = new YT.Player('player-'+cid, {{videoId:videoId, events:{{onReady:(e)=>{{const u = e.target.getVideoUrl();}}, onStateChange:()=>{{}} }} }});
       }});
     }}
     </script>"""
