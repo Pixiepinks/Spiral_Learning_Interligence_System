@@ -810,6 +810,22 @@ class VideoInteraction(db.Model):
     pause_video = db.Column(db.Boolean, nullable=False, default=True)
     required_answer = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    question = db.relationship(
+        "Question",
+        foreign_keys=[question_id],
+        primaryjoin="VideoInteraction.question_id == Question.id",
+        lazy="joined",
+        uselist=False,
+        viewonly=True,
+    )
+    content = db.relationship(
+        "ChapterLearningContent",
+        foreign_keys=[content_id],
+        primaryjoin="VideoInteraction.content_id == ChapterLearningContent.id",
+        lazy="joined",
+        uselist=False,
+        viewonly=True,
+    )
 
 
 class StudentVideoInteractionAttempt(db.Model):
@@ -2437,7 +2453,7 @@ def admin_chapter_content_edit(content_id: int):
         question_options = "".join([f"<option value='{q.id}'>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>" for q in questions])
 
     interaction_rows = "".join([
-        f"<tr><td>{escape((i.question.question_text_en or '')[:120])}</td><td>{i.trigger_seconds}</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td><td><a href='/admin/video-interaction/edit/{i.id}'>Edit</a> | <form method='post' action='/admin/video-interaction/delete/{i.id}' style='display:inline;' onsubmit=\"return confirm('Delete this interaction?');\'><button type='submit'>Delete</button></form></td></tr>"
+        f"<tr><td>{escape(((i.question.question_text_en if i.question else 'Question not found') or '')[:120])}</td><td>{i.trigger_seconds}</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td><td><a href='/admin/video-interaction/edit/{i.id}'>Edit</a> | <form method='post' action='/admin/video-interaction/delete/{i.id}' style='display:inline;' onsubmit=\"return confirm('Delete this interaction?');\'><button type='submit'>Delete</button></form></td></tr>"
         for i in interactions
     ])
     interaction_section = ""
