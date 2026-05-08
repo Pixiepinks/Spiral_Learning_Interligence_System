@@ -801,6 +801,38 @@ class StudentContentProgress(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
 
 
+class VideoInteraction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content_id = db.Column(db.Integer, nullable=False)
+    question_id = db.Column(db.Integer, nullable=False)
+    trigger_seconds = db.Column(db.Integer, nullable=False)
+    pause_video = db.Column(db.Boolean, nullable=False, default=True)
+    required_answer = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentVideoInteractionAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    content_id = db.Column(db.Integer, nullable=False)
+    interaction_id = db.Column(db.Integer, nullable=False)
+    question_id = db.Column(db.Integer, nullable=False)
+    is_correct = db.Column(db.Boolean, nullable=False, default=False)
+    retry_count = db.Column(db.Integer, nullable=False, default=0)
+    answered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentVideoAnalytics(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    content_id = db.Column(db.Integer, nullable=False)
+    watch_percent = db.Column(db.Float, nullable=False, default=0)
+    all_required_answered = db.Column(db.Boolean, nullable=False, default=False)
+    popup_score = db.Column(db.Float, nullable=False, default=0)
+    retry_count = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.String(20), nullable=False)
@@ -2180,6 +2212,53 @@ def ensure_chapter_learning_tables() -> None:
             """
         )
     )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS video_interactions (
+                id SERIAL PRIMARY KEY,
+                content_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                trigger_seconds INTEGER NOT NULL,
+                pause_video BOOLEAN NOT NULL DEFAULT TRUE,
+                required_answer BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_video_interaction_attempt (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                content_id INTEGER NOT NULL,
+                interaction_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                answered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_video_analytics (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                content_id INTEGER NOT NULL,
+                watch_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
+                all_required_answered BOOLEAN NOT NULL DEFAULT FALSE,
+                popup_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
     db.session.commit()
 
 
@@ -2198,6 +2277,17 @@ def _ordered_chapters_for_student(student: Student):
     )
 
 
+
+
+def extract_youtube_video_id(url: str | None) -> str | None:
+    raw = (url or "").strip()
+    patterns = [r"youtu\.be/([\w-]{6,})", r"v=([\w-]{6,})", r"embed/([\w-]{6,})"]
+    for pat in patterns:
+        m = re.search(pat, raw)
+        if m:
+            return m.group(1)
+    return None
+
 @app.route("/admin/chapters/content/<int:chapter_id>", methods=["GET", "POST"])
 def admin_chapter_content(chapter_id: int):
     if not session.get("admin_logged_in"):
@@ -2206,38 +2296,75 @@ def admin_chapter_content(chapter_id: int):
     chapter = db.session.get(SyllabusChapter, chapter_id)
     if not chapter:
         return "<h2>Chapter not found</h2>", 404
+
     if request.method == "POST":
-        db.session.add(
-            ChapterLearningContent(
-                chapter_id=chapter_id,
-                content_order=int(request.form.get("content_order") or 1),
-                content_type=(request.form.get("content_type") or "video").strip().lower(),
-                title_en=(request.form.get("title_en") or "").strip(),
-                title_si=(request.form.get("title_si") or "").strip(),
-                content_url=(request.form.get("content_url") or "").strip() or None,
-                content_body_en=(request.form.get("content_body_en") or "").strip() or None,
-                content_body_si=(request.form.get("content_body_si") or "").strip() or None,
-                is_required=(request.form.get("is_required") or "yes") == "yes",
-            )
-        )
+        action = (request.form.get("action") or "add_content").strip()
+        if action == "add_interaction":
+            content_id = int(request.form.get("content_id") or 0)
+            question_id = int(request.form.get("question_id") or 0)
+            trigger_seconds = int(request.form.get("trigger_seconds") or 0)
+            if content_id and question_id and trigger_seconds >= 0:
+                db.session.add(VideoInteraction(
+                    content_id=content_id,
+                    question_id=question_id,
+                    trigger_seconds=trigger_seconds,
+                    pause_video=(request.form.get("pause_video") or "yes") == "yes",
+                    required_answer=(request.form.get("required_answer") or "yes") == "yes",
+                ))
+                db.session.commit()
+            return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
+
+        db.session.add(ChapterLearningContent(
+            chapter_id=chapter_id,
+            content_order=int(request.form.get("content_order") or 1),
+            content_type=(request.form.get("content_type") or "video").strip().lower(),
+            title_en=(request.form.get("title_en") or "").strip(),
+            title_si=(request.form.get("title_si") or "").strip(),
+            content_url=(request.form.get("content_url") or "").strip() or None,
+            content_body_en=(request.form.get("content_body_en") or "").strip() or None,
+            content_body_si=(request.form.get("content_body_si") or "").strip() or None,
+            is_required=(request.form.get("is_required") or "yes") == "yes",
+        ))
         db.session.commit()
         return redirect(url_for("admin_chapter_content", chapter_id=chapter_id))
+
     rows = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
-    list_html = "".join(
-        f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td></tr>"
-        for r in rows
-    )
+    video_rows = [r for r in rows if r.content_type == "video"]
+    questions = Question.query.order_by(Question.id.desc()).limit(200).all()
+    question_options = "".join([f"<option value='{q.id}'>Q{q.id} - {escape((q.question_text_en or '')[:80])}</option>" for q in questions])
+    interactions = VideoInteraction.query.join(ChapterLearningContent, VideoInteraction.content_id == ChapterLearningContent.id).filter(ChapterLearningContent.chapter_id == chapter_id).order_by(VideoInteraction.content_id.asc(), VideoInteraction.trigger_seconds.asc()).all()
+
+    list_html = "".join(f"<tr><td>{r.content_order}</td><td>{r.content_type}</td><td>{escape(r.title_en)}</td><td>{'Yes' if r.is_required else 'No'}</td></tr>" for r in rows)
+    inter_html = "".join([
+        f"<tr><td>{i.content_id}</td><td>Q{i.question_id}</td><td>{i.trigger_seconds}s</td><td>{'Yes' if i.pause_video else 'No'}</td><td>{'Yes' if i.required_answer else 'No'}</td></tr>"
+        for i in interactions
+    ])
+    video_options = "".join([f"<option value='{v.id}'>{v.id} - {escape(v.title_en)}</option>" for v in video_rows])
+
     return f"""<h1>Chapter Content Manager</h1>
     <p><a href='/admin/syllabus'>Back</a></p>
     <table border='1' cellpadding='6'><tr><th>Order</th><th>Type</th><th>Title</th><th>Required</th></tr>{list_html or "<tr><td colspan='4'>No content yet</td></tr>"}</table>
     <h2>Add Content</h2>
     <form method='post'>
+      <input type='hidden' name='action' value='add_content'>
       <p>Content Type <select name='content_type'><option>video</option><option>note</option><option>activity</option><option>practice</option><option>test</option></select></p>
       <p>Title EN <input name='title_en' required></p><p>Title SI <input name='title_si' required></p>
       <p>URL <input name='content_url'></p><p>Body EN <textarea name='content_body_en'></textarea></p><p>Body SI <textarea name='content_body_si'></textarea></p>
       <p>Order <input type='number' name='content_order' value='1'></p>
       <p>Required <select name='is_required'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
       <button type='submit'>Save</button>
+    </form>
+
+    <h2>Interactive Questions (Video)</h2>
+    <table border='1' cellpadding='6'><tr><th>Content</th><th>Question</th><th>Trigger</th><th>Pause</th><th>Required</th></tr>{inter_html or "<tr><td colspan='5'>No interactions yet</td></tr>"}</table>
+    <form method='post'>
+      <input type='hidden' name='action' value='add_interaction'>
+      <p>Video Content <select name='content_id' required>{video_options}</select></p>
+      <p>Question <select name='question_id' required>{question_options}</select></p>
+      <p>Trigger (seconds) <input type='number' min='0' name='trigger_seconds' required></p>
+      <p>Pause Video <select name='pause_video'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
+      <p>Required Answer <select name='required_answer'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
+      <button type='submit'>Save Interaction</button>
     </form>"""
 
 @app.route("/learning-path", methods=["GET"])
@@ -4495,6 +4622,7 @@ def student_chapter_page(chapter_id: int):
         return "<h2>Chapter is locked.</h2>", 403
     if progress.status == "unlocked":
         progress.status = "in_progress"
+
     if request.method == "POST":
         content_id = int(request.form.get("content_id"))
         cp = StudentContentProgress.query.filter_by(student_id=student.id, content_id=content_id).first()
@@ -4503,34 +4631,63 @@ def student_chapter_page(chapter_id: int):
             db.session.add(cp)
         cp.status = "completed"
         cp.completed_at = datetime.utcnow()
+
     contents = ChapterLearningContent.query.filter_by(chapter_id=chapter_id).order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc()).all()
     required_ids = [c.id for c in contents if c.is_required]
     completed_ids = {row.content_id for row in StudentContentProgress.query.filter_by(student_id=student.id, status="completed").all()}
-    if required_ids and all(cid in completed_ids for cid in required_ids):
-        progress.status = "completed"
-        progress.completed_at = datetime.utcnow()
-        chapters = _ordered_chapters_for_student(student)
-        ids = [c.id for c, _, _ in chapters]
-        if chapter_id in ids:
-            idx = ids.index(chapter_id)
-            if idx + 1 < len(ids):
-                next_progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=ids[idx + 1]).first()
-                if not next_progress:
-                    db.session.add(StudentChapterProgress(student_id=student.id, chapter_id=ids[idx + 1], status="unlocked"))
-                elif next_progress.status == "locked":
-                    next_progress.status = "unlocked"
-    db.session.commit()
+
     body_key = "si" if student.medium == "Sinhala" else "en"
     items_html = []
     for c in contents:
         body = escape(getattr(c, f"content_body_{body_key}") or "")
         title = escape(getattr(c, f"title_{body_key}") or c.title_en)
-        url = f"<a href='{escape(c.content_url)}' target='_blank'>Open</a>" if c.content_url else ""
         done = "✅" if c.id in completed_ids else "⬜"
+        video_html = ""
+        if c.content_type == "video":
+            youtube_id = extract_youtube_video_id(c.content_url)
+            if youtube_id:
+                video_html = f"<div id='video-wrap-{c.id}'><div id='player-{c.id}' style='max-width:800px;height:450px;'></div><button id='continue-{c.id}' style='display:none;'>Continue</button><div id='analytics-{c.id}'></div></div>"
+            else:
+                video_html = f"<a href='{escape(c.content_url or '')}' target='_blank'>Open Video</a>"
+        else:
+            video_html = f"<a href='{escape(c.content_url)}' target='_blank'>Open</a>" if c.content_url else ""
         mark_btn = "" if c.content_type in {"practice", "test"} else f"<form method='post' style='display:inline;'><input type='hidden' name='content_id' value='{c.id}'><button type='submit'>Mark Completed</button></form>"
-        items_html.append(f"<li>{done} <strong>{title}</strong> ({c.content_type}) {url}<div>{body}</div>{mark_btn}</li>")
-    return f"<h1>Chapter Learning</h1><ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>"
+        items_html.append(f"<li>{done} <strong>{title}</strong> ({c.content_type}) <div>{body}</div>{video_html}{mark_btn}</li>")
 
+    video_contents = [c for c in contents if c.content_type == 'video']
+    interaction_payload = {}
+    for c in video_contents:
+        inters = VideoInteraction.query.filter_by(content_id=c.id).order_by(VideoInteraction.trigger_seconds.asc()).all()
+        packed = []
+        for i in inters:
+            q = db.session.get(Question, i.question_id)
+            if not q: continue
+            packed.append({"id": i.id, "question_id": q.id, "trigger": i.trigger_seconds, "required": i.required_answer, "pause": i.pause_video, "type": (q.question_type or 'mcq'), "text": q.question_text_en, "a": q.option_a_en, "b": q.option_b_en, "c": q.option_c_en, "d": q.option_d_en, "explanation": q.explanation_en})
+        interaction_payload[c.id] = packed
+
+    required_by_content = {c.id: [i.id for i in VideoInteraction.query.filter_by(content_id=c.id, required_answer=True).all()] for c in video_contents}
+
+    if required_ids and all(cid in completed_ids for cid in required_ids):
+        progress.status = "completed"
+        progress.completed_at = datetime.utcnow()
+
+    db.session.commit()
+    return f"""<h1>Chapter Learning</h1>
+    <script src='https://www.youtube.com/iframe_api'></script>
+    <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:24px;border-radius:16px;max-width:560px;width:95%}} .quiz-card button{{font-size:22px;padding:14px 18px;margin:6px;width:100%}}</style>
+    <div id='quiz-overlay' class='quiz-overlay'><div class='quiz-card'><div id='quiz-body'></div></div></div>
+    <ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>
+    <script>
+    const interactions = {json.dumps(interaction_payload)};
+    const requiredByContent = {json.dumps(required_by_content)};
+    const players = {{}}; const fired={{}}; const answered={{}};
+    function onYouTubeIframeAPIReady() {{
+      Object.keys(interactions).forEach(cid => {{
+        const el = document.getElementById('player-'+cid); if(!el) return;
+        players[cid] = new YT.Player('player-'+cid, {{videoId:'', events:{{onReady:(e)=>{{const u = e.target.getVideoUrl();}}, onStateChange:()=>{{}} }} }});
+      }});
+    }}
+    </script>"""
 
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
 def admin_edit_school(school_id: int):
