@@ -656,12 +656,11 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
     items = json.loads(question.drag_items_json or "[]")
     items_html = []
     for item in items:
-        label = item.get("label_si") if medium_key == "si" else (item.get("label_en") or item.get("label_si") or item.get("group"))
-        items_html.append(f"<div class='drag-item' data-item-id='{escape(str(item.get('id','')))}' data-group='{escape(str(item.get('group','')))}' style='left:0;top:0;'><img src='{escape(normalize_local_image_url(str(item.get('image_url',''))))}' style='width:46px;height:46px;object-fit:contain;display:block;'><small>{escape(str(label or ''))}</small></div>")
+        items_html.append(f"<div class='drag-item' data-item-id='{escape(str(item.get('id','')))}' data-group='{escape(str(item.get('group','')))}' style='left:0;top:0;'><img src='{escape(normalize_local_image_url(str(item.get('image_url',''))))}'></div>")
     return f"""
     <div class='drag-group-wrap' data-question-id='{question.id}'>
-      <div class='drag-item-bank'>{"".join(items_html)}</div>
-      <div class='drag-basket' data-container='1'><img src='{escape(normalize_local_image_url(question.drag_container_image_url or ""))}' style='max-width:100%;height:180px;object-fit:contain;'></div>
+      <div class='drag-items-row'>{"".join(items_html)}</div>
+      <div class='drop-container drag-basket' data-container='1'><img src='{escape(normalize_local_image_url(question.drag_container_image_url or ""))}'></div>
       <input type='hidden' name='answer_{question.id}' class='drag-answer-json' value=''>
       <p class='drag-hint'>{'එකම එළවළු එකට ළඟින් තබන්න.' if medium_key == 'si' else 'Try to keep the same vegetables together.'}</p>
     </div>
@@ -670,9 +669,9 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
 
 def drag_drop_group_assets() -> str:
     return """
-    <style>.drag-group-wrap{max-width:520px}.drag-item-bank{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.drag-item{touch-action:none;cursor:grab;padding:4px;border:1px solid #ddd;border-radius:8px;background:#fff;position:relative}.drag-basket{position:relative;border:2px dashed #d1d5db;border-radius:12px;padding:8px;min-height:220px;background:#fafafa}.drag-basket.active{box-shadow:0 0 0 3px rgba(147,197,253,.4)}.drag-item.in-basket{position:absolute;z-index:3}.drag-item.group-good{box-shadow:0 0 0 3px rgba(134,239,172,.6)}</style>
+    <style>.drag-group-wrap{max-width:520px}.drag-items-row{display:flex;flex-direction:row;gap:18px;align-items:center;flex-wrap:wrap;margin:12px 0}.drag-item{width:70px;height:70px;object-fit:contain;cursor:grab;touch-action:none;user-select:none;position:relative;display:flex;align-items:center;justify-content:center;border:1px solid #ddd;border-radius:8px;background:#fff;padding:2px}.drag-item img{width:100%;height:100%;object-fit:contain;pointer-events:none}.drop-container{position:relative;width:420px;min-height:180px;margin-top:20px;border:2px dashed #ccc;border-radius:12px;background:#fafafa}.drop-container img{width:100%;height:auto;display:block;pointer-events:none}.drag-basket.active{box-shadow:0 0 0 3px rgba(147,197,253,.4)}.drag-item.in-basket{position:absolute;z-index:3}.drag-item.group-good{box-shadow:0 0 0 3px rgba(134,239,172,.6)}</style>
     <script>
-    function initDragGroupUI(root=document){root.querySelectorAll('.drag-group-wrap').forEach((wrap)=>{if(wrap.dataset.ready==='1')return;wrap.dataset.ready='1';const bank=wrap.querySelector('.drag-item-bank');const basket=wrap.querySelector('.drag-basket');const hidden=wrap.querySelector('.drag-answer-json');const items=[...wrap.querySelectorAll('.drag-item')];items.forEach((el)=>{let sx=0,sy=0,sl=0,st=0;el.addEventListener('pointerdown',(e)=>{el.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;const r=el.getBoundingClientRect();sl=r.left+window.scrollX;st=r.top+window.scrollY;el.style.position='absolute';el.style.left=sl+'px';el.style.top=st+'px';document.body.appendChild(el);});el.addEventListener('pointermove',(e)=>{if(!el.hasPointerCapture(e.pointerId))return;const nx=sl+(e.clientX-sx),ny=st+(e.clientY-sy);el.style.left=nx+'px';el.style.top=ny+'px';const br=basket.getBoundingClientRect();basket.classList.toggle('active',e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom);});el.addEventListener('pointerup',(e)=>{const br=basket.getBoundingClientRect();basket.classList.remove('active');if(e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom){const bx=e.clientX-br.left-25,by=e.clientY-br.top-25;basket.appendChild(el);el.classList.add('in-basket');el.style.left=Math.max(0,bx)+'px';el.style.top=Math.max(0,by)+'px';}else{bank.appendChild(el);el.classList.remove('in-basket');el.style.position='relative';el.style.left='0px';el.style.top='0px';}const placed=[...basket.querySelectorAll('.drag-item')].map((i)=>({id:i.dataset.itemId,group:i.dataset.group,x:parseFloat(i.style.left)||0,y:parseFloat(i.style.top)||0}));hidden.value=JSON.stringify(placed);});});});}
+    function initDragGroupUI(root=document){root.querySelectorAll('.drag-group-wrap').forEach((wrap)=>{if(wrap.dataset.ready==='1')return;wrap.dataset.ready='1';const bank=wrap.querySelector('.drag-items-row');const basket=wrap.querySelector('.drag-basket');const hidden=wrap.querySelector('.drag-answer-json');const clamp=(n,min,max)=>Math.min(Math.max(n,min),max);const updateHidden=()=>{const placed={};[...basket.querySelectorAll('.drag-item')].forEach((i)=>{placed[i.dataset.itemId]={x:parseFloat(i.style.left)||0,y:parseFloat(i.style.top)||0,group:i.dataset.group||''};});hidden.value=JSON.stringify(placed);};const moveToBank=(el)=>{bank.appendChild(el);el.classList.remove('in-basket');el.style.position='relative';el.style.left='0px';el.style.top='0px';el.style.zIndex='';el.style.width='70px';el.style.height='70px';};const moveToBasket=(el,cx,cy)=>{const br=basket.getBoundingClientRect();basket.appendChild(el);el.classList.add('in-basket');el.style.position='absolute';el.style.width='70px';el.style.height='70px';el.style.zIndex='5';const x=clamp(cx-br.left-35,0,Math.max(0,br.width-70));const y=clamp(cy-br.top-35,0,Math.max(0,br.height-70));el.style.left=x+'px';el.style.top=y+'px';};[...wrap.querySelectorAll('.drag-item')].forEach((el)=>{let dragging=false,dx=0,dy=0;el.addEventListener('pointerdown',(e)=>{dragging=true;el.setPointerCapture(e.pointerId);const r=el.getBoundingClientRect();dx=e.clientX-r.left;dy=e.clientY-r.top;el.style.zIndex='9999';if(el.parentElement!==basket){el.style.position='fixed';document.body.appendChild(el);}el.style.left=(e.clientX-dx)+'px';el.style.top=(e.clientY-dy)+'px';e.preventDefault();});el.addEventListener('pointermove',(e)=>{if(!dragging)return;el.style.left=(e.clientX-dx)+'px';el.style.top=(e.clientY-dy)+'px';const br=basket.getBoundingClientRect();basket.classList.toggle('active',e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom);});el.addEventListener('pointerup',(e)=>{if(!dragging)return;dragging=false;basket.classList.remove('active');const br=basket.getBoundingClientRect();const inside=e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom;if(inside){moveToBasket(el,e.clientX,e.clientY);}else{moveToBank(el);}updateHidden();});el.addEventListener('pointercancel',()=>{dragging=false;basket.classList.remove('active');updateHidden();});});updateHidden();});}
     document.addEventListener('DOMContentLoaded',()=>initDragGroupUI(document));
     </script>
     """
@@ -685,10 +684,11 @@ def evaluate_drag_drop_group_container_question(question: "Question", form) -> t
     except json.JSONDecodeError:
         return False, raw
     required = json.loads(question.drag_items_json or "[]")
-    if len(placed) < len(required):
+    placed_items = list(placed.values()) if isinstance(placed, dict) else placed
+    if len(placed_items) < len(required):
         return False, raw
     group_points = {}
-    for item in placed:
+    for item in placed_items:
         g = str(item.get("group") or "")
         group_points.setdefault(g, []).append((float(item.get("x", 0)), float(item.get("y", 0))))
     threshold = 120.0
@@ -5115,7 +5115,7 @@ def student_chapter_page(chapter_id: int):
         let items = [];
         try {{ items = JSON.parse(interaction.drag_items_json || '[]'); }} catch(e) {{ items = []; }}
         const basket = normalizeLocalImageUrl(interaction.drag_container_image_url || '');
-        controlHtml = `<div class='drag-group-wrap' data-question-id='interactive'><div class='drag-item-bank'>${{items.map(it => `<div class='drag-item' data-item-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(String(it.group||''))}}'><img src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}' style='width:46px;height:46px;object-fit:contain;display:block;'></div>`).join('')}}</div><div class='drag-basket' data-container='1'><img src='${{escapeHtml(basket)}}' style='max-width:100%;height:180px;object-fit:contain;'></div><input id='interactive_drag_answer' type='hidden'></div>`;
+        controlHtml = `<div class='drag-group-wrap' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => `<div class='drag-item' data-item-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(String(it.group||''))}}'><img src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}'></div>`).join('')}}</div><div class='drop-container drag-basket' data-container='1'><img src='${{escapeHtml(basket)}}'></div><input id='interactive_drag_answer' type='hidden'></div>`;
         setTimeout(() => {{ initDragGroupUI(document); }}, 0);
       }} else if (qType === 'tap_select_image') {{
         const question = interaction;
