@@ -653,13 +653,44 @@ def render_tap_select_review(question: "Question", selected_area_id: str, correc
 
 
 def render_drag_drop_group_container_input(question: "Question", medium_key: str = "en") -> str:
+    fallback_scales = {
+        "pumpkin": 2.2,
+        "carrot": 1.0,
+        "beet": 1.4,
+        "radish": 1.3,
+        "cabbage": 2.0,
+        "cucumber": 1.6,
+        "banana": 1.5,
+    }
+
+    def resolve_scale(item: dict) -> float:
+        raw_scale = item.get("scale")
+        if raw_scale is not None:
+            try:
+                parsed = float(raw_scale)
+                if parsed > 0:
+                    return parsed
+            except (TypeError, ValueError):
+                pass
+        fingerprint = " ".join([
+            str(item.get("label", "")).lower(),
+            str(item.get("group", "")).lower(),
+            str(item.get("image_url", "")).lower(),
+        ])
+        for key, value in fallback_scales.items():
+            if key in fingerprint:
+                return value
+        return 1.0
+
     items = json.loads(question.drag_items_json or "[]")
     items_html = []
     for item in items:
         item_src = normalize_local_image_url(str(item.get("image_url", "")))
+        item_scale = resolve_scale(item)
         items_html.append(
-            f"<img class='dd-item' data-id='{escape(str(item.get('id','')))}' "
-            f"data-group='{escape(str(item.get('group','')))}' src='{escape(item_src)}'>"
+            f"<div class='dd-item' data-id='{escape(str(item.get('id','')))}' "
+            f"data-group='{escape(str(item.get('group','')))}' style='--item-scale:{item_scale};--base-size:150px;'>"
+            f"<img src='{escape(item_src)}'></div>"
         )
     basket_src = normalize_local_image_url(question.drag_container_image_url or "")
     return f"""
@@ -676,10 +707,11 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
 def drag_drop_group_assets() -> str:
     return """
     <style>
-      .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;gap:12px !important;align-items:center !important;margin:12px 0 18px 0 !important;}
-      .dd-item{width:56px !important;height:56px !important;min-width:56px !important;max-width:56px !important;min-height:56px !important;max-height:56px !important;object-fit:contain !important;flex:0 0 auto !important;display:inline-block !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;left:auto;top:auto;}
-      @media (max-width:768px){.dd-item{width:48px !important;height:48px !important;min-width:48px !important;max-width:48px !important;min-height:48px !important;max-height:48px !important;}}
-      .dd-drop-zone{position:relative !important;width:min(92vw,430px) !important;height:230px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
+      .drag-items-row{display:flex !important;flex-direction:row !important;align-items:flex-end !important;gap:28px !important;flex-wrap:wrap !important;margin:12px 0 18px 0 !important;}
+      .dd-item{width:calc(var(--base-size) * var(--item-scale)) !important;height:calc(var(--base-size) * var(--item-scale)) !important;flex:0 0 auto !important;display:flex !important;align-items:center !important;justify-content:center !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;left:auto;top:auto;}
+      .dd-item img{width:auto !important;height:auto !important;max-width:none !important;max-height:none !important;object-fit:contain !important;pointer-events:none !important;}
+      @media (max-width:768px){.dd-item{--base-size:95px !important;}}
+      .dd-drop-zone{position:relative !important;width:min(94vw,700px) !important;height:420px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
       .dd-basket{position:absolute;inset:0;width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}
     </style>
     <script>
@@ -691,7 +723,7 @@ def drag_drop_group_assets() -> str:
         const hidden = wrap.querySelector(`input[id='answer_${questionId}']`);
         if (!bank || !dropZone || !hidden) return;
         const clamp = (n,min,max)=>Math.min(Math.max(n,min),max);
-        const itemSize = (el)=>Math.max(el.offsetWidth || 0, parseFloat(getComputedStyle(el).width) || 56);
+        const itemSize = (el)=>Math.max(el.offsetWidth || 0, parseFloat(getComputedStyle(el).width) || 150);
         const save = ()=>{
           const placed = {};
           [...dropZone.querySelectorAll('.dd-item')].forEach((el)=>{
