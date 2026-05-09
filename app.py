@@ -675,10 +675,82 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
 
 def drag_drop_group_assets() -> str:
     return """
-    <style>.dd-item{width:60px !important;height:60px !important;max-width:60px !important;max-height:60px !important;object-fit:contain !important;display:inline-block !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;z-index:1000;}.drag-items-row{display:flex !important;flex-direction:row !important;gap:14px !important;align-items:center !important;flex-wrap:wrap !important;margin:12px 0 18px 0 !important;}.dd-drop-zone{position:relative !important;width:420px !important;height:220px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}.dd-basket{width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}</style>
+    <style>
+      .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;gap:12px !important;align-items:center !important;margin:12px 0 18px 0 !important;}
+      .dd-item{width:56px !important;height:56px !important;min-width:56px !important;max-width:56px !important;min-height:56px !important;max-height:56px !important;object-fit:contain !important;flex:0 0 auto !important;display:inline-block !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;left:auto;top:auto;}
+      @media (max-width:768px){.dd-item{width:48px !important;height:48px !important;min-width:48px !important;max-width:48px !important;min-height:48px !important;max-height:48px !important;}}
+      .dd-drop-zone{position:relative !important;width:min(92vw,430px) !important;height:230px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
+      .dd-basket{position:absolute;inset:0;width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}
+    </style>
     <script>
-    function initDragGroupUI(root=document){root.querySelectorAll('.drag-drop-question').forEach((wrap)=>{if(wrap.dataset.ready==='1')return;wrap.dataset.ready='1';const questionId=wrap.dataset.questionId||'';console.log("drag drop renderer loaded", questionId);const bank=wrap.querySelector('.drag-items-row');const dropZone=wrap.querySelector('.dd-drop-zone');const hidden=wrap.querySelector(`input[id='answer_${questionId}']`)||wrap.querySelector('.drag-answer-json')||wrap.querySelector('#interactive_drag_answer');if(!bank||!dropZone||!hidden)return;const clamp=(n,min,max)=>Math.min(Math.max(n,min),max);const save=()=>{const placed={};[...dropZone.querySelectorAll('.dd-item')].forEach((el)=>{placed[el.dataset.id||'']={id:el.dataset.id||'',group:el.dataset.group||'',x:parseFloat(el.style.left)||0,y:parseFloat(el.style.top)||0};});hidden.value=JSON.stringify(placed);};document.querySelectorAll('.dd-item').forEach((el)=>{if(el.closest('.drag-drop-question')!==wrap)return;let dragging=false,dx=0,dy=0;el.addEventListener('pointerdown',(e)=>{dragging=true;el.setPointerCapture(e.pointerId);const r=el.getBoundingClientRect();dx=e.clientX-r.left;dy=e.clientY-r.top;el.style.position='fixed';el.style.left=(e.clientX-dx)+'px';el.style.top=(e.clientY-dy)+'px';el.style.zIndex='9999';document.body.appendChild(el);e.preventDefault();});el.addEventListener('pointermove',(e)=>{if(!dragging)return;el.style.left=(e.clientX-dx)+'px';el.style.top=(e.clientY-dy)+'px';});el.addEventListener('pointerup',(e)=>{if(!dragging)return;dragging=false;const br=dropZone.getBoundingClientRect();const inside=e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom;if(inside){dropZone.appendChild(el);el.style.position='absolute';const size=60;el.style.left=clamp(e.clientX-br.left-size/2,0,Math.max(0,br.width-size))+'px';el.style.top=clamp(e.clientY-br.top-size/2,0,Math.max(0,br.height-size))+'px';el.style.zIndex='1001';}else{bank.appendChild(el);el.style.position='relative';el.style.left='0px';el.style.top='0px';el.style.zIndex='1000';}save();});el.addEventListener('pointercancel',()=>{dragging=false;bank.appendChild(el);el.style.position='relative';el.style.left='0px';el.style.top='0px';save();});});save();});}
+    function initDragGroupUI(root=document){
+      root.querySelectorAll('.drag-drop-question').forEach((wrap)=>{
+        const questionId = wrap.dataset.questionId || '';
+        const bank = wrap.querySelector('.drag-items-row');
+        const dropZone = wrap.querySelector('.dd-drop-zone');
+        const hidden = wrap.querySelector(`input[id='answer_${questionId}']`);
+        if (!bank || !dropZone || !hidden) return;
+        const clamp = (n,min,max)=>Math.min(Math.max(n,min),max);
+        const itemSize = (el)=>Math.max(el.offsetWidth || 0, parseFloat(getComputedStyle(el).width) || 56);
+        const save = ()=>{
+          const placed = {};
+          [...dropZone.querySelectorAll('.dd-item')].forEach((el)=>{
+            const id = el.dataset.id || '';
+            placed[id] = {id, group: el.dataset.group || '', x: parseFloat(el.style.left) || 0, y: parseFloat(el.style.top) || 0};
+          });
+          hidden.value = JSON.stringify(placed);
+        };
+        wrap.querySelectorAll('.dd-item').forEach((el)=>{
+          if (el.dataset.ddBound === '1') return;
+          el.dataset.ddBound = '1';
+          el.addEventListener('pointerdown',(e)=>{
+            if (e.button !== undefined && e.button !== 0) return;
+            const rect = el.getBoundingClientRect();
+            const state = {el, dx: e.clientX - rect.left, dy: e.clientY - rect.top, startWrap: wrap};
+            el.style.position = 'fixed';
+            el.style.left = rect.left + 'px';
+            el.style.top = rect.top + 'px';
+            el.style.zIndex = '99999';
+            el.style.pointerEvents = 'none';
+            document.body.appendChild(el);
+            const move = (ev)=>{
+              el.style.left = (ev.clientX - state.dx) + 'px';
+              el.style.top = (ev.clientY - state.dy) + 'px';
+            };
+            const end = (ev)=>{
+              document.removeEventListener('pointermove', move);
+              document.removeEventListener('pointerup', end);
+              document.removeEventListener('pointercancel', end);
+              const zoneRect = dropZone.getBoundingClientRect();
+              const inside = ev.clientX >= zoneRect.left && ev.clientX <= zoneRect.right && ev.clientY >= zoneRect.top && ev.clientY <= zoneRect.bottom;
+              if (inside) {
+                dropZone.appendChild(el);
+                el.style.position = 'absolute';
+                el.style.pointerEvents = '';
+                const size = itemSize(el);
+                el.style.left = clamp(ev.clientX - zoneRect.left - size / 2, 0, Math.max(0, zoneRect.width - size)) + 'px';
+                el.style.top = clamp(ev.clientY - zoneRect.top - size / 2, 0, Math.max(0, zoneRect.height - size)) + 'px';
+              } else {
+                bank.appendChild(el);
+                el.style.position = 'relative';
+                el.style.left = '';
+                el.style.top = '';
+                el.style.pointerEvents = '';
+              }
+              el.style.zIndex = '';
+              save();
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', end);
+            document.addEventListener('pointercancel', end);
+            e.preventDefault();
+          });
+        });
+        save();
+      });
+    }
     document.addEventListener('DOMContentLoaded',()=>initDragGroupUI(document));
+    window.initDragGroupUI = initDragGroupUI;
     </script>
     """
 
@@ -6668,6 +6740,7 @@ def test_page() -> str:
           }}
         </style>
         {tap_select_common_assets()}
+        {drag_drop_group_assets()}
       </head>
       <body>
         <h1>{t(selected_medium, 'test_title').format(grade=selected_grade, subject=selected_subject)}</h1>
@@ -7271,6 +7344,7 @@ def upgrade_page() -> str:
           .btn-secondary {{ background: #e7ecf7; color: #102036; }}
         </style>
         {tap_select_common_assets()}
+        {drag_drop_group_assets()}
       </head>
       <body>
         <main class='wrap'>
@@ -7528,6 +7602,7 @@ def practice_page() -> str:
           }}
         </style>
         {tap_select_common_assets()}
+        {drag_drop_group_assets()}
       </head>
       <body>
         <h1>{t(selected_medium, 'practice_title')}</h1>
@@ -7837,6 +7912,7 @@ def student_homework_detail(homework_id: int):
       }}
     </style>
     {tap_select_common_assets()}
+    {drag_drop_group_assets()}
   </head>
   <body><h1>{escape(homework.title)}</h1><p>Due: {homework.due_date.strftime('%Y-%m-%d')}</p><form method='post' action='/student/homework/{homework.id}/submit'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit'>Submit</button></form><p><a href='/student/homework'>Back</a></p></body>
 </html>"""
@@ -7861,6 +7937,8 @@ def student_homework_submit(homework_id: int):
             is_correct, _, _ = evaluate_box_question(q, request.form)
         elif is_tap_select_image_question(q):
             is_correct, _, _ = evaluate_tap_select_question(q, request.form)
+        elif is_drag_drop_group_container_question(q):
+            is_correct, _ = evaluate_drag_drop_group_container_question(q, request.form)
         elif is_short_answer_question(q):
             is_correct = (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
         else:
@@ -7921,6 +7999,9 @@ def student_take_test(test_id: int):
             if is_tap_select_image_question(q):
                 ok, _, _ = evaluate_tap_select_question(q, request.form)
                 return ok
+            if is_drag_drop_group_container_question(q):
+                ok, _ = evaluate_drag_drop_group_container_question(q, request.form)
+                return ok
             if is_short_answer_question(q):
                 return (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
             return (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
@@ -7977,6 +8058,8 @@ def student_take_test(test_id: int):
         }}
       }}
     </style>
+    {tap_select_common_assets()}
+    {drag_drop_group_assets()}
   </head>
   <body><h1>{escape(test.title)}</h1><p>Date: {test.test_date.strftime('%Y-%m-%d')}</p>{timer_html}<form method='post'>{q_html if q_html else '<p>No matching questions found.</p>'}<button type='submit' style='padding:10px 16px;font-weight:bold;'>{'යවන්න' if student.medium=='Sinhala' else 'Submit Test'}</button></form><p><a href='/student/tests'>Back</a></p></body>
 </html>"""
