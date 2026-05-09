@@ -499,6 +499,35 @@ def is_tap_select_image_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "tap_select_image"
 
 
+def is_drag_drop_group_container_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "drag_drop_group_container"
+
+
+def parse_drag_items_json(raw: str) -> tuple[list[dict], str | None]:
+    try:
+        payload = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return [], "Drag Items JSON must be valid JSON."
+    if not isinstance(payload, list) or not payload:
+        return [], "Drag Items JSON must be a non-empty JSON array."
+    normalized = []
+    for item in payload:
+        if not isinstance(item, dict):
+            return [], "Each drag item must be an object."
+        item_id = str(item.get("id") or "").strip()
+        group = str(item.get("group") or "").strip()
+        if not item_id or not group:
+            return [], "Each drag item must include id and group."
+        normalized.append({
+            "id": item_id,
+            "group": group,
+            "label_en": str(item.get("label_en") or "").strip(),
+            "label_si": str(item.get("label_si") or "").strip(),
+            "image_url": str(item.get("image_url") or "").strip(),
+        })
+    return normalized, None
+
+
 def parse_tap_areas_json(raw: str) -> tuple[list[dict], str | None]:
     try:
         payload = json.loads(raw or "[]")
@@ -612,6 +641,56 @@ def render_tap_select_review(question: "Question", selected_area_id: str, correc
       <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'>{"".join(rects)}</svg>
     </div>
     """
+
+
+def render_drag_drop_group_container_input(question: "Question", medium_key: str = "en") -> str:
+    items = json.loads(question.drag_items_json or "[]")
+    items_html = []
+    for item in items:
+        label = item.get("label_si") if medium_key == "si" else (item.get("label_en") or item.get("label_si") or item.get("group"))
+        items_html.append(f"<div class='drag-item' data-item-id='{escape(str(item.get('id','')))}' data-group='{escape(str(item.get('group','')))}' style='left:0;top:0;'><img src='{escape(str(item.get('image_url','')))}' style='width:46px;height:46px;object-fit:contain;display:block;'><small>{escape(str(label or ''))}</small></div>")
+    return f"""
+    <div class='drag-group-wrap' data-question-id='{question.id}'>
+      <div class='drag-item-bank'>{"".join(items_html)}</div>
+      <div class='drag-basket' data-container='1'><img src='{escape(question.drag_container_image_url or "")}' style='max-width:100%;height:180px;object-fit:contain;'></div>
+      <input type='hidden' name='answer_{question.id}' class='drag-answer-json' value=''>
+      <p class='drag-hint'>{'එකම එළවළු එකට ළඟින් තබන්න.' if medium_key == 'si' else 'Try to keep the same vegetables together.'}</p>
+    </div>
+    """
+
+
+def drag_drop_group_assets() -> str:
+    return """
+    <style>.drag-group-wrap{max-width:520px}.drag-item-bank{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.drag-item{touch-action:none;cursor:grab;padding:4px;border:1px solid #ddd;border-radius:8px;background:#fff;position:relative}.drag-basket{position:relative;border:2px dashed #d1d5db;border-radius:12px;padding:8px;min-height:220px;background:#fafafa}.drag-basket.active{box-shadow:0 0 0 3px rgba(147,197,253,.4)}.drag-item.in-basket{position:absolute;z-index:3}.drag-item.group-good{box-shadow:0 0 0 3px rgba(134,239,172,.6)}</style>
+    <script>
+    function initDragGroupUI(root=document){root.querySelectorAll('.drag-group-wrap').forEach((wrap)=>{if(wrap.dataset.ready==='1')return;wrap.dataset.ready='1';const bank=wrap.querySelector('.drag-item-bank');const basket=wrap.querySelector('.drag-basket');const hidden=wrap.querySelector('.drag-answer-json');const items=[...wrap.querySelectorAll('.drag-item')];items.forEach((el)=>{let sx=0,sy=0,sl=0,st=0;el.addEventListener('pointerdown',(e)=>{el.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;const r=el.getBoundingClientRect();sl=r.left+window.scrollX;st=r.top+window.scrollY;el.style.position='absolute';el.style.left=sl+'px';el.style.top=st+'px';document.body.appendChild(el);});el.addEventListener('pointermove',(e)=>{if(!el.hasPointerCapture(e.pointerId))return;const nx=sl+(e.clientX-sx),ny=st+(e.clientY-sy);el.style.left=nx+'px';el.style.top=ny+'px';const br=basket.getBoundingClientRect();basket.classList.toggle('active',e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom);});el.addEventListener('pointerup',(e)=>{const br=basket.getBoundingClientRect();basket.classList.remove('active');if(e.clientX>=br.left&&e.clientX<=br.right&&e.clientY>=br.top&&e.clientY<=br.bottom){const bx=e.clientX-br.left-25,by=e.clientY-br.top-25;basket.appendChild(el);el.classList.add('in-basket');el.style.left=Math.max(0,bx)+'px';el.style.top=Math.max(0,by)+'px';}else{bank.appendChild(el);el.classList.remove('in-basket');el.style.position='relative';el.style.left='0px';el.style.top='0px';}const placed=[...basket.querySelectorAll('.drag-item')].map((i)=>({id:i.dataset.itemId,group:i.dataset.group,x:parseFloat(i.style.left)||0,y:parseFloat(i.style.top)||0}));hidden.value=JSON.stringify(placed);});});});}
+    document.addEventListener('DOMContentLoaded',()=>initDragGroupUI(document));
+    </script>
+    """
+
+
+def evaluate_drag_drop_group_container_question(question: "Question", form) -> tuple[bool, str]:
+    raw = (form.get(f"answer_{question.id}") or "").strip()
+    try:
+        placed = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return False, raw
+    required = json.loads(question.drag_items_json or "[]")
+    if len(placed) < len(required):
+        return False, raw
+    group_points = {}
+    for item in placed:
+        g = str(item.get("group") or "")
+        group_points.setdefault(g, []).append((float(item.get("x", 0)), float(item.get("y", 0))))
+    threshold = 120.0
+    for points in group_points.values():
+        if len(points) < 2:
+            continue
+        ax = sum(p[0] for p in points) / len(points); ay = sum(p[1] for p in points) / len(points)
+        avg = sum((((p[0]-ax)**2 + (p[1]-ay)**2) ** 0.5) for p in points) / len(points)
+        if avg > threshold:
+            return False, raw
+    return True, raw
 
 
 
@@ -884,6 +963,9 @@ class Question(db.Model):
     matching_answers_si = db.Column(db.Text, nullable=True)
     tap_areas_json = db.Column(db.Text, nullable=True)
     correct_area_id = db.Column(db.String(100), nullable=True)
+    drag_items_json = db.Column(db.Text, nullable=True)
+    drag_container_image_url = db.Column(db.Text, nullable=True)
+    drag_groups_json = db.Column(db.Text, nullable=True)
     image_url = db.Column(db.Text, nullable=True)
     correct_option = db.Column(db.String(1), nullable=False)
     explanation_en = db.Column(db.Text, nullable=False)
@@ -4029,7 +4111,7 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
-    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs", "tap_select_image"}:
+    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs", "tap_select_image", "drag_drop_group_container"}:
         return {}, "Question type must be MCQ, Short Answer, Box Input, Matching Pairs, or Tap Select Image."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
@@ -4048,6 +4130,9 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
     image_url = (request.form.get("image_url") or "").strip()
     tap_areas_json_raw = request.form.get("tap_areas_json") or ""
     correct_area_id = (request.form.get("correct_area_id") or "").strip()
+    drag_items_json_raw = request.form.get("drag_items_json") or ""
+    drag_groups_json_raw = request.form.get("drag_groups_json") or ""
+    drag_container_image_url = (request.form.get("drag_container_image_url") or "").strip()
     difficulty_level_raw = (request.form.get("difficulty_level") or "1").strip()
 
     common_required_values = [
@@ -4072,6 +4157,8 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
         required_values.extend([box_template.strip(), box_answers_raw.strip()])
     elif question_type == "matching_pairs":
         required_values.extend([matching_left_en.strip(), matching_right_en.strip(), matching_answers_en_raw.strip(), matching_left_si.strip(), matching_right_si.strip(), matching_answers_si_raw.strip()])
+    elif question_type == "drag_drop_group_container":
+        required_values.extend([drag_items_json_raw.strip(), drag_groups_json_raw.strip(), drag_container_image_url.strip()])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
     if question_type == "tap_select_image":
@@ -4105,6 +4192,7 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
 
     normalized_matching_answers_en = None
     normalized_matching_answers_si = None
+    normalized_drag_items = None
     if question_type == "matching_pairs":
         left_en = parse_matching_items(matching_left_en)
         right_en = parse_matching_items(matching_right_en)
@@ -4116,6 +4204,16 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
             return {}, err_en or err_si
         if not left_en or not right_en or not left_si or not right_si:
             return {}, "Matching pairs lists cannot be empty."
+    if question_type == "drag_drop_group_container":
+        normalized_drag_items, drag_err = parse_drag_items_json(drag_items_json_raw)
+        if drag_err:
+            return {}, drag_err
+        try:
+            groups = json.loads(drag_groups_json_raw or "[]")
+        except json.JSONDecodeError:
+            return {}, "Drag Groups JSON must be a valid JSON array."
+        if not isinstance(groups, list) or not groups:
+            return {}, "Drag Groups JSON must be a non-empty JSON array."
 
     try:
         difficulty_level = int(difficulty_level_raw)
@@ -4159,6 +4257,9 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
         "matching_answers_si": json.dumps(normalized_matching_answers_si, ensure_ascii=False) if normalized_matching_answers_si is not None else "",
         "tap_areas_json": json.dumps(normalized_tap_areas, ensure_ascii=False) if normalized_tap_areas is not None else "",
         "correct_area_id": correct_area_id,
+        "drag_items_json": json.dumps(normalized_drag_items, ensure_ascii=False) if normalized_drag_items is not None else "",
+        "drag_groups_json": drag_groups_json_raw,
+        "drag_container_image_url": drag_container_image_url,
         "image_url": image_url,
         "difficulty_level": difficulty_level,
     }, None
@@ -4173,6 +4274,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     box_hidden = "" if question_type == "box_input" else "display:none;"
     matching_hidden = "" if question_type == "matching_pairs" else "display:none;"
     tap_select_hidden = "" if question_type == "tap_select_image" else "display:none;"
+    drag_group_hidden = "" if question_type == "drag_drop_group_container" else "display:none;"
     grade = (data.get("grade") or "").strip()
     subject = (data.get("subject") or "").strip()
     selected_term_id = int(data.get("term_id") or 0)
@@ -4211,6 +4313,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
               <option value="matching_pairs" {"selected" if question_type == "matching_pairs" else ""}>Matching Pairs / Join the Pairs</option>
               <option value="tap_select_image" {"selected" if question_type == "tap_select_image" else ""}>Tap / Color Correct Picture</option>
+              <option value="drag_drop_group_container" {"selected" if question_type == "drag_drop_group_container" else ""}>Drag Drop Group Container</option>
             </select>
           </label><br><br>
           <div id="mcq_fields" style="{mcq_hidden}">
@@ -4257,6 +4360,11 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               </select>
             </label><br><br>
           </div>
+          <div id="drag_group_fields" style="{drag_group_hidden}">
+            <label>Container image URL: <input type="text" name="drag_container_image_url" value="{escape(data.get('drag_container_image_url', ''))}"></label><br><br>
+            <label>Drag Items JSON:<br><textarea name="drag_items_json" rows="8" cols="80">{escape(data.get('drag_items_json', ''))}</textarea></label><br><br>
+            <label>Drag Groups JSON:<br><textarea name="drag_groups_json" rows="3" cols="80">{escape(data.get('drag_groups_json', ''))}</textarea></label><br><br>
+          </div>
           <label>Difficulty Level:
             <select name="difficulty_level" required>
               <option value="1" {"selected" if difficulty_level == "1" else ""}>1 Easy</option>
@@ -4277,6 +4385,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
             document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
             document.getElementById("tap_select_fields").style.display = selectedType === "tap_select_image" ? "block" : "none";
+            document.getElementById("drag_group_fields").style.display = selectedType === "drag_drop_group_container" ? "block" : "none";
           }}
         document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u();
           const imageInput=document.querySelector("input[name='image_url']");
@@ -5494,6 +5603,9 @@ def admin_add_question():
         matching_answers_si=form_data["matching_answers_si"] or None,
         tap_areas_json=form_data["tap_areas_json"] or None,
         correct_area_id=form_data["correct_area_id"] or None,
+        drag_items_json=form_data["drag_items_json"] or None,
+        drag_container_image_url=form_data["drag_container_image_url"] or None,
+        drag_groups_json=form_data["drag_groups_json"] or None,
         image_url=form_data["image_url"] or None,
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
@@ -5609,6 +5721,9 @@ def admin_edit_question(question_id: int):
                 "matching_answers_si": question.matching_answers_si or "",
                 "tap_areas_json": question.tap_areas_json or "",
                 "correct_area_id": question.correct_area_id or "",
+                "drag_items_json": question.drag_items_json or "",
+                "drag_container_image_url": question.drag_container_image_url or "",
+                "drag_groups_json": question.drag_groups_json or "",
                 "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
             },
@@ -5659,6 +5774,9 @@ def admin_edit_question(question_id: int):
     question.matching_answers_si = form_data["matching_answers_si"] or None
     question.tap_areas_json = form_data["tap_areas_json"] or None
     question.correct_area_id = form_data["correct_area_id"] or None
+    question.drag_items_json = form_data["drag_items_json"] or None
+    question.drag_container_image_url = form_data["drag_container_image_url"] or None
+    question.drag_groups_json = form_data["drag_groups_json"] or None
     question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
@@ -6207,6 +6325,19 @@ def update_matching_pairs_db() -> tuple[str, int]:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Matching pairs DB update failed: {exc}"}), 500
+
+
+@app.route("/update-drag-drop-db", methods=["GET"])
+def update_drag_drop_db() -> tuple[str, int]:
+    try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_items_json TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_container_image_url TEXT"))
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_groups_json TEXT"))
+        db.session.commit()
+        return "Drag drop database updated successfully", 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Drag drop DB update failed: {exc}"}), 500
 
 @app.route("/update-results-db", methods=["GET"])
 def update_results_db() -> tuple:
