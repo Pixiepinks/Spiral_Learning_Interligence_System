@@ -503,6 +503,15 @@ def is_drag_drop_group_container_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "drag_drop_group_container"
 
 
+def normalize_local_image_url(url: str | None) -> str:
+    value = (url or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://", "//", "data:", "/")):
+        return value
+    return "/" + value
+
+
 def parse_drag_items_json(raw: str) -> tuple[list[dict], str | None]:
     try:
         payload = json.loads(raw or "[]")
@@ -559,7 +568,7 @@ def render_tap_select_image_input(question: "Question", input_prefix: str = "q")
     empty_note = "<p class='tap-select-empty-msg'>Tap areas not configured yet.</p>" if not areas else ""
     return f"""
     <div class='tap-select-wrap' data-areas='{areas_json}' data-hidden-name='{selected_name}'>
-      <img src='{escape(question.image_url or "")}' alt='Tap select question image' class='tap-select-image'>
+      <img src='{escape(normalize_local_image_url(question.image_url or ""))}' alt='Tap select question image' class='tap-select-image'>
       <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'></svg>
       <input type='hidden' name='{selected_name}' value=''>
       {empty_note}
@@ -637,7 +646,7 @@ def render_tap_select_review(question: "Question", selected_area_id: str, correc
         )
     return f"""
     <div class='tap-select-wrap'>
-      <img src='{escape(question.image_url or "")}' alt='Tap select review image' class='tap-select-image'>
+      <img src='{escape(normalize_local_image_url(question.image_url or ""))}' alt='Tap select review image' class='tap-select-image'>
       <svg class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'>{"".join(rects)}</svg>
     </div>
     """
@@ -648,11 +657,11 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
     items_html = []
     for item in items:
         label = item.get("label_si") if medium_key == "si" else (item.get("label_en") or item.get("label_si") or item.get("group"))
-        items_html.append(f"<div class='drag-item' data-item-id='{escape(str(item.get('id','')))}' data-group='{escape(str(item.get('group','')))}' style='left:0;top:0;'><img src='{escape(str(item.get('image_url','')))}' style='width:46px;height:46px;object-fit:contain;display:block;'><small>{escape(str(label or ''))}</small></div>")
+        items_html.append(f"<div class='drag-item' data-item-id='{escape(str(item.get('id','')))}' data-group='{escape(str(item.get('group','')))}' style='left:0;top:0;'><img src='{escape(normalize_local_image_url(str(item.get('image_url',''))))}' style='width:46px;height:46px;object-fit:contain;display:block;'><small>{escape(str(label or ''))}</small></div>")
     return f"""
     <div class='drag-group-wrap' data-question-id='{question.id}'>
       <div class='drag-item-bank'>{"".join(items_html)}</div>
-      <div class='drag-basket' data-container='1'><img src='{escape(question.drag_container_image_url or "")}' style='max-width:100%;height:180px;object-fit:contain;'></div>
+      <div class='drag-basket' data-container='1'><img src='{escape(normalize_local_image_url(question.drag_container_image_url or ""))}' style='max-width:100%;height:180px;object-fit:contain;'></div>
       <input type='hidden' name='answer_{question.id}' class='drag-answer-json' value=''>
       <p class='drag-hint'>{'එකම එළවළු එකට ළඟින් තබන්න.' if medium_key == 'si' else 'Try to keep the same vegetables together.'}</p>
     </div>
@@ -5066,6 +5075,14 @@ def student_chapter_page(chapter_id: int):
       return interaction.question_text_en || interaction.question_text_si || 'Question';
     }}
 
+    function normalizeLocalImageUrl(url) {{
+      if (!url) return '';
+      const v = String(url).trim();
+      if (!v) return '';
+      if (v.startsWith('/') || v.startsWith('http://') || v.startsWith('https://') || v.startsWith('//') || v.startsWith('data:')) return v;
+      return '/' + v;
+    }}
+
     function getInteractionOptions(interaction) {{
       const useSi = (medium || '').toLowerCase() === 'sinhala';
       const opts = [
@@ -5083,7 +5100,7 @@ def student_chapter_page(chapter_id: int):
       const body = document.getElementById('quiz-body');
       const qText = getInteractionQuestionText(interaction);
       const qType = (interaction.question_type || 'mcq').toLowerCase();
-      const imageHtml = (qType !== 'tap_select_image' && interaction.image_url) ? `<p><img src='${{escapeHtml(interaction.image_url)}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
+      const imageHtml = (qType !== 'tap_select_image' && interaction.image_url) ? `<p><img src='${{escapeHtml(normalizeLocalImageUrl(interaction.image_url))}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
       let controlHtml = '';
       if (qType === 'mcq') {{
         const options = getInteractionOptions(interaction);
@@ -5094,6 +5111,12 @@ def student_chapter_page(chapter_id: int):
         controlHtml = `<div>${{escapeHtml(interaction.box_template || '')}}</div><input id='interactive_box_answer' type='text' style='width:100%;padding:8px;margin-top:8px;' placeholder='Enter box input answer'>`;
       }} else if (qType === 'matching_pairs') {{
         controlHtml = "<p>Match the pairs (left->right) using format: 1:A,2:B</p><input id='interactive_matching_answer' type='text' style='width:100%;padding:8px;' placeholder='1:A,2:B'>";
+      }} else if (qType === 'drag_drop_group_container') {{
+        let items = [];
+        try {{ items = JSON.parse(interaction.drag_items_json || '[]'); }} catch(e) {{ items = []; }}
+        const basket = normalizeLocalImageUrl(interaction.drag_container_image_url || '');
+        controlHtml = `<div class='drag-group-wrap' data-question-id='interactive'><div class='drag-item-bank'>${{items.map(it => `<div class='drag-item' data-item-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(String(it.group||''))}}'><img src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}' style='width:46px;height:46px;object-fit:contain;display:block;'></div>`).join('')}}</div><div class='drag-basket' data-container='1'><img src='${{escapeHtml(basket)}}' style='max-width:100%;height:180px;object-fit:contain;'></div><input id='interactive_drag_answer' type='hidden'></div>`;
+        setTimeout(() => {{ initDragGroupUI(document); }}, 0);
       }} else if (qType === 'tap_select_image') {{
         const question = interaction;
         console.log("tap areas", question.tap_areas_json);
@@ -5103,7 +5126,7 @@ def student_chapter_page(chapter_id: int):
         }} catch (e) {{
           areas = [];
         }}
-        controlHtml = `<div class='tap-popup-wrapper' id='interactive_tap_wrapper'><img src='${{escapeHtml(interaction.image_url || '')}}' id='interactive_tap_image' alt='Question image'><input id='interactive_tap_answer' type='hidden'></div><p id='tap_help'>Select an area to continue.</p>`;
+        controlHtml = `<div class='tap-popup-wrapper' id='interactive_tap_wrapper'><img src='${{escapeHtml(normalizeLocalImageUrl(interaction.image_url || ''))}}' id='interactive_tap_image' alt='Question image'><input id='interactive_tap_answer' type='hidden'></div><p id='tap_help'>Select an area to continue.</p>`;
         setTimeout(() => {{
           const wrapper = document.getElementById('interactive_tap_wrapper');
           const img = document.getElementById('interactive_tap_image');
@@ -5164,6 +5187,8 @@ def student_chapter_page(chapter_id: int):
           answerValue = (document.getElementById('interactive_box_answer') || {{value:''}}).value || '';
         }} else if (qType === 'matching_pairs') {{
           answerValue = (document.getElementById('interactive_matching_answer') || {{value:''}}).value || '';
+        }} else if (qType === 'drag_drop_group_container') {{
+          answerValue = (document.querySelector('.drag-group-wrap .drag-answer-json') || {{value:'[]'}}).value || '[]';
         }} else if (qType === 'tap_select_image') {{
           answerValue = (document.getElementById('interactive_tap_answer') || {{value:''}}).value || '';
           if (!answerValue) return;
@@ -6577,13 +6602,15 @@ def test_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
+        image_html = f"<img src='{escape(normalize_local_image_url(q.image_url))}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_matching_pairs_question(q):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_drag_drop_group_container_question(q):
+            answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -6592,7 +6619,7 @@ def test_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -6721,6 +6748,9 @@ def submit_test() -> str:
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
         elif is_tap_select_image_question(q):
             is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
+        elif is_drag_drop_group_container_question(q):
+            is_correct, student_answer = evaluate_drag_drop_group_container_question(q, request.form)
+            correct_answer = 'Grouped in basket'
         elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
@@ -6767,6 +6797,9 @@ def submit_test() -> str:
         elif is_tap_select_image_question(q):
             student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
             correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
+        elif is_drag_drop_group_container_question(q):
+            student_answer_text = escape(student_answer or t(selected_medium, 'not_answered'))
+            correct_answer_text = 'All items inside basket and grouped close' if selected_medium == 'English' else 'සියලු දේ basket තුළ හා එකම කණ්ඩායම් ලඟින්'
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -7159,6 +7192,8 @@ def retest_weak() -> str:
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_drag_drop_group_container_question(q):
+            answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -7423,13 +7458,15 @@ def practice_page() -> str:
     question_blocks = []
     for q in questions:
         question_text = getattr(q, f"question_text_{medium_key}")
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
+        image_html = f"<img src='{escape(normalize_local_image_url(q.image_url))}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_matching_pairs_question(q):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_drag_drop_group_container_question(q):
+            answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -7438,7 +7475,7 @@ def practice_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -7539,6 +7576,9 @@ def submit_practice() -> str:
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
         elif is_tap_select_image_question(q):
             is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
+        elif is_drag_drop_group_container_question(q):
+            is_correct, student_answer = evaluate_drag_drop_group_container_question(q, request.form)
+            correct_answer = 'Grouped in basket'
         elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
@@ -7580,6 +7620,9 @@ def submit_practice() -> str:
         elif is_tap_select_image_question(q):
             student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
             correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
+        elif is_drag_drop_group_container_question(q):
+            student_answer_text = escape(student_answer or t(selected_medium, 'not_answered'))
+            correct_answer_text = 'All items inside basket and grouped close' if selected_medium == 'English' else 'සියලු දේ basket තුළ හා එකම කණ්ඩායම් ලඟින්'
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -7748,18 +7791,20 @@ def student_homework_detail(homework_id: int):
     medium_key = "si" if student.medium == "Sinhala" else "en"
     q_html_parts = []
     for q in questions:
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
+        image_html = f"<img src='{escape(normalize_local_image_url(q.image_url))}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_matching_pairs_question(q):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_drag_drop_group_container_question(q):
+            answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     return f"""<!doctype html>
 <html>
@@ -7886,18 +7931,20 @@ def student_take_test(test_id: int):
     medium_key = "si" if student.medium == "Sinhala" else "en"
     q_html_parts = []
     for q in questions:
-        image_html = f"<img src='{escape(q.image_url)}' alt='Question image' class='question-image'>" if q.image_url else ""
+        image_html = f"<img src='{escape(normalize_local_image_url(q.image_url))}' alt='Question image' class='question-image'>" if q.image_url else ""
         if is_matching_pairs_question(q):
             answer_html = render_matching_pairs_inputs(q, medium_key)
         elif is_box_input_question(q):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_drag_drop_group_container_question(q):
+            answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if is_tap_select_image_question(q) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"""<!doctype html>
