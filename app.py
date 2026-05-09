@@ -4933,7 +4933,7 @@ def student_chapter_page(chapter_id: int):
     db.session.commit()
     return f"""<h1>Chapter Learning</h1>
     <script src='https://www.youtube.com/iframe_api'></script>
-    <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto}} .quiz-card button{{font-size:16px;padding:10px 14px;margin:6px 0}} .quiz-options label{{display:block;margin:8px 0}} .tap-select-wrap{{position:relative;display:inline-block;max-width:100%}} .tap-select-image{{max-width:100%;display:block;border:1px solid #ddd}} .tap-select-overlay{{position:absolute;inset:0;width:100%;height:100%}} .tap-area{{fill:transparent;cursor:pointer}} .tap-area.selected{{fill:rgba(34,197,94,.35);stroke:#16a34a;stroke-width:2}}</style>
+    <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto}} .quiz-card button{{font-size:16px;padding:10px 14px;margin:6px 0}} .quiz-options label{{display:block;margin:8px 0}} .tap-select-wrap{{position:relative;display:inline-block;max-width:100%}} .tap-select-image{{max-width:100%;display:block;border:1px solid #ddd}} .tap-select-overlay{{position:absolute;inset:0;width:100%;height:100%}} .tap-area{{fill:transparent;cursor:pointer}} .tap-area.selected{{fill:rgba(34,197,94,.35);stroke:#16a34a;stroke-width:2}} .tap-popup-wrapper{{position:relative;display:inline-block;max-width:100%}} .tap-popup-wrapper img{{display:block;max-width:100%;height:auto;border:1px solid #ddd;border-radius:6px}} .tap-popup-wrapper .tap-area{{position:absolute;cursor:pointer;background:transparent;border:none;box-sizing:border-box}} .tap-popup-wrapper .tap-area.selected{{background:rgba(34,197,94,0.25);border:2px solid #22c55e}}</style>
     <div id='quiz-overlay' class='quiz-overlay'><div class='quiz-card'><div id='quiz-body'></div></div></div>
     <ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>
     <script>
@@ -4974,7 +4974,7 @@ def student_chapter_page(chapter_id: int):
       const body = document.getElementById('quiz-body');
       const qText = getInteractionQuestionText(interaction);
       const qType = (interaction.question_type || 'mcq').toLowerCase();
-      const imageHtml = interaction.image_url ? `<p><img src='${{escapeHtml(interaction.image_url)}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
+      const imageHtml = (qType !== 'tap_select_image' && interaction.image_url) ? `<p><img src='${{escapeHtml(interaction.image_url)}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
       let controlHtml = '';
       if (qType === 'mcq') {{
         const options = getInteractionOptions(interaction);
@@ -4988,27 +4988,40 @@ def student_chapter_page(chapter_id: int):
       }} else if (qType === 'tap_select_image') {{
         let areas = [];
         try {{ areas = JSON.parse(interaction.tap_areas_json || '[]'); }} catch (e) {{ areas = []; }}
-        controlHtml = `<div class='tap-select-wrap'><img src='${{escapeHtml(interaction.image_url || '')}}' class='tap-select-image'><svg id='interactive_tap_svg' class='tap-select-overlay' viewBox='0 0 100 100' preserveAspectRatio='none'></svg></div><input id='interactive_tap_answer' type='hidden'><p id='tap_help'>Select an area to continue.</p>`;
+        controlHtml = `<div class='tap-popup-wrapper' id='interactive_tap_wrapper'><img src='${{escapeHtml(interaction.image_url || '')}}' id='interactive_tap_image' alt='Question image'><input id='interactive_tap_answer' type='hidden'></div><p id='tap_help'>Select an area to continue.</p>`;
         setTimeout(() => {{
-          const svg = document.getElementById('interactive_tap_svg');
-          if (!svg) return;
-          let selected = '';
-          areas.forEach(area => {{
-            const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-            rect.setAttribute('x', Number(area.x || 0));
-            rect.setAttribute('y', Number(area.y || 0));
-            rect.setAttribute('width', Number(area.w || 0));
-            rect.setAttribute('height', Number(area.h || 0));
-            rect.setAttribute('class','tap-area');
-            rect.addEventListener('click', () => {{
-              selected = String(area.id || '');
-              document.getElementById('interactive_tap_answer').value = selected;
-              svg.querySelectorAll('.tap-area').forEach(n => n.classList.remove('selected'));
-              rect.classList.add('selected');
-              document.getElementById('interactive_continue').disabled = !selected;
+          const wrapper = document.getElementById('interactive_tap_wrapper');
+          const img = document.getElementById('interactive_tap_image');
+          const continueBtn = document.getElementById('interactive_continue');
+          if (!wrapper || !img) return;
+          let selectedAreaId = '';
+          const renderAreas = () => {{
+            wrapper.querySelectorAll('.tap-area').forEach(n => n.remove());
+            areas.forEach(area => {{
+              const x = Number(area.x || 0);
+              const y = Number(area.y || 0);
+              const w = Number(area.w || 0);
+              const h = Number(area.h || 0);
+              const tapArea = document.createElement('div');
+              tapArea.setAttribute('class', 'tap-area');
+              tapArea.style.left = `${{x}}%`;
+              tapArea.style.top = `${{y}}%`;
+              tapArea.style.width = `${{w}}%`;
+              tapArea.style.height = `${{h}}%`;
+              const selectArea = () => {{
+                selectedAreaId = String(area.id || '');
+                document.getElementById('interactive_tap_answer').value = selectedAreaId;
+                wrapper.querySelectorAll('.tap-area').forEach(n => n.classList.remove('selected'));
+                tapArea.classList.add('selected');
+                if (continueBtn) continueBtn.disabled = !selectedAreaId;
+              }};
+              tapArea.addEventListener('click', selectArea);
+              tapArea.addEventListener('pointerdown', (ev) => {{ ev.preventDefault(); selectArea(); }});
+              wrapper.appendChild(tapArea);
             }});
-            svg.appendChild(rect);
-          }});
+          }};
+          if (img.complete) renderAreas();
+          else img.addEventListener('load', renderAreas, {{ once: true }});
         }}, 0);
       }}
       body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{imageHtml}}${{controlHtml}}<button type='button' id='interactive_continue'>Continue</button>`;
