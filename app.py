@@ -6330,6 +6330,9 @@ def update_matching_pairs_db() -> tuple[str, int]:
 @app.route("/update-drag-drop-db", methods=["GET"])
 def update_drag_drop_db() -> tuple[str, int]:
     try:
+        db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(50) DEFAULT 'mcq'"))
+        db.session.execute(db.text("ALTER TABLE question ALTER COLUMN question_type TYPE VARCHAR(50)"))
+        db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_items_json TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_container_image_url TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS drag_groups_json TEXT"))
