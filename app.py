@@ -4986,38 +4986,55 @@ def student_chapter_page(chapter_id: int):
       }} else if (qType === 'matching_pairs') {{
         controlHtml = "<p>Match the pairs (left->right) using format: 1:A,2:B</p><input id='interactive_matching_answer' type='text' style='width:100%;padding:8px;' placeholder='1:A,2:B'>";
       }} else if (qType === 'tap_select_image') {{
+        const question = interaction;
+        console.log("tap areas", question.tap_areas_json);
         let areas = [];
-        try {{ areas = JSON.parse(interaction.tap_areas_json || '[]'); }} catch (e) {{ areas = []; }}
+        try {{
+          areas = JSON.parse(question.tap_areas_json || "[]");
+        }} catch (e) {{
+          areas = [];
+        }}
         controlHtml = `<div class='tap-popup-wrapper' id='interactive_tap_wrapper'><img src='${{escapeHtml(interaction.image_url || '')}}' id='interactive_tap_image' alt='Question image'><input id='interactive_tap_answer' type='hidden'></div><p id='tap_help'>Select an area to continue.</p>`;
         setTimeout(() => {{
           const wrapper = document.getElementById('interactive_tap_wrapper');
           const img = document.getElementById('interactive_tap_image');
+          const hiddenAnswer = document.getElementById('interactive_tap_answer');
           const continueBtn = document.getElementById('interactive_continue');
-          if (!wrapper || !img) return;
+          if (!wrapper || !img || !hiddenAnswer || !continueBtn) return;
           let selectedAreaId = '';
+          wrapper.style.position = 'relative';
+          wrapper.style.display = 'inline-block';
+          img.style.display = 'block';
           const renderAreas = () => {{
             wrapper.querySelectorAll('.tap-area').forEach(n => n.remove());
             areas.forEach(area => {{
               const x = Number(area.x || 0);
               const y = Number(area.y || 0);
-              const w = Number(area.w || 0);
-              const h = Number(area.h || 0);
-              const tapArea = document.createElement('div');
-              tapArea.setAttribute('class', 'tap-area');
-              tapArea.style.left = `${{x}}%`;
-              tapArea.style.top = `${{y}}%`;
-              tapArea.style.width = `${{w}}%`;
-              tapArea.style.height = `${{h}}%`;
+              const w = Number(area.width ?? area.w ?? 0);
+              const h = Number(area.height ?? area.h ?? 0);
+              const areaDiv = document.createElement('div');
+              areaDiv.setAttribute('class', 'tap-area');
+              areaDiv.style.position = 'absolute';
+              areaDiv.style.left = `${{x}}%`;
+              areaDiv.style.top = `${{y}}%`;
+              areaDiv.style.width = `${{w}}%`;
+              areaDiv.style.height = `${{h}}%`;
+              areaDiv.style.zIndex = '10';
+              areaDiv.style.cursor = 'pointer';
+              areaDiv.style.pointerEvents = 'auto';
+              areaDiv.style.background = 'transparent';
               const selectArea = () => {{
                 selectedAreaId = String(area.id || '');
-                document.getElementById('interactive_tap_answer').value = selectedAreaId;
+                hiddenAnswer.value = selectedAreaId;
                 wrapper.querySelectorAll('.tap-area').forEach(n => n.classList.remove('selected'));
-                tapArea.classList.add('selected');
-                if (continueBtn) continueBtn.disabled = !selectedAreaId;
+                areaDiv.classList.add('selected');
+                continueBtn.disabled = false;
               }};
-              tapArea.addEventListener('click', selectArea);
-              tapArea.addEventListener('pointerdown', (ev) => {{ ev.preventDefault(); selectArea(); }});
-              wrapper.appendChild(tapArea);
+              areaDiv.addEventListener("pointerdown", function(e) {{
+                e.preventDefault();
+                selectArea();
+              }});
+              wrapper.appendChild(areaDiv);
             }});
           }};
           if (img.complete) renderAreas();
