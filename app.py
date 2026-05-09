@@ -657,9 +657,12 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
     items_html = []
     for item in items:
         item_src = normalize_local_image_url(str(item.get("image_url", "")))
+        raw_group = str(item.get('group', ''))
+        safe_group = re.sub(r'[^a-z0-9-]+', '-', raw_group.strip().lower()).strip('-')
+        class_suffix = f" dd-item-{safe_group}" if safe_group else ""
         items_html.append(
-            f"<img class='dd-item' data-id='{escape(str(item.get('id','')))}' "
-            f"data-group='{escape(str(item.get('group','')))}' src='{escape(item_src)}'>"
+            f"<img class='dd-item{class_suffix}' data-id='{escape(str(item.get('id','')))}' "
+            f"data-group='{escape(raw_group)}' src='{escape(item_src)}'>"
         )
     basket_src = normalize_local_image_url(question.drag_container_image_url or "")
     return f"""
@@ -676,9 +679,12 @@ def render_drag_drop_group_container_input(question: "Question", medium_key: str
 def drag_drop_group_assets() -> str:
     return """
     <style>
-      .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;gap:12px !important;align-items:center !important;margin:12px 0 18px 0 !important;}
-      .dd-item{width:56px !important;height:56px !important;min-width:56px !important;max-width:56px !important;min-height:56px !important;max-height:56px !important;object-fit:contain !important;flex:0 0 auto !important;display:inline-block !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;left:auto;top:auto;}
-      @media (max-width:768px){.dd-item{width:48px !important;height:48px !important;min-width:48px !important;max-width:48px !important;min-height:48px !important;max-height:48px !important;}}
+      .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;align-items:flex-end !important;gap:18px !important;margin:12px 0 18px 0 !important;}
+      .dd-item{width:168px !important;height:168px !important;min-width:168px !important;max-width:168px !important;min-height:168px !important;max-height:168px !important;object-fit:contain !important;flex:0 0 auto !important;display:inline-block !important;cursor:grab !important;touch-action:none !important;user-select:none !important;position:relative;left:auto;top:auto;}
+      @media (max-width:768px){.dd-item{width:120px !important;height:120px !important;min-width:120px !important;max-width:120px !important;min-height:120px !important;max-height:120px !important;}}
+      .dd-item-carrot{transform:scale(0.85);transform-origin:bottom center;}
+      .dd-item-beet,.dd-item-beetroot,.dd-item-radish{transform:scale(1.00);transform-origin:bottom center;}
+      .dd-item-pumpkin{transform:scale(1.25);transform-origin:bottom center;}
       .dd-drop-zone{position:relative !important;width:min(92vw,430px) !important;height:230px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
       .dd-basket{position:absolute;inset:0;width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}
     </style>
@@ -691,7 +697,7 @@ def drag_drop_group_assets() -> str:
         const hidden = wrap.querySelector(`input[id='answer_${questionId}']`);
         if (!bank || !dropZone || !hidden) return;
         const clamp = (n,min,max)=>Math.min(Math.max(n,min),max);
-        const itemSize = (el)=>Math.max(el.offsetWidth || 0, parseFloat(getComputedStyle(el).width) || 56);
+        const itemSize = (el)=>{ const rect = el.getBoundingClientRect(); return Math.max(rect.width || 0, rect.height || 0, 56); };
         const save = ()=>{
           const placed = {};
           [...dropZone.querySelectorAll('.dd-item')].forEach((el)=>{
