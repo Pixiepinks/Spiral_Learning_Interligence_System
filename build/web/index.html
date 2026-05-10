@@ -8,81 +8,152 @@
     <meta name="theme-color" content="#4f46e5" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Sinhala:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Sinhala:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="bg-orb orb-1"></div><div class="bg-orb orb-2"></div><div class="bg-orb orb-3"></div>
     <header class="top-nav" id="home">
       <div class="container nav-wrap">
-        <a class="logo" href="#home" aria-label="SLIS Home"><span class="logo-mark">SL</span><span>SLIS</span></a>
-        <nav aria-label="Primary"><ul class="nav-links"><li><a href="#home">Home</a></li><li><a href="#features">Features</a></li><li><a href="#preview">Preview</a></li><li><a href="#about">About</a></li><li><a href="#login">Login</a></li></ul></nav>
+        <a class="logo" href="#home" aria-label="SLIS Home">
+          <span class="logo-mark">SL</span>
+          <span>SLIS</span>
+        </a>
+        <nav aria-label="Primary">
+          <ul class="nav-links">
+            <li><a href="#home">Home</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#subjects">Subjects</a></li>
+            <li><a href="#about">About</a></li>
+            <li><a href="#login">Login</a></li>
+          </ul>
+        </nav>
         <a class="btn btn-primary nav-cta" href="#cta">Start Learning</a>
       </div>
     </header>
+
     <main>
       <section class="hero section-pad">
         <div class="container hero-grid">
-          <div class="hero-copy fade-up">
+          <div class="hero-copy">
             <p class="kicker">Sri Lanka's Next-Gen Online School</p>
             <h1>The Future of Learning Starts Here</h1>
-            <p class="sinhala">අනාගත ඉගෙනුමේ ලස්සන ලෝකය — දරුවන්ට සතුටින්, දෙමාපියන්ට විශ්වාසයෙන්.</p>
-            <p class="hero-text">A premium AI-powered learning world for Sri Lankan students, blending emotional motivation, bilingual confidence, and measurable progress in every lesson.</p>
-            <div class="hero-buttons"><a href="#cta" class="btn btn-primary">Start Learning</a><a href="#preview" class="btn btn-secondary">Experience Demo</a></div>
+            <p class="sinhala">අනාගත ඉගෙනුම මෙතැනින් ආරම්භ වෙයි</p>
+            <p class="hero-text">A premium AI-powered classroom designed for Sri Lankan students with joyful, personalized, and safe bilingual learning experiences.</p>
+            <div class="hero-buttons">
+              <a href="#cta" class="btn btn-primary">Start Learning</a>
+              <a href="#preview" class="btn btn-secondary">Watch Demo</a>
+            </div>
           </div>
-          <div class="hero-visual fade-up" aria-hidden="true">
-            <div class="floating badge">🏅 Weekly Champion</div>
-            <div class="floating badge second">🔥 12 Day Streak</div>
-            <div class="floating badge third">⭐ +250 XP</div>
-            <div class="screen glass">
-              <div class="screen-header"><span></span><span></span><span></span></div>
+          <div class="hero-visual" aria-hidden="true">
+            <div class="screen glow">
+              <div class="screen-header">
+                <span></span><span></span><span></span>
+              </div>
               <div class="screen-body">
-                <div class="student-strip">
-                  <img src="https://images.unsplash.com/photo-1526634332515-d56c5fd16991?auto=format&fit=crop&w=400&q=80" alt="Happy Sri Lankan student" />
-                  <img src="https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=400&q=80" alt="Students learning together" />
-                </div>
                 <div class="child-card">
-                  <h3>AI Learning Mission</h3>
-                  <p>🇱🇰 Sinhala + English activities, rewards, and smart teacher support.</p>
-                  <div class="mini-icons"><span>🧩</span><span>📚</span><span>🎯</span><span>💡</span></div>
+                  <h3>AI Classroom</h3>
+                  <p>Smart lessons + rewards + teacher support</p>
                 </div>
+                <div class="floating badge">⭐ Daily Streak</div>
+                <div class="floating badge second">🏅 Level Up</div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
+      <section id="features" class="section-pad">
+        <div class="container">
+          <h2>Why SLIS</h2>
+          <div class="grid cards-5">
+            <article class="card"><h3>Smart Learning</h3><p>Adaptive paths that fit each child's speed and style.</p></article>
+            <article class="card"><h3>Interactive Activities</h3><p>Games, quizzes, and visual tasks that make lessons exciting.</p></article>
+            <article class="card"><h3>AI-Powered Education</h3><p>Real-time feedback and guidance through intelligent tools.</p></article>
+            <article class="card"><h3>Sinhala + English</h3><p>Bilingual learning so students learn comfortably and confidently.</p></article>
+            <article class="card"><h3>Personalized Growth</h3><p>Continuous progress insights with tailored improvement goals.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="subjects" class="section-pad alt">
+        <div class="container">
+          <h2>Subjects Students Love</h2>
+          <div class="grid subjects-grid">
+            <article class="subject-card">📐 <span>Mathematics</span></article>
+            <article class="subject-card">📝 <span>Sinhala</span></article>
+            <article class="subject-card">🌍 <span>English</span></article>
+            <article class="subject-card">🌱 <span>Environment</span></article>
+            <article class="subject-card">☸️ <span>Buddhism</span></article>
+            <article class="subject-card">🔬 <span>Science</span></article>
+          </div>
+        </div>
+      </section>
+
       <section id="preview" class="section-pad">
         <div class="container">
-          <h2>Interactive Learning World Preview</h2>
-          <div class="learning-world glass fade-up">
-            <div class="world-top"><span class="chip">Grade 4 • Mathematics</span><span class="chip">Sinhala + English Mode</span><span class="chip xp">XP 1840</span></div>
-            <div class="world-grid">
-              <article class="world-card drag"><h3>Drag & Drop Quest</h3><p>Match shapes to words: <strong>වෘත්තය / Circle</strong></p><div class="drag-row"><span class="pill">🔵 Circle</span><span class="pill">🟧 Square</span><span class="slot">Drop Here</span></div></article>
-              <article class="world-card reward"><h3>Reward Burst</h3><p>Correct answer streak unlocked.</p><div class="stars">⭐⭐⭐⭐⭐</div><div class="meter"><span style="width:78%"></span></div><small>Level Progress 78%</small></article>
-              <article class="world-card track"><h3>Parent Progress Tracking</h3><ul><li>Reading: <b>92%</b></li><li>Math Speed: <b>+18%</b></li><li>Confidence: <b>High</b></li></ul></article>
-              <article class="world-card game"><h3>Gamified Learning Cards</h3><div class="game-cards"><span>Vocabulary Sprint</span><span>Science Explorer</span><span>Sinhala Story Lab</span></div></article>
-            </div>
+          <h2>Interactive Learning Preview</h2>
+          <div class="grid preview-grid">
+            <div class="preview-box">✅ Quiz Boxes</div>
+            <div class="preview-box">🧩 Drag &amp; Drop</div>
+            <div class="preview-box">🖥️ Smartboard Learning</div>
+            <div class="preview-box">🎁 Rewards System</div>
+            <div class="preview-box">🏆 Student Achievements</div>
           </div>
         </div>
       </section>
 
-      <section id="features" class="section-pad alt">
+      <section id="about" class="section-pad alt">
         <div class="container">
-          <h2>Why Families Choose SLIS</h2>
-          <div class="grid cards-5">
-            <article class="card"><h3>Adaptive AI Paths</h3><p>Every child receives personalized challenges and support.</p></article>
-            <article class="card"><h3>Emotionally Engaging</h3><p>Visual rewards, celebrations, and momentum keep learning joyful.</p></article>
-            <article class="card"><h3>Bilingual Mastery</h3><p>Sinhala and English integrated naturally in every activity.</p></article>
-            <article class="card"><h3>Parent Visibility</h3><p>Track progress, streaks, and strengths with clear analytics.</p></article>
-            <article class="card"><h3>Future-Ready Skills</h3><p>Critical thinking and confidence for tomorrow's world.</p></article>
+          <h2>Built for Parent Trust</h2>
+          <div class="grid trust-grid">
+            <article class="card"><h3>Safe Environment</h3><p>Secure, moderated, and child-friendly digital classrooms.</p></article>
+            <article class="card"><h3>Progress Tracking</h3><p>Parents can see growth, strengths, and areas to improve.</p></article>
+            <article class="card"><h3>Teacher Guidance</h3><p>Qualified teachers and smart support every step.</p></article>
           </div>
         </div>
       </section>
 
-      <section id="cta" class="section-pad cta"><div class="container"><h2>Build Your Child's Bright Learning Future Today</h2><p>Join SLIS and experience a premium AI-powered school built for Sri Lankan learners.</p><a class="btn btn-primary" href="#login">Start Learning</a></div></section>
+      <section class="section-pad">
+        <div class="container achievements">
+          <h2>Student Achievement System</h2>
+          <ul>
+            <li>⭐ Stars for completed lessons</li>
+            <li>🏅 Badges for milestones</li>
+            <li>📈 Progress levels to unlock</li>
+            <li>🔥 Daily streak motivation</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section-pad alt">
+        <div class="container">
+          <h2>What Families Say</h2>
+          <div class="grid testimonials">
+            <blockquote>"My daughter is now excited to study every evening. SLIS feels magical and structured."<cite>— Parent, Colombo</cite></blockquote>
+            <blockquote>"I can track my son's progress and support him better. Very professional platform."<cite>— Parent, Galle</cite></blockquote>
+            <blockquote>"I love the badges and quizzes. Learning is fun and I feel proud!"<cite>— Grade 4 Student, Kandy</cite></blockquote>
+          </div>
+        </div>
+      </section>
+
+      <section id="cta" class="section-pad cta">
+        <div class="container">
+          <h2>Start Your Learning Journey Today</h2>
+          <p>Join SLIS and give your child a future-ready education experience.</p>
+          <a class="btn btn-primary" href="#login">Start Learning</a>
+        </div>
+      </section>
     </main>
 
-    <footer id="login" class="footer"><div class="container footer-grid"><p>&copy; 2026 SLIS</p><a href="#">Contact</a><a href="#">WhatsApp</a><a href="#about">About</a><a href="#">Privacy</a><a href="#">Social Links</a></div></footer>
+    <footer id="login" class="footer">
+      <div class="container footer-grid">
+        <p>&copy; 2026 SLIS</p>
+        <a href="#">Contact</a>
+        <a href="#">WhatsApp</a>
+        <a href="#about">About</a>
+        <a href="#">Privacy</a>
+        <a href="#">Social Links</a>
+      </div>
+    </footer>
   </body>
 </html>
