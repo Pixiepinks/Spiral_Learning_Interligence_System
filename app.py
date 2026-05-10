@@ -687,6 +687,14 @@ def drag_drop_group_assets() -> str:
       .dd-item-pumpkin{transform:scale(1.25);transform-origin:bottom center;}
       .dd-drop-zone{position:relative !important;width:min(92vw,430px) !important;height:230px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
       .dd-basket{position:absolute;inset:0;width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}
+      .interactive-drag-drop-question{max-width:100%;overflow:hidden;}
+      .interactive-drag-drop-question .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;justify-content:center !important;align-items:flex-end !important;gap:10px !important;margin:8px 0 10px 0 !important;}
+      .interactive-drag-drop-question .dd-item{width:72px !important;height:72px !important;min-width:72px !important;max-width:72px !important;min-height:72px !important;max-height:72px !important;}
+      .interactive-drag-drop-question .dd-drop-zone{width:min(86vw,360px) !important;height:185px !important;margin:0 auto !important;}
+      @media (max-width:768px){
+        .interactive-drag-drop-question .dd-item{width:58px !important;height:58px !important;min-width:58px !important;max-width:58px !important;min-height:58px !important;max-height:58px !important;}
+        .interactive-drag-drop-question .dd-drop-zone{width:min(84vw,320px) !important;height:165px !important;}
+      }
     </style>
     <script>
     function initDragGroupUI(root=document){
@@ -694,7 +702,7 @@ def drag_drop_group_assets() -> str:
         const questionId = wrap.dataset.questionId || '';
         const bank = wrap.querySelector('.drag-items-row');
         const dropZone = wrap.querySelector('.dd-drop-zone');
-        const hidden = wrap.querySelector(`input[id='answer_${questionId}']`);
+        const hidden = wrap.querySelector(`input[id='answer_${questionId}']`) || wrap.querySelector('#interactive_drag_answer') || wrap.querySelector('.drag-answer-json');
         if (!bank || !dropZone || !hidden) return;
         const clamp = (n,min,max)=>Math.min(Math.max(n,min),max);
         const itemSize = (el)=>{ const rect = el.getBoundingClientRect(); return Math.max(rect.width || 0, rect.height || 0, 56); };
@@ -5199,8 +5207,12 @@ def student_chapter_page(chapter_id: int):
         let items = [];
         try {{ items = JSON.parse(interaction.drag_items_json || '[]'); }} catch(e) {{ items = []; }}
         const basket = normalizeLocalImageUrl(interaction.drag_container_image_url || '');
-        controlHtml = `<div class='drag-drop-question' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => `<img class='dd-item' data-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(String(it.group||''))}}' src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}'>`).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}'></div><input id='interactive_drag_answer' type='hidden'></div>`;
-        setTimeout(() => {{ initDragGroupUI(document); }}, 0);
+        controlHtml = `<div class='drag-drop-question interactive-drag-drop-question' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => {{
+          const rawGroup = String(it.group || '');
+          const safeGroup = rawGroup.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+          const extraClass = safeGroup ? (' dd-item-' + safeGroup) : '';
+          return `<img class='dd-item${{extraClass}}' data-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(rawGroup)}}' src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}'>`;
+        }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}'></div><input id='interactive_drag_answer' name='answer_interactive' type='hidden' value=''></div>`;
       }} else if (qType === 'tap_select_image') {{
         const question = interaction;
         console.log("tap areas", question.tap_areas_json);
@@ -5258,6 +5270,9 @@ def student_chapter_page(chapter_id: int):
         }}, 0);
       }}
       body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{imageHtml}}${{controlHtml}}<button type='button' id='interactive_continue'>Continue</button>`;
+      setTimeout(() => {{
+        if (window.initDragGroupUI) window.initDragGroupUI(body);
+      }}, 0);
       const continueBtn = document.getElementById('interactive_continue');
       if (qType === 'tap_select_image') continueBtn.disabled = true;
       continueBtn.addEventListener('click', () => {{
@@ -5272,7 +5287,7 @@ def student_chapter_page(chapter_id: int):
         }} else if (qType === 'matching_pairs') {{
           answerValue = (document.getElementById('interactive_matching_answer') || {{value:''}}).value || '';
         }} else if (qType === 'drag_drop_group_container') {{
-          answerValue = (document.querySelector('.drag-group-wrap .drag-answer-json') || {{value:'[]'}}).value || '[]';
+          answerValue = document.getElementById('interactive_drag_answer')?.value || '';
         }} else if (qType === 'tap_select_image') {{
           answerValue = (document.getElementById('interactive_tap_answer') || {{value:''}}).value || '';
           if (!answerValue) return;
@@ -5285,6 +5300,11 @@ def student_chapter_page(chapter_id: int):
     function handleInteractionAnswer(answerValue) {{
       if (!activeInteraction) return;
       const {{contentId, interaction}} = activeInteraction;
+      fetch('/student/video-interaction/answer', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ interaction_id: interaction.id, answer: answerValue }})
+      }}).catch(() => null);
       answeredInteractionIds.add(interaction.id);
       document.getElementById('quiz-overlay').style.display = 'none';
       activeInteraction = null;
@@ -5329,6 +5349,46 @@ def student_chapter_page(chapter_id: int):
       }});
     }}
     </script>"""
+
+
+@app.route("/student/video-interaction/answer", methods=["POST"])
+def student_video_interaction_answer():
+    student = student_session_required()
+    payload = request.get_json(silent=True) or {}
+    interaction_id = payload.get("interaction_id")
+    answer = str(payload.get("answer") or "")
+    if not interaction_id:
+        return jsonify({"ok": False, "error": "Missing interaction_id"}), 400
+    interaction = db.session.get(VideoInteraction, int(interaction_id))
+    if not interaction:
+        return jsonify({"ok": False, "error": "Interaction not found"}), 404
+    question = db.session.get(Question, interaction.question_id)
+    if not question:
+        return jsonify({"ok": False, "error": "Question not found"}), 404
+    question_type = (question.question_type or "mcq").strip().lower()
+    is_correct = False
+    if question_type == "mcq":
+        is_correct = (answer.strip().upper() == (question.correct_option or "").strip().upper())
+    elif question_type == "short_answer":
+        is_correct = (answer.strip().lower() == (question.correct_answer_text or "").strip().lower())
+    elif question_type == "box_input":
+        is_correct = (answer.strip().lower() == (question.box_answers or "").strip().lower())
+    elif question_type == "matching_pairs":
+        is_correct = (answer.strip().lower() == (question.matching_answers_en or "").strip().lower() or answer.strip().lower() == (question.matching_answers_si or "").strip().lower())
+    elif question_type == "tap_select_image":
+        is_correct = (answer.strip() == (question.correct_area_id or "").strip())
+    elif question_type == "drag_drop_group_container":
+        form_like = {f"answer_{question.id}": answer}
+        is_correct, _ = evaluate_drag_drop_group_container_question(question, form_like)
+    attempt = StudentVideoInteractionAttempt(
+        student_id=student.id,
+        interaction_id=interaction.id,
+        answer_text=answer,
+        is_correct=bool(is_correct),
+    )
+    db.session.add(attempt)
+    db.session.commit()
+    return jsonify({"ok": True, "is_correct": bool(is_correct)})
 
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
 def admin_edit_school(school_id: int):
