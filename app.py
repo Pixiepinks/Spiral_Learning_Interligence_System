@@ -5103,29 +5103,32 @@ def student_chapter_page(chapter_id: int):
                 "required": i.required_answer,
                 "pause": i.pause_video,
                 "question_text": q.question_text_si if student.medium == "Sinhala" else q.question_text_en,
-                "question_text_en": q.question_text_en,
-                "question_text_si": q.question_text_si,
-                "image_url": q.image_url,
-                "option_a_en": q.option_a_en,
-                "option_b_en": q.option_b_en,
-                "option_c_en": q.option_c_en,
-                "option_d_en": q.option_d_en,
-                "option_a_si": q.option_a_si,
-                "option_b_si": q.option_b_si,
-                "option_c_si": q.option_c_si,
-                "option_d_si": q.option_d_si,
-                "correct_option": q.correct_option,
-                "correct_answer_text": q.correct_answer_text,
-                "box_template": q.box_template,
-                "box_answers": q.box_answers,
-                "matching_left_en": q.matching_left_en,
-                "matching_right_en": q.matching_right_en,
-                "matching_answers_en": q.matching_answers_en,
-                "matching_left_si": q.matching_left_si,
-                "matching_right_si": q.matching_right_si,
-                "matching_answers_si": q.matching_answers_si,
-                "tap_areas_json": q.tap_areas_json,
-                "correct_area_id": q.correct_area_id,
+                "question_text_en": q.question_text_en or "",
+                "question_text_si": q.question_text_si or "",
+                "image_url": q.image_url or "",
+                "drag_items_json": q.drag_items_json or "[]",
+                "drag_container_image_url": q.drag_container_image_url or "",
+                "drag_groups_json": q.drag_groups_json or "",
+                "option_a_en": q.option_a_en or "",
+                "option_b_en": q.option_b_en or "",
+                "option_c_en": q.option_c_en or "",
+                "option_d_en": q.option_d_en or "",
+                "option_a_si": q.option_a_si or "",
+                "option_b_si": q.option_b_si or "",
+                "option_c_si": q.option_c_si or "",
+                "option_d_si": q.option_d_si or "",
+                "correct_option": q.correct_option or "",
+                "correct_answer_text": q.correct_answer_text or "",
+                "box_template": q.box_template or "",
+                "box_answers": q.box_answers or "",
+                "matching_left_en": q.matching_left_en or "[]",
+                "matching_right_en": q.matching_right_en or "[]",
+                "matching_answers_en": q.matching_answers_en or "{}",
+                "matching_left_si": q.matching_left_si or "[]",
+                "matching_right_si": q.matching_right_si or "[]",
+                "matching_answers_si": q.matching_answers_si or "{}",
+                "tap_areas_json": q.tap_areas_json or "[]",
+                "correct_area_id": q.correct_area_id or "",
                 "answer_data": {
                     "correct_answer": correct_answer,
                     "explanation_en": q.explanation_en,
@@ -5144,6 +5147,7 @@ def student_chapter_page(chapter_id: int):
     return f"""<h1>Chapter Learning</h1>
     <script src='https://www.youtube.com/iframe_api'></script>
     <style>.quiz-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999}} .quiz-card{{background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto}} .quiz-card button{{font-size:16px;padding:10px 14px;margin:6px 0}} .quiz-options label{{display:block;margin:8px 0}} .tap-select-wrap{{position:relative;display:inline-block;max-width:100%}} .tap-select-image{{max-width:100%;display:block;border:1px solid #ddd}} .tap-select-overlay{{position:absolute;inset:0;width:100%;height:100%}} .tap-area{{fill:transparent;cursor:pointer}} .tap-area.selected{{fill:rgba(34,197,94,.35);stroke:#16a34a;stroke-width:2}} .tap-popup-wrapper{{position:relative;display:inline-block;max-width:100%}} .tap-popup-wrapper img{{display:block;max-width:100%;height:auto;border:1px solid #ddd;border-radius:6px}} .tap-popup-wrapper .tap-area{{position:absolute;cursor:pointer;background:transparent;border:none;box-sizing:border-box}} .tap-popup-wrapper .tap-area.selected{{background:rgba(34,197,94,0.25);border:2px solid #22c55e}}</style>
+    {drag_drop_group_assets()}
     <div id='quiz-overlay' class='quiz-overlay'><div class='quiz-card'><div id='quiz-body'></div></div></div>
     <ol>{''.join(items_html)}</ol><p><a href='/student/learning-path'>Back to path</a></p>
     <script>
@@ -5204,15 +5208,20 @@ def student_chapter_page(chapter_id: int):
       }} else if (qType === 'matching_pairs') {{
         controlHtml = "<p>Match the pairs (left->right) using format: 1:A,2:B</p><input id='interactive_matching_answer' type='text' style='width:100%;padding:8px;' placeholder='1:A,2:B'>";
       }} else if (qType === 'drag_drop_group_container') {{
+        const rawItems = interaction.drag_items_json || '[]';
         let items = [];
-        try {{ items = JSON.parse(interaction.drag_items_json || '[]'); }} catch(e) {{ items = []; }}
+        try {{ items = JSON.parse(rawItems); }} catch(e) {{ items = []; }}
         const basket = normalizeLocalImageUrl(interaction.drag_container_image_url || '');
-        controlHtml = `<div class='drag-drop-question interactive-drag-drop-question' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => {{
-          const rawGroup = String(it.group || '');
-          const safeGroup = rawGroup.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
-          const extraClass = safeGroup ? (' dd-item-' + safeGroup) : '';
-          return `<img class='dd-item${{extraClass}}' data-id='${{escapeHtml(String(it.id||''))}}' data-group='${{escapeHtml(rawGroup)}}' src='${{escapeHtml(normalizeLocalImageUrl(it.image_url||''))}}'>`;
-        }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}'></div><input id='interactive_drag_answer' name='answer_interactive' type='hidden' value=''></div>`;
+        if (!items.length || !basket) {{
+          controlHtml = `<p style="color:#b45309;">Drag-drop assets are missing for this interactive question. Please check Drag Items JSON and Container Image URL in admin question setup.</p>`;
+        }} else {{
+          const safeGroupClass = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+          controlHtml = `<div class='drag-drop-question interactive-drag-drop-question' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => {{
+            const group = String(it.group || '');
+            const groupClass = safeGroupClass(group);
+            return `<img class="dd-item ${{groupClass ? `dd-item-${{groupClass}}` : ''}}" data-id="${{escapeHtml(String(it.id || ''))}}" data-group="${{escapeHtml(group)}}" src="${{escapeHtml(normalizeLocalImageUrl(it.image_url || ''))}}" alt="${{escapeHtml(String(it.label_si || it.label_en || it.group || 'drag item'))}}">`;
+          }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}' alt='drop container'></div><input id='interactive_drag_answer' class='drag-answer-json' name='answer_interactive' type='hidden' value=''></div>`;
+        }}
       }} else if (qType === 'tap_select_image') {{
         const question = interaction;
         console.log("tap areas", question.tap_areas_json);
@@ -5287,7 +5296,7 @@ def student_chapter_page(chapter_id: int):
         }} else if (qType === 'matching_pairs') {{
           answerValue = (document.getElementById('interactive_matching_answer') || {{value:''}}).value || '';
         }} else if (qType === 'drag_drop_group_container') {{
-          answerValue = document.getElementById('interactive_drag_answer')?.value || '';
+          answerValue = (document.getElementById('interactive_drag_answer') || {{value:'{{}}'}}).value || '{{}}';
         }} else if (qType === 'tap_select_image') {{
           answerValue = (document.getElementById('interactive_tap_answer') || {{value:''}}).value || '';
           if (!answerValue) return;
