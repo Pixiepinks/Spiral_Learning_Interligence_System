@@ -7,7 +7,7 @@ from fractions import Fraction
 from html import escape
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from flask import Flask, jsonify, redirect, request, session, url_for
+from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -1530,9 +1530,20 @@ def build_generated_question(grade: str, subject: str, topic: str, difficulty_le
     }
 
 
+FRONTEND_BUILD_DIR = os.path.join(app.root_path, "build", "web")
+
+
 @app.route("/")
-def home() -> str:
-    return "Spiral Learning System Running"
+def home() -> object:
+    return send_from_directory(FRONTEND_BUILD_DIR, "index.html")
+
+
+@app.route("/<path:path>")
+def frontend_static_or_spa(path: str) -> object:
+    file_path = os.path.join(FRONTEND_BUILD_DIR, path)
+    if os.path.isfile(file_path):
+        return send_from_directory(FRONTEND_BUILD_DIR, path)
+    return send_from_directory(FRONTEND_BUILD_DIR, "index.html")
 
 
 @app.route("/create-db")
