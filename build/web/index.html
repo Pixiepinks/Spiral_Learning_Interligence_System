@@ -6,52 +6,82 @@
     <title>SLIS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="page-bg"></div>
+
     <header class="slis-header" id="home">
       <div class="header-inner">
-        <a class="logo-wrap" href="#home" aria-label="SLIS Home">
-          <img src="assets/slis-logo.png" alt="SLIS logo" class="slis-logo" />
-        </a>
+        <a class="logo-wrap" href="#home" aria-label="SLIS Home"><img src="assets/slis-logo.png" alt="SLIS logo" class="slis-logo" /></a>
 
         <div class="center-zone">
           <form class="search-shell" role="search" aria-label="Site search">
-            <button class="icon-chip left" type="button" aria-label="Search">
-              <span class="icon">🔍</span>
-            </button>
-            <input
-              type="text"
-              placeholder="What do you want to learn today?"
-              aria-label="What do you want to learn today?"
-            />
-            <button class="icon-chip right" type="button" aria-label="Voice search">
-              <span class="icon">🎤</span>
-            </button>
+            <button class="icon-chip left" type="button" aria-label="Search">🔍</button>
+            <input type="text" placeholder="What do you want to learn today?" aria-label="What do you want to learn today?" />
+            <button class="icon-chip right" type="button" aria-label="Voice search">🎤</button>
           </form>
-
           <nav class="header-nav" aria-label="Primary">
-            <a href="#">For Learners</a>
-            <a href="#">For Educators</a>
-            <a href="#">For Parents</a>
-            <a href="#">For Institute</a>
+            <a href="#">For Learners</a><a href="#">For Educators</a><a href="#">For Parents</a><a href="#">For Institute</a>
           </nav>
         </div>
 
         <div class="header-actions" aria-label="Account actions">
-          <a href="#" class="action-btn become-member" aria-label="Become a Member">
-            <img src="assets/btn-become-member.png" alt="Become a Member" />
-          </a>
-          <a href="#" class="action-btn members-login" aria-label="Members Login">
-            <img src="assets/btn-members-login.png" alt="Members Login" />
-          </a>
+          <a href="#" class="action-btn"><img src="assets/btn-become-member.png" alt="Become a Member" /></a>
+          <a href="#" class="action-btn members-login"><img src="assets/btn-members-login.png" alt="Members Login" /></a>
         </div>
       </div>
     </header>
 
     <main>
-      <section class="blank-content" aria-hidden="true"></section>
+      <section class="hero">
+        <div class="hero-left">
+          <p class="badge">⭐ Sri Lanka’s Most Advanced AI Learning Platform</p>
+          <h1>The Future of <span>Learning</span> Starts Here</h1>
+          <p class="sinhala">අනාගත ඉගෙනුම මෙතැනින් ආරම්භ වෙයි</p>
+          <p class="support">AI-powered personalized learning for Sri Lanka’s next generation. Smart. Fun. Effective.</p>
+          <div class="cta-row"><a href="#" class="cta primary">🎓 Start Learning</a><a href="#" class="cta secondary">▶ Explore Activities</a></div>
+          <div class="features">
+            <div><b>📘</b><strong>10,000+ </strong><span>Activities</span></div>
+            <div><b>🧠</b><strong>AI-Powered </strong><span>Learning</span></div>
+            <div><b>🌐</b><strong>Sinhala + </strong><span>English</span></div>
+            <div><b>🛡️</b><strong>Safe & Secure </strong><span>for Kids</span></div>
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="card streak">🔥 <div><small>Daily Streak</small><h3>7 Days</h3><p>✔ ✔ ✔ ✔ ✔ ○</p></div></div>
+          <div class="card xp">🏅 <div><h3>+50 XP</h3><p>Great Job!</p></div></div>
+          <div class="card progress"><p>Your Progress</p><div class="ring"><span>75%</span></div><small>Keep Going!</small></div>
+
+          <div class="card ai">🤖<h3>Hi! I’m SLIS AI</h3><p>Let’s learn something new today!</p></div>
+
+          <div class="card activity">
+            <h3>Drag the vegetables into the basket</h3>
+            <div class="tiles"><span>🥕</span><span>🍅</span><span>🥦</span></div>
+            <div class="basket">🧺</div>
+            <div class="hand">☝️</div>
+          </div>
+
+          <div class="subjects">
+            <div class="card subject sinhala"><h4>සිංහල</h4><p>Sinhala</p></div>
+            <div class="card subject math"><h4>Mathematics</h4><p>Numbers & Algebra</p></div>
+            <div class="card subject english"><h4>English</h4><p>Reading & Writing</p></div>
+          </div>
+
+          <div class="card smart"><h3>Smart Class <span>● Live</span></h3><div class="board">2 + 3 = 5</div><p>👩‍🏫</p></div>
+          <div class="card student"><small>Student</small><h3>Dineth</h3><p>Level 12</p><div class="bar"><i></i></div><span>1200 / 2000 XP</span></div>
+          <div class="card achievement">🏆<h3>Achievement<br />Math Master</h3><p>⭐ ⭐ ⭐</p></div>
+        </div>
+      </section>
+
+      <section class="stats-strip">
+        <div><b>👥</b><h4>50,000+</h4><p>Happy Learners</p></div>
+        <div><b>🎓</b><h4>1,000+</h4><p>Smart Lessons</p></div>
+        <div><b>🏆</b><h4>500+</h4><p>Achievements</p></div>
+        <div><b>🎖️</b><h4>99%</h4><p>Learning Success</p></div>
+      </section>
     </main>
   </body>
 </html>
