@@ -1,7 +1,7 @@
 :root {
   --header-bg: #152f6c;
   --search-border: #b896f3;
-  --search-glow: rgba(171, 123, 255, 0.28);
+  --search-glow: rgba(171, 123, 255, 0.2);
   --nav-white: #f8fbff;
 }
 
@@ -29,16 +29,16 @@ body {
     radial-gradient(620px 160px at 14% 0%, rgba(160, 140, 255, 0.12), transparent 58%),
     linear-gradient(180deg, #1a3b86 0%, #152f6c 46%, #12285d 100%);
   width: 100%;
-  min-height: 128px;
-  padding: 8px 0 10px;
+  min-height: 92px;
+  padding: 5px 0 6px;
 }
 
 .header-inner {
   width: min(1366px, 100%);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 204px minmax(500px, 1fr) 266px;
-  gap: 12px;
+  grid-template-columns: 188px minmax(500px, 1fr) 244px;
+  gap: 8px;
   align-items: center;
   padding: 0 16px;
 }
@@ -51,7 +51,7 @@ body {
 }
 
 .slis-logo {
-  width: 154px;
+  width: 140px;
   max-width: 100%;
   height: auto;
   transform: translateY(-1px);
@@ -61,17 +61,17 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 12px;
 }
 
 .search-shell {
-  height: 58px;
+  height: 52px;
   border-radius: 999px;
   background: #fff;
-  border: 3px solid var(--search-border);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 0 10px var(--search-glow);
+  border: 2.5px solid var(--search-border);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.12), 0 0 7px var(--search-glow);
   display: grid;
-  grid-template-columns: 60px 1fr 60px;
+  grid-template-columns: 54px 1fr 54px;
   align-items: center;
   overflow: hidden;
 }
@@ -83,7 +83,7 @@ body {
   outline: none;
   font-family: "Nunito", sans-serif;
   font-weight: 700;
-  font-size: clamp(0.96rem, 1.25vw, 1.45rem);
+  font-size: clamp(0.92rem, 1.18vw, 1.28rem);
   color: #5f6880;
   padding: 0 4px;
 }
@@ -94,8 +94,8 @@ body {
 }
 
 .icon-chip {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 50%;
   margin: 0 auto;
@@ -107,7 +107,7 @@ body {
 }
 
 .icon-chip .icon {
-  font-size: 1.15rem;
+  font-size: 1.02rem;
   line-height: 1;
 }
 
@@ -120,8 +120,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-evenly;
-  gap: 10px;
-  padding: 0 8px;
+  gap: 12px;
+  padding: 0 8px 0;
 }
 
 .header-nav a {
@@ -129,7 +129,7 @@ body {
   color: var(--nav-white);
   font-family: "Baloo 2", "Nunito", sans-serif;
   font-weight: 700;
-  font-size: clamp(1.14rem, 1.55vw, 1.48rem);
+  font-size: clamp(1.06rem, 1.42vw, 1.32rem);
   line-height: 1.05;
   letter-spacing: 0.15px;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.24);
@@ -153,19 +153,19 @@ body {
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
   padding-right: 4px;
 }
 
 .action-btn img {
   display: block;
-  width: 244px;
+  width: 228px;
   height: auto;
   transition: transform 0.24s ease, filter 0.24s ease;
 }
 
 .members-login img {
-  width: 222px;
+  width: 206px;
 }
 
 .action-btn:hover img {
@@ -174,95 +174,95 @@ body {
 }
 
 .blank-content {
-  min-height: calc(100vh - 128px);
+  min-height: calc(100vh - 92px);
   background: #efefef;
 }
 
 @media (max-width: 1190px) {
   .header-inner {
-    grid-template-columns: 172px 1fr 214px;
+    grid-template-columns: 160px 1fr 198px;
     gap: 10px;
   }
 
   .slis-logo {
-    width: 138px;
+    width: 126px;
   }
 
   .header-nav a {
-    font-size: clamp(1.04rem, 1.8vw, 1.3rem);
+    font-size: clamp(0.98rem, 1.62vw, 1.2rem);
   }
 
   .action-btn img {
-    width: 196px;
+    width: 182px;
   }
 
   .members-login img {
-    width: 178px;
+    width: 164px;
   }
 }
 
 @media (max-width: 920px) {
   .slis-header {
-    padding: 12px 0 14px;
+    padding: 9px 0 10px;
     min-height: auto;
   }
 
   .header-inner {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 10px;
     justify-items: center;
   }
 
   .slis-logo {
-    width: 146px;
+    width: 132px;
     transform: none;
   }
 
   .center-zone {
     width: min(760px, 96vw);
-    gap: 9px;
+    gap: 10px;
   }
 
   .header-nav {
     flex-wrap: wrap;
     justify-content: center;
-    row-gap: 8px;
-    column-gap: 18px;
+    row-gap: 6px;
+    column-gap: 16px;
   }
 
   .header-actions {
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding-right: 0;
   }
 }
 
 @media (max-width: 640px) {
   .search-shell {
-    height: 52px;
-    grid-template-columns: 52px 1fr 52px;
+    height: 48px;
+    grid-template-columns: 48px 1fr 48px;
     border-width: 2.5px;
   }
 
   .search-shell input {
-    font-size: clamp(0.9rem, 3.8vw, 1.06rem);
+    font-size: clamp(0.86rem, 3.6vw, 1rem);
   }
 
   .icon-chip {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .icon-chip .icon {
-    font-size: 1rem;
+    font-size: 0.92rem;
   }
 
   .header-nav {
-    column-gap: 14px;
+    column-gap: 12px;
   }
 
   .header-nav a {
-    font-size: clamp(1rem, 6vw, 1.18rem);
+    font-size: clamp(0.94rem, 5.4vw, 1.08rem);
   }
 
   .action-btn img {
