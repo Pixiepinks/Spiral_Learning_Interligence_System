@@ -3,149 +3,55 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SLIS | Magical Future Learning Universe</title>
-    <meta
-      name="description"
-      content="SLIS is Sri Lanka's premium interactive learning universe where children explore mathematics, Sinhala, English, science, and life skills through joyful AI-guided adventures."
-    />
-    <meta name="theme-color" content="#312e81" />
+    <title>SLIS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Sinhala:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="cosmic-bg" aria-hidden="true"></div>
-    <header class="top-nav" id="home">
-      <div class="container nav-wrap">
-        <a class="logo" href="#home" aria-label="SLIS Home">
-          <span class="logo-mark">SL</span>
-          <span class="logo-text">SLIS Learning Universe</span>
+    <header class="slis-header" id="home">
+      <div class="header-inner">
+        <a class="logo-wrap" href="#home" aria-label="SLIS Home">
+          <img src="assets/slis-logo.png" alt="SLIS logo" class="slis-logo" />
         </a>
-        <nav aria-label="Primary">
-          <ul class="nav-links">
-            <li><a href="#worlds">Learning Worlds</a></li>
-            <li><a href="#preview">Interactive Preview</a></li>
-            <li><a href="#rewards">Rewards</a></li>
-            <li><a href="#parents">For Parents</a></li>
-          </ul>
-        </nav>
-        <a class="btn btn-primary nav-cta" href="#cta">Start Free Adventure</a>
+
+        <div class="center-zone">
+          <form class="search-shell" role="search" aria-label="Site search">
+            <button class="icon-chip left" type="button" aria-label="Search">
+              <span class="icon">🔍</span>
+            </button>
+            <input
+              type="text"
+              placeholder="What do you want to learn today?"
+              aria-label="What do you want to learn today?"
+            />
+            <button class="icon-chip right" type="button" aria-label="Voice search">
+              <span class="icon">🎤</span>
+            </button>
+          </form>
+
+          <nav class="header-nav" aria-label="Primary">
+            <a href="#">For Learners</a>
+            <a href="#">For Educators</a>
+            <a href="#">For Parents</a>
+            <a href="#">For Institute</a>
+          </nav>
+        </div>
+
+        <div class="header-actions" aria-label="Account actions">
+          <a href="#" class="action-btn become-member" aria-label="Become a Member">
+            <img src="assets/btn-become-member.png" alt="Become a Member" />
+          </a>
+          <a href="#" class="action-btn members-login" aria-label="Members Login">
+            <img src="assets/btn-members-login.png" alt="Members Login" />
+          </a>
+        </div>
       </div>
     </header>
 
     <main>
-      <section class="hero section-pad">
-        <div class="container hero-grid">
-          <div class="hero-copy">
-            <p class="kicker">Sri Lanka's Next-Generation Digital School</p>
-            <h1>Where Every Lesson Feels Like a Magical Mission</h1>
-            <p class="sinhala">දරුවන්ගේ සිතුවිලි අවදි කරන ඉගෙනුම් ලෝකයට සාදරයෙන් පිළිගනිමු</p>
-            <p class="hero-text">SLIS blends joyful design, trusted teaching, and intelligent guidance to turn every learning moment into an exciting, confidence-building journey for children and parents.</p>
-            <div class="hero-buttons">
-              <a href="#cta" class="btn btn-primary">Begin Learning</a>
-              <a href="#preview" class="btn btn-secondary">Explore Live Activities</a>
-            </div>
-            <div class="trust-strip">
-              <span>🔒 Safe child-first platform</span>
-              <span>🎓 Curriculum-aligned lessons</span>
-              <span>📈 Real-time parent insights</span>
-            </div>
-          </div>
-
-          <div class="hero-visual" aria-hidden="true">
-            <div class="learning-scene glass">
-              <div class="scene-header">
-                <strong>AI Smart Classroom</strong>
-                <span class="status">Live</span>
-              </div>
-              <div class="scene-grid">
-                <article class="mini-card progress">
-                  <p>Today's Quest</p>
-                  <h4>Math Mission 04</h4>
-                  <div class="ring"><span>84%</span></div>
-                </article>
-                <article class="mini-card">
-                  <p>Sinhala Learning</p>
-                  <h4>අකුරු ගලපන්න</h4>
-                  <small>Drag &amp; match sounds</small>
-                </article>
-                <article class="mini-card wide">
-                  <p>Smartboard Challenge</p>
-                  <div class="count-row"><span>5 + 3 = ?</span><button>8</button><button>9</button></div>
-                </article>
-              </div>
-              <div class="float token t1">⭐ +20 XP</div>
-              <div class="float token t2">🏅 Level 7</div>
-              <div class="float token t3">🔥 12 Day Streak</div>
-              <div class="float icon i1">🔬</div>
-              <div class="float icon i2">🧠</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="worlds" class="section-pad worlds">
-        <div class="container">
-          <h2>Explore Learning Worlds</h2>
-          <p class="section-sub">Each subject is a beautifully designed world with its own missions, stories, and rewards.</p>
-          <div class="grid worlds-grid">
-            <article class="world-card math"><h3>Mathematics Galaxy</h3><p>Puzzles, counting quests, and logic adventures.</p></article>
-            <article class="world-card sinhala-world"><h3>Sinhala Story Forest</h3><p>Letters, poems, and confident language expression.</p></article>
-            <article class="world-card english"><h3>English Explorer Bay</h3><p>Vocabulary games and speaking confidence boosters.</p></article>
-            <article class="world-card env"><h3>Environment Island</h3><p>Nature missions and responsible living habits.</p></article>
-            <article class="world-card bud"><h3>Buddhism Peace Garden</h3><p>Values, mindfulness, and cultural understanding.</p></article>
-            <article class="world-card sci"><h3>Science Discovery Lab</h3><p>Experiments, curiosity, and hands-on thinking.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="preview" class="section-pad preview-zone">
-        <div class="container">
-          <h2>Interactive Learning in Action</h2>
-          <div class="grid activity-grid">
-            <article class="activity glass"><h3>Drag &amp; Drop</h3><p>Match shapes, words, and ideas with instant feedback.</p></article>
-            <article class="activity glass"><h3>Matching Games</h3><p>Build memory and pattern skills through playful rounds.</p></article>
-            <article class="activity glass"><h3>Counting Studio</h3><p>Touch, count, and solve with animated rewards.</p></article>
-            <article class="activity glass"><h3>Smartboard Mode</h3><p>Teacher-style guided activities from home.</p></article>
-            <article class="activity glass"><h3>Achievement System</h3><p>Earn stars, unlock badges, and celebrate growth daily.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="rewards" class="section-pad rewards">
-        <div class="container rewards-wrap">
-          <div>
-            <h2>Motivation Engine for Lifelong Learners</h2>
-            <p>Our reward loop is carefully built to create healthy consistency, confidence, and joy in study routines.</p>
-          </div>
-          <div class="reward-stats">
-            <div><strong>12,450+</strong><span>XP earned this week</span></div>
-            <div><strong>9</strong><span>Badge categories</span></div>
-            <div><strong>30</strong><span>Level progression path</span></div>
-            <div><strong>94%</strong><span>Weekly streak retention</span></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="parents" class="section-pad parents">
-        <div class="container">
-          <h2>Built for Parent Trust and Child Success</h2>
-          <div class="grid trust-grid">
-            <article class="trust-card"><h3>Progress Intelligence</h3><p>Track subject mastery, focus areas, and growth trends with clear dashboards.</p></article>
-            <article class="trust-card"><h3>Safe Learning Environment</h3><p>Child-safe design, moderated interactions, and privacy-first architecture.</p></article>
-            <article class="trust-card"><h3>Human + AI Guidance</h3><p>Educational experts and smart assistants working together for your child.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="cta" class="section-pad cta">
-        <div class="container">
-          <h2>Give Your Child a Future-Ready Learning Universe</h2>
-          <p>Join SLIS and unlock joyful, trusted, world-class digital education from Sri Lanka to the world.</p>
-          <a class="btn btn-primary" href="#home">Start Free Adventure</a>
-        </div>
-      </section>
+      <section class="blank-content" aria-hidden="true"></section>
     </main>
   </body>
 </html>
