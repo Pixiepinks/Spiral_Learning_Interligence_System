@@ -37,7 +37,7 @@ body {
   width: min(1366px, 100%);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 162px minmax(500px, 1fr) 222px;
+  grid-template-columns: 162px minmax(380px, 760px) 222px;
   gap: 8px;
   align-items: center;
   padding: 0 16px;
@@ -61,7 +61,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 18px;
+  gap: 12px;
 }
 
 .search-shell {
