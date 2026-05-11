@@ -37,7 +37,7 @@ body {
   width: min(1366px, 100%);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 188px minmax(500px, 1fr) 244px;
+  grid-template-columns: 162px minmax(500px, 1fr) 222px;
   gap: 8px;
   align-items: center;
   padding: 0 16px;
