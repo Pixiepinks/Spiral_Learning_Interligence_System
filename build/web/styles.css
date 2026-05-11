@@ -1,7 +1,7 @@
 :root {
   --header-bg: #152f6c;
   --search-border: #b896f3;
-  --search-glow: rgba(171, 123, 255, 0.45);
+  --search-glow: rgba(171, 123, 255, 0.28);
   --nav-white: #f8fbff;
 }
 
@@ -22,20 +22,25 @@ body {
 }
 
 .slis-header {
-  background: var(--header-bg);
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(900px 220px at 50% -40px, rgba(130, 173, 255, 0.16), transparent 60%),
+    radial-gradient(620px 160px at 14% 0%, rgba(160, 140, 255, 0.12), transparent 58%),
+    linear-gradient(180deg, #1a3b86 0%, #152f6c 46%, #12285d 100%);
   width: 100%;
-  min-height: 186px;
-  padding: 12px 0 14px;
+  min-height: 128px;
+  padding: 8px 0 10px;
 }
 
 .header-inner {
   width: min(1366px, 100%);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 220px minmax(520px, 1fr) 290px;
+  grid-template-columns: 204px minmax(500px, 1fr) 266px;
   gap: 12px;
   align-items: center;
-  padding: 0 18px;
+  padding: 0 16px;
 }
 
 .logo-wrap {
@@ -46,26 +51,27 @@ body {
 }
 
 .slis-logo {
-  width: 170px;
+  width: 154px;
   max-width: 100%;
   height: auto;
+  transform: translateY(-1px);
 }
 
 .center-zone {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 14px;
+  gap: 10px;
 }
 
 .search-shell {
-  height: 78px;
+  height: 58px;
   border-radius: 999px;
   background: #fff;
-  border: 4px solid var(--search-border);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16), 0 0 16px var(--search-glow);
+  border: 3px solid var(--search-border);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 0 10px var(--search-glow);
   display: grid;
-  grid-template-columns: 78px 1fr 78px;
+  grid-template-columns: 60px 1fr 60px;
   align-items: center;
   overflow: hidden;
 }
@@ -76,24 +82,24 @@ body {
   border: 0;
   outline: none;
   font-family: "Nunito", sans-serif;
-  font-weight: 800;
-  font-size: clamp(1rem, 1.8vw, 2.1rem);
-  color: #6c7487;
-  padding: 0 8px;
+  font-weight: 700;
+  font-size: clamp(0.96rem, 1.25vw, 1.45rem);
+  color: #5f6880;
+  padding: 0 4px;
 }
 
 .search-shell input::placeholder {
-  color: #7d8394;
+  color: #7a8498;
   opacity: 1;
 }
 
 .icon-chip {
-  width: 52px;
-  height: 52px;
+  width: 38px;
+  height: 38px;
   border: 0;
   border-radius: 50%;
   margin: 0 auto;
-  background: #dfe7f4;
+  background: #e5ebf6;
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -101,139 +107,169 @@ body {
 }
 
 .icon-chip .icon {
-  font-size: 1.55rem;
+  font-size: 1.15rem;
   line-height: 1;
 }
 
 .icon-chip:hover {
-  transform: translateY(-2px) scale(1.04);
+  transform: translateY(-1px) scale(1.04);
   filter: brightness(1.03);
 }
 
 .header-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 0 4px;
+  justify-content: space-evenly;
+  gap: 10px;
+  padding: 0 8px;
 }
 
 .header-nav a {
   text-decoration: none;
   color: var(--nav-white);
-  font-family: "Baloo 2", cursive;
-  font-weight: 800;
-  font-size: clamp(1.75rem, 2.65vw, 2.85rem);
-  line-height: 1;
-  letter-spacing: 0.2px;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.26);
+  font-family: "Baloo 2", "Nunito", sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.14rem, 1.55vw, 1.48rem);
+  line-height: 1.05;
+  letter-spacing: 0.15px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.24);
   white-space: nowrap;
-  transition: transform 0.25s ease, text-shadow 0.25s ease;
+  transition: transform 0.25s ease, text-shadow 0.25s ease, filter 0.25s ease;
 }
 
-.header-nav a:nth-child(1) { transform: rotate(-9deg); }
-.header-nav a:nth-child(2) { transform: rotate(-7deg); }
-.header-nav a:nth-child(3) { transform: rotate(-8deg); }
-.header-nav a:nth-child(4) { transform: rotate(-8deg); }
+.header-nav a:nth-child(1) { transform: rotate(-2.8deg); }
+.header-nav a:nth-child(2) { transform: rotate(-2deg); }
+.header-nav a:nth-child(3) { transform: rotate(-2.4deg); }
+.header-nav a:nth-child(4) { transform: rotate(-2.2deg); }
 
 .header-nav a:hover {
-  text-shadow: 0 0 12px rgba(255, 255, 255, 0.85);
-  transform: translateY(-2px) rotate(-6deg);
+  text-shadow: 0 0 10px rgba(210, 231, 255, 0.9);
+  filter: drop-shadow(0 0 5px rgba(188, 218, 255, 0.45));
+  transform: translateY(-2px) rotate(-1.4deg);
 }
 
 .header-actions {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 22px;
-  padding-right: 10px;
+  justify-content: center;
+  gap: 10px;
+  padding-right: 4px;
 }
 
 .action-btn img {
   display: block;
-  width: 278px;
+  width: 244px;
   height: auto;
   transition: transform 0.24s ease, filter 0.24s ease;
 }
 
 .members-login img {
-  width: 250px;
+  width: 222px;
 }
 
 .action-btn:hover img {
-  transform: translateY(-2px) scale(1.02);
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.45));
+  transform: translateY(-1px) scale(1.028);
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.3));
 }
 
 .blank-content {
-  min-height: calc(100vh - 186px);
+  min-height: calc(100vh - 128px);
   background: #efefef;
 }
 
 @media (max-width: 1190px) {
   .header-inner {
-    grid-template-columns: 180px 1fr 220px;
+    grid-template-columns: 172px 1fr 214px;
+    gap: 10px;
   }
 
   .slis-logo {
-    width: 150px;
+    width: 138px;
+  }
+
+  .header-nav a {
+    font-size: clamp(1.04rem, 1.8vw, 1.3rem);
   }
 
   .action-btn img {
-    width: 210px;
+    width: 196px;
   }
 
   .members-login img {
-    width: 194px;
+    width: 178px;
   }
 }
 
 @media (max-width: 920px) {
   .slis-header {
-    padding: 14px 0 16px;
+    padding: 12px 0 14px;
+    min-height: auto;
   }
 
   .header-inner {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 12px;
     justify-items: center;
+  }
+
+  .slis-logo {
+    width: 146px;
+    transform: none;
   }
 
   .center-zone {
     width: min(760px, 96vw);
+    gap: 9px;
   }
 
   .header-nav {
     flex-wrap: wrap;
     justify-content: center;
-    row-gap: 10px;
-    column-gap: 22px;
+    row-gap: 8px;
+    column-gap: 18px;
   }
 
   .header-actions {
     align-items: center;
-    gap: 14px;
+    gap: 8px;
     padding-right: 0;
   }
 }
 
 @media (max-width: 640px) {
   .search-shell {
-    height: 64px;
-    grid-template-columns: 64px 1fr 64px;
-    border-width: 3px;
+    height: 52px;
+    grid-template-columns: 52px 1fr 52px;
+    border-width: 2.5px;
+  }
+
+  .search-shell input {
+    font-size: clamp(0.9rem, 3.8vw, 1.06rem);
   }
 
   .icon-chip {
-    width: 42px;
-    height: 42px;
+    width: 34px;
+    height: 34px;
   }
 
   .icon-chip .icon {
-    font-size: 1.2rem;
+    font-size: 1rem;
+  }
+
+  .header-nav {
+    column-gap: 14px;
   }
 
   .header-nav a {
-    font-size: clamp(1.35rem, 8vw, 2rem);
+    font-size: clamp(1rem, 6vw, 1.18rem);
+  }
+
+  .action-btn img {
+    width: min(210px, 70vw);
+  }
+
+  .members-login img {
+    width: min(188px, 64vw);
   }
 }
