@@ -30,7 +30,7 @@ body {
     linear-gradient(180deg, #1a3b86 0%, #152f6c 46%, #12285d 100%);
   width: 100%;
   min-height: 50px;
-  padding: 3px 0 4px;
+  padding: 1px 0 2px;
 }
 
 .header-inner {
