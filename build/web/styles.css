@@ -61,11 +61,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
+  gap: 18px;
 }
 
 .search-shell {
-  height: 52px;
+  height: 42px;
   border-radius: 999px;
   background: #fff;
   border: 2.5px solid var(--search-border);
@@ -165,7 +165,7 @@ body {
 }
 
 .members-login img {
-  width: 206px;
+  width: 228px;
 }
 
 .action-btn:hover img {
