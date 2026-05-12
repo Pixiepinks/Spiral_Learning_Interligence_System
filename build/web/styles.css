@@ -214,7 +214,7 @@ body {
   display: grid;
   grid-template-columns: minmax(420px, 40%) 1fr;
   gap: 30px;
-  padding: 42px 24px 30px;
+  padding: 18px 24px 30px;
 }
 
 .hero-left {
