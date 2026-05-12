@@ -235,7 +235,7 @@ body {
   margin: 0;
   font-family: "Nunito", sans-serif;
   font-weight: 900;
-  font-size: clamp(2.3rem, 4.9vw, 3.9rem);
+  font-size: clamp(2.05rem, 4.4vw, 3.5rem);
   line-height: 0.98;
   letter-spacing: -0.03em;
   color: #ffffff;
