@@ -291,7 +291,7 @@ body {
 }
 
 .feature-row {
-  margin-top: 30px;
+  margin-top: 12px;
   border-top: 1px solid rgba(158, 198, 255, 0.22);
   padding-top: 16px;
   display: grid;
