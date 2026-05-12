@@ -63,7 +63,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  transform: translateY(-4px);
+  transform: translateY(-6px);
 }
 
 .search-shell {
