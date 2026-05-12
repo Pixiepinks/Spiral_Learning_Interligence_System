@@ -272,7 +272,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 26px;
+  margin-top: 14px;
 }
 
 .hero-cta-btn {
@@ -280,7 +280,7 @@ body {
 }
 
 .hero-cta-btn img {
-  width: clamp(168px, 16vw, 230px);
+  width: clamp(150px, 14.5vw, 205px);
   height: auto;
   transition: transform 0.28s ease, filter 0.28s ease;
 }
