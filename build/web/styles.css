@@ -62,7 +62,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   transform: translateY(-6px);
 }
 
@@ -123,8 +123,8 @@ body {
 .header-nav {
   display: flex;
   align-items: center;
-  justify-content: space-evenly;
-  gap: 12px;
+  justify-content: center;
+  gap: 34px;
   margin-top: 2px;
   padding: 0 8px 0;
 }
@@ -158,20 +158,20 @@ body {
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 0;
+  gap: 8px;
   padding-right: 4px;
   transform: translateY(-2px);
 }
 
 .action-btn img {
   display: block;
-  width: 185px;
+  width: 165px;
   height: auto;
   transition: transform 0.24s ease, filter 0.24s ease;
 }
 
 .members-login img {
-  width: 185px;
+  width: 165px;
 }
 
 .action-btn:hover img {
