@@ -291,9 +291,9 @@ body {
 }
 
 .feature-row {
-  margin-top: 12px;
+  margin-top: 8px;
   border-top: 1px solid rgba(158, 198, 255, 0.22);
-  padding-top: 16px;
+  padding-top: 10px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -301,7 +301,7 @@ body {
 .feature-item {
   position: relative;
   text-align: center;
-  padding: 6px 12px;
+  padding: 4px 10px;
 }
 
 .feature-item:not(:first-child)::before {
