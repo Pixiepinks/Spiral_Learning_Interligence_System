@@ -51,7 +51,7 @@ body {
 }
 
 .slis-logo {
-  width: 115px;
+  width: 100px;
   max-width: 100%;
   height: auto;
   transform: translateY(-1px);
@@ -60,12 +60,14 @@ body {
 .center-zone {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
+  align-items: center;
+  gap: 17px;
 }
 
 .search-shell {
-  height: 42px;
+  width: min(620px, 100%);
+  max-width: 620px;
+  height: 38px;
   border-radius: 999px;
   background: #fff;
   border: 2.5px solid var(--search-border);
@@ -94,8 +96,8 @@ body {
 }
 
 .icon-chip {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border: 0;
   border-radius: 50%;
   margin: 0 auto;
@@ -153,19 +155,19 @@ body {
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
   padding-right: 4px;
 }
 
 .action-btn img {
   display: block;
-  width: 228px;
+  width: 185px;
   height: auto;
   transition: transform 0.24s ease, filter 0.24s ease;
 }
 
 .members-login img {
-  width: 228px;
+  width: 185px;
 }
 
 .action-btn:hover img {
