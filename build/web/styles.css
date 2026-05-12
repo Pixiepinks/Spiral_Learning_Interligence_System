@@ -29,8 +29,8 @@ body {
     radial-gradient(620px 160px at 14% 0%, rgba(160, 140, 255, 0.12), transparent 58%),
     linear-gradient(180deg, #1a3b86 0%, #152f6c 46%, #12285d 100%);
   width: 100%;
-  min-height: 50px;
-  padding: 1px 0 2px;
+  min-height: 96px;
+  padding: 0;
 }
 
 .header-inner {
@@ -39,6 +39,7 @@ body {
   display: grid;
   grid-template-columns: 162px minmax(500px, 1fr) 222px;
   gap: 8px;
+  min-height: 96px;
   align-items: center;
   padding: 0 16px;
 }
@@ -51,23 +52,24 @@ body {
 }
 
 .slis-logo {
-  width: 100px;
+  width: 96px;
   max-width: 100%;
   height: auto;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 
 .center-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 17px;
+  gap: 10px;
+  transform: translateY(-10px);
 }
 
 .search-shell {
   width: min(620px, 100%);
   max-width: 620px;
-  height: 38px;
+  height: 36px;
   border-radius: 999px;
   background: #fff;
   border: 2.5px solid var(--search-border);
@@ -123,6 +125,7 @@ body {
   align-items: center;
   justify-content: space-evenly;
   gap: 12px;
+  margin-top: 2px;
   padding: 0 8px 0;
 }
 
@@ -157,6 +160,7 @@ body {
   justify-content: center;
   gap: 0;
   padding-right: 4px;
+  transform: translateY(-8px);
 }
 
 .action-btn img {
