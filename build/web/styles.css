@@ -29,7 +29,7 @@ body {
     radial-gradient(620px 160px at 14% 0%, rgba(160, 140, 255, 0.12), transparent 58%),
     linear-gradient(180deg, #1a3b86 0%, #152f6c 46%, #12285d 100%);
   width: 100%;
-  min-height: 96px;
+  min-height: 104px;
   padding: 0;
 }
 
@@ -39,7 +39,7 @@ body {
   display: grid;
   grid-template-columns: 162px minmax(500px, 1fr) 222px;
   gap: 8px;
-  min-height: 96px;
+  min-height: 104px;
   align-items: center;
   padding: 0 16px;
 }
@@ -55,21 +55,21 @@ body {
   width: 96px;
   max-width: 100%;
   height: auto;
-  transform: translateY(-2px);
+  transform: translateY(-6px);
 }
 
 .center-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  transform: translateY(-10px);
+  gap: 6px;
+  transform: translateY(-4px);
 }
 
 .search-shell {
   width: min(620px, 100%);
   max-width: 620px;
-  height: 36px;
+  height: 38px;
   border-radius: 999px;
   background: #fff;
   border: 2.5px solid var(--search-border);
@@ -160,7 +160,7 @@ body {
   justify-content: center;
   gap: 0;
   padding-right: 4px;
-  transform: translateY(-8px);
+  transform: translateY(-2px);
 }
 
 .action-btn img {
