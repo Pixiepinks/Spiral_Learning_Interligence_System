@@ -179,33 +179,6 @@ body {
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.3));
 }
 
-
-.mobile-search-toggle,
-.mobile-menu-toggle,
-.mobile-search-panel,
-.mobile-nav-panel {
-  display: none;
-}
-
-.mobile-search-toggle,
-.mobile-menu-toggle {
-  border: 1px solid rgba(194, 222, 255, 0.48);
-  background: rgba(13, 35, 88, 0.85);
-  color: #f4fbff;
-  border-radius: 12px;
-  width: 38px;
-  height: 38px;
-  cursor: pointer;
-  font-size: 1.1rem;
-  transition: transform 0.22s ease, background-color 0.22s ease;
-}
-
-.mobile-search-toggle:hover,
-.mobile-menu-toggle:hover {
-  transform: translateY(-1px);
-  background: rgba(25, 59, 134, 0.95);
-}
-
 .hero {
   position: relative;
   overflow: hidden;
@@ -476,79 +449,37 @@ body {
 
 @media (max-width: 920px) {
   .slis-header {
-    padding: 10px 0 8px;
+    padding: 9px 0 10px;
     min-height: auto;
   }
 
   .header-inner {
-    grid-template-columns: auto auto 1fr auto auto;
-    gap: 6px;
-    align-items: center;
-    padding: 0 10px;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    justify-items: center;
   }
 
-  .logo-wrap { justify-content: flex-start; }
-
   .slis-logo {
-    width: 66px;
+    width: 132px;
     transform: none;
   }
 
-  .center-zone,
-  .header-nav,
-  .search-shell {
-    display: none;
+  .center-zone {
+    width: min(760px, 96vw);
+    gap: 10px;
   }
 
-  .mobile-search-toggle,
-  .mobile-menu-toggle,
-  .mobile-search-panel,
-  .mobile-nav-panel {
-    display: block;
+  .header-nav {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 6px;
+    column-gap: 16px;
   }
 
   .header-actions {
-    flex-direction: row;
     align-items: center;
     gap: 6px;
     padding-right: 0;
-    transform: none;
-    justify-content: flex-end;
-  }
-
-  .action-btn img,
-  .members-login img {
-    width: 94px;
-  }
-
-  .mobile-search-panel {
-    width: calc(100% - 20px);
-    margin: 10px auto 0;
-    transition: opacity 0.25s ease, transform 0.25s ease;
-  }
-
-  .mobile-search-panel .search-shell {
-    display: grid;
-    width: 100%;
-    height: 42px;
-    grid-template-columns: 44px 1fr 44px;
-  }
-
-  .mobile-nav-panel {
-    margin: 10px 10px 0;
-    padding: 12px;
-    border-radius: 14px;
-    background: rgba(9, 24, 64, 0.96);
-    border: 1px solid rgba(146, 184, 255, 0.35);
-    animation: slideIn 0.25s ease;
-  }
-
-  .mobile-nav-panel a {
-    display: block;
-    padding: 10px 8px;
-    color: #f5fbff;
-    text-decoration: none;
-    font-weight: 700;
   }
 
   .hero-inner {
@@ -648,11 +579,6 @@ body {
   .feature-item:nth-child(odd)::before {
     display: none;
   }
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(-6px);}
-  to { opacity: 1; transform: translateY(0);}
 }
 
 .join-page-body {
