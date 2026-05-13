@@ -12,6 +12,7 @@
   <body>
     <header class="slis-header" id="home">
       <div class="header-inner">
+        <button class="mobile-search-toggle" type="button" aria-label="Toggle search" aria-expanded="false">🔍</button>
         <a class="logo-wrap" href="#home" aria-label="SLIS Home">
           <img src="assets/slis-logo.png" alt="SLIS logo" class="slis-logo" />
         </a>
@@ -40,6 +41,7 @@
         </div>
 
         <div class="header-actions" aria-label="Account actions">
+          <button class="mobile-menu-toggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-nav-panel">☰</button>
           <a href="/join" class="action-btn become-member" aria-label="Become a Member">
             <img src="assets/btn-become-member.png" alt="Become a Member" />
           </a>
@@ -47,6 +49,25 @@
             <img src="assets/btn-members-login.png" alt="Members Login" />
           </a>
         </div>
+      </div>
+
+      <div class="mobile-search-panel" id="mobile-search-panel" hidden>
+        <form class="search-shell" role="search" aria-label="Mobile site search">
+          <button class="icon-chip left" type="button" aria-label="Search">
+            <span class="icon">🔍</span>
+          </button>
+          <input type="text" placeholder="Search learning" aria-label="Search learning" />
+          <button class="icon-chip right" type="button" aria-label="Voice search">
+            <span class="icon">🎤</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="mobile-nav-panel" id="mobile-nav-panel" hidden>
+        <a href="#">For Learners</a>
+        <a href="#">For Educators</a>
+        <a href="#">For Parents</a>
+        <a href="#">For Institute</a>
       </div>
     </header>
 
@@ -159,5 +180,50 @@
         startAutoplay();
       })();
     </script>
-  </body>
+  
+    <script>
+      (function () {
+        const header = document.querySelector('.slis-header');
+        if (!header) return;
+        const searchToggle = header.querySelector('.mobile-search-toggle');
+        const menuToggle = header.querySelector('.mobile-menu-toggle');
+        const searchPanel = header.querySelector('#mobile-search-panel');
+        const navPanel = header.querySelector('#mobile-nav-panel');
+
+        function closeMenu() {
+          if (!navPanel || !menuToggle) return;
+          navPanel.hidden = true;
+          menuToggle.setAttribute('aria-expanded', 'false');
+          header.classList.remove('menu-open');
+        }
+
+        function closeSearch() {
+          if (!searchPanel || !searchToggle) return;
+          searchPanel.hidden = true;
+          searchToggle.setAttribute('aria-expanded', 'false');
+          header.classList.remove('search-open');
+        }
+
+        if (searchToggle && searchPanel) {
+          searchToggle.addEventListener('click', () => {
+            const opening = searchPanel.hidden;
+            closeMenu();
+            searchPanel.hidden = !opening;
+            searchToggle.setAttribute('aria-expanded', String(opening));
+            header.classList.toggle('search-open', opening);
+          });
+        }
+
+        if (menuToggle && navPanel) {
+          menuToggle.addEventListener('click', () => {
+            const opening = navPanel.hidden;
+            closeSearch();
+            navPanel.hidden = !opening;
+            menuToggle.setAttribute('aria-expanded', String(opening));
+            header.classList.toggle('menu-open', opening);
+          });
+        }
+      })();
+    </script>
+</body>
 </html>
