@@ -10,6 +10,46 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="join-page-body">
+    <header class="slis-header" id="home">
+      <div class="header-inner">
+        <a class="logo-wrap" href="/" aria-label="SLIS Home">
+          <img src="/assets/slis-logo.png" alt="SLIS logo" class="slis-logo" />
+        </a>
+
+        <div class="center-zone">
+          <form class="search-shell" role="search" aria-label="Site search">
+            <button class="icon-chip left" type="button" aria-label="Search">
+              <span class="icon">🔍</span>
+            </button>
+            <input
+              type="text"
+              placeholder="What do you want to learn today?"
+              aria-label="What do you want to learn today?"
+            />
+            <button class="icon-chip right" type="button" aria-label="Voice search">
+              <span class="icon">🎤</span>
+            </button>
+          </form>
+
+          <nav class="header-nav" aria-label="Primary">
+            <a href="#">For Learners</a>
+            <a href="#">For Educators</a>
+            <a href="#">For Parents</a>
+            <a href="#">For Institute</a>
+          </nav>
+        </div>
+
+        <div class="header-actions" aria-label="Account actions">
+          <a href="/join" class="action-btn become-member" aria-label="Become a Member">
+            <img src="/assets/btn-become-member.png" alt="Become a Member" />
+          </a>
+          <a href="/login" class="action-btn members-login" aria-label="Members Login">
+            <img src="/assets/btn-members-login.png" alt="Members Login" />
+          </a>
+        </div>
+      </div>
+    </header>
+
     <main class="join-page" aria-label="Choose your role on SLIS">
       <section class="join-container">
         <a class="join-back" href="/">← Back to Home</a>
