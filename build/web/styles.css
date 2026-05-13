@@ -179,6 +179,44 @@ body {
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.3));
 }
 
+.mobile-menu-toggle,
+.mobile-nav {
+  display: none;
+}
+
+.mobile-menu-toggle {
+  border: 0;
+  background: #e5ebf6;
+  border-radius: 50%;
+  color: #12306b;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mobile-nav {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 12px;
+  min-width: 160px;
+  background: rgba(14, 37, 84, 0.98);
+  border: 1px solid rgba(154, 199, 255, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(2, 10, 26, 0.4);
+  padding: 8px 0;
+  z-index: 30;
+}
+
+.mobile-nav a {
+  display: block;
+  padding: 7px 12px;
+  text-decoration: none;
+  color: #f5f9ff;
+  font-weight: 700;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
 .hero {
   position: relative;
   overflow: hidden;
@@ -555,19 +593,87 @@ body {
 }
 
 @media (max-width: 640px) {
+  .slis-header {
+    min-height: 78px;
+    padding: 6px 0;
+  }
+
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: 66px;
+    padding: 0 8px;
+    flex-wrap: nowrap;
+    overflow-x: clip;
+    position: relative;
+  }
+
+  .logo-wrap {
+    flex: 0 0 auto;
+  }
+
+  .slis-logo {
+    width: 64px;
+  }
+
+  .center-zone {
+    width: auto;
+    transform: none;
+    gap: 0;
+    flex: 0 0 auto;
+  }
+
   .search-shell {
-    height: 48px;
-    grid-template-columns: 48px 1fr 48px;
-    border-width: 2.5px;
+    width: 34px;
+    height: 34px;
+    border-width: 0;
+    background: transparent;
+    box-shadow: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
   }
 
-  .search-shell input {
-    font-size: clamp(0.86rem, 3.6vw, 1rem);
+  .search-shell input,
+  .search-shell .icon-chip.right,
+  .header-nav {
+    display: none;
   }
 
-  .icon-chip {
-    width: 30px;
-    height: 30px;
+  .search-shell .icon-chip.left {
+    width: 34px;
+    height: 34px;
+    margin: 0;
+  }
+
+  .header-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding-right: 0;
+    transform: none;
+    flex: 0 0 auto;
+  }
+
+  .action-btn img,
+  .members-login img {
+    width: 80px;
+  }
+
+  .mobile-nav.is-open {
+    display: block;
+  }
+
+  .mobile-menu-toggle {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 1.15rem;
+    line-height: 1;
   }
 
   .feature-row {

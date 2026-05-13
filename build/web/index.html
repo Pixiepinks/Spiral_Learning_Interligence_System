@@ -47,6 +47,17 @@
             <img src="assets/btn-members-login.png" alt="Members Login" />
           </a>
         </div>
+
+        <button class="mobile-menu-toggle" type="button" aria-label="Open mobile menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span aria-hidden="true">☰</span>
+        </button>
+
+        <nav class="mobile-nav" id="mobile-menu" aria-label="Mobile primary">
+          <a href="#">For Learners</a>
+          <a href="#">For Educators</a>
+          <a href="#">For Parents</a>
+          <a href="#">For Institute</a>
+        </nav>
       </div>
     </header>
 
@@ -157,6 +168,26 @@
 
         showSlide(0);
         startAutoplay();
+      })();
+    </script>
+  
+    <script>
+      (function () {
+        const toggle = document.querySelector('.mobile-menu-toggle');
+        const menu = document.querySelector('.mobile-nav');
+        if (!toggle || !menu) return;
+
+        toggle.addEventListener('click', () => {
+          const isOpen = menu.classList.toggle('is-open');
+          toggle.setAttribute('aria-expanded', String(isOpen));
+        });
+
+        document.addEventListener('click', (event) => {
+          if (!menu.classList.contains('is-open')) return;
+          if (menu.contains(event.target) || toggle.contains(event.target)) return;
+          menu.classList.remove('is-open');
+          toggle.setAttribute('aria-expanded', 'false');
+        });
       })();
     </script>
   </body>
