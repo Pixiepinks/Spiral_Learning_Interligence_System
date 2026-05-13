@@ -592,9 +592,15 @@ body {
 
 .join-page-body {
   background:
-    radial-gradient(880px 400px at 12% 14%, rgba(95, 180, 255, 0.28), transparent 64%),
-    radial-gradient(780px 380px at 86% 10%, rgba(138, 205, 255, 0.32), transparent 62%),
-    linear-gradient(165deg, #eef7ff 0%, #f7fdff 46%, #edf9ff 100%);
+    radial-gradient(900px 420px at 12% 0%, rgba(120, 180, 255, 0.20), transparent 60%),
+    radial-gradient(700px 340px at 88% 0%, rgba(84, 140, 255, 0.16), transparent 62%),
+    linear-gradient(
+      180deg,
+      #dfefff 0%,
+      #edf7ff 24%,
+      #f5fbff 58%,
+      #eef8ff 100%
+    );
   color: #143164;
   min-height: 100vh;
 }
