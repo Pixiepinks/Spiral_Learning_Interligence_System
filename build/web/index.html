@@ -56,9 +56,6 @@
           <a href="#">For Parents</a>
           <a href="#">For Institute</a>
         </nav>
-        <div class="mobile-search-panel" id="mobileSearchPanel">
-          <input type="text" placeholder="What do you want to learn today?" aria-label="Mobile search" />
-        </div>
       </div>
     </header>
 
@@ -173,56 +170,13 @@
     </script>
     <script>
     (function () {
-      const header = document.querySelector('.slis-header');
-      if (!header) return;
+      const toggle = document.querySelector('.mobile-menu-toggle');
+      const panel = document.querySelector('.mobile-nav-panel');
+      if (!toggle || !panel) return;
 
-      const menuButton = header.querySelector('.mobile-menu-toggle');
-      const navPanel = header.querySelector('.mobile-nav-panel');
-      const searchButton = header.querySelector('.search-shell .left');
-      const searchPanel = header.querySelector('.mobile-search-panel');
-      const searchInput = searchPanel ? searchPanel.querySelector('input') : null;
-
-      if (menuButton && navPanel) {
-        menuButton.addEventListener('click', function () {
-          const willOpen = !navPanel.classList.contains('is-open');
-          navPanel.classList.toggle('is-open', willOpen);
-          menuButton.setAttribute('aria-expanded', String(willOpen));
-
-          if (willOpen) {
-            header.classList.remove('is-search-open');
-          }
-        });
-      }
-
-      if (searchButton && searchPanel) {
-        searchButton.addEventListener('click', function (event) {
-          event.preventDefault();
-
-          const willOpen = !header.classList.contains('is-search-open');
-          header.classList.toggle('is-search-open', willOpen);
-
-          if (navPanel) {
-            navPanel.classList.remove('is-open');
-          }
-
-          if (menuButton) {
-            menuButton.setAttribute('aria-expanded', 'false');
-          }
-
-          if (willOpen && searchInput) {
-            setTimeout(function () {
-              searchInput.focus();
-            }, 50);
-          }
-        });
-      }
-
-      document.addEventListener('click', function (event) {
-        if (!header.contains(event.target)) {
-          if (navPanel) navPanel.classList.remove('is-open');
-          if (menuButton) menuButton.setAttribute('aria-expanded', 'false');
-          header.classList.remove('is-search-open');
-        }
+      toggle.addEventListener('click', function () {
+        const isOpen = panel.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', String(isOpen));
       });
     })();
   </script>
