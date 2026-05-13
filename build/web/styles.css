@@ -213,8 +213,8 @@ body {
   min-height: calc(100vh - 104px);
   display: grid;
   grid-template-columns: minmax(420px, 40%) 1fr;
-  gap: 30px;
-  padding: 18px 24px 30px;
+  gap: 20px;
+  padding: 12px 24px 30px;
 }
 
 .hero-left {
