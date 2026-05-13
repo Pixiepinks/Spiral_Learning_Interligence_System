@@ -99,9 +99,65 @@
             </div>
           </div>
 
-          <div class="hero-right-placeholder" aria-hidden="true"></div>
+          <div class="hero-right-slider" aria-label="SLIS highlights showcase">
+            <div class="slider-track" data-slider-track>
+              <img class="hero-slide is-active" src="assets/hero-slide-achievements.png" alt="SLIS achievements showcase" />
+              <img class="hero-slide" src="assets/hero-slide-classroom.png" alt="SLIS classroom learning showcase" />
+              <img class="hero-slide" src="assets/hero-slide-students.png" alt="SLIS students showcase" />
+              <img class="hero-slide" src="assets/hero-slide-lankantaste.png" alt="SLIS Sri Lankan learning showcase" />
+            </div>
+            <div class="slider-dots" aria-label="Slide navigation">
+              <button class="slider-dot is-active" type="button" aria-label="Go to slide 1" data-slide-dot="0"></button>
+              <button class="slider-dot" type="button" aria-label="Go to slide 2" data-slide-dot="1"></button>
+              <button class="slider-dot" type="button" aria-label="Go to slide 3" data-slide-dot="2"></button>
+              <button class="slider-dot" type="button" aria-label="Go to slide 4" data-slide-dot="3"></button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
+      <script>
+      (function () {
+        const slider = document.querySelector('.hero-right-slider');
+        if (!slider) return;
+
+        const slides = Array.from(slider.querySelectorAll('.hero-slide'));
+        const dots = Array.from(slider.querySelectorAll('[data-slide-dot]'));
+        const intervalMs = 5000;
+        let index = 0;
+        let timer;
+
+        function showSlide(nextIndex) {
+          index = (nextIndex + slides.length) % slides.length;
+          slides.forEach((slide, i) => slide.classList.toggle('is-active', i === index));
+          dots.forEach((dot, i) => dot.classList.toggle('is-active', i === index));
+        }
+
+        function startAutoplay() {
+          stopAutoplay();
+          timer = window.setInterval(() => showSlide(index + 1), intervalMs);
+        }
+
+        function stopAutoplay() {
+          if (timer) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+        }
+
+        dots.forEach((dot, dotIndex) => {
+          dot.addEventListener('click', () => {
+            showSlide(dotIndex);
+            startAutoplay();
+          });
+        });
+
+        slider.addEventListener('mouseenter', stopAutoplay);
+        slider.addEventListener('mouseleave', startAutoplay);
+
+        showSlide(0);
+        startAutoplay();
+      })();
+    </script>
   </body>
 </html>
