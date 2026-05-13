@@ -580,3 +580,126 @@ body {
     display: none;
   }
 }
+
+.join-page-body {
+  background:
+    radial-gradient(880px 400px at 12% 14%, rgba(95, 180, 255, 0.28), transparent 64%),
+    radial-gradient(780px 380px at 86% 10%, rgba(138, 205, 255, 0.32), transparent 62%),
+    linear-gradient(165deg, #eef7ff 0%, #f7fdff 46%, #edf9ff 100%);
+  color: #143164;
+  min-height: 100vh;
+}
+
+.join-page {
+  min-height: 100vh;
+  padding: 52px 20px;
+}
+
+.join-container {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+}
+
+.join-back {
+  display: inline-block;
+  color: #2659a8;
+  text-decoration: none;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.join-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  color: #0f2f66;
+}
+
+.join-subtitle {
+  margin: 14px 0 34px;
+  max-width: 760px;
+  font-size: clamp(1rem, 1.8vw, 1.2rem);
+  color: #35507f;
+}
+
+.join-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.join-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f2fbff 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(87, 142, 220, 0.18);
+  box-shadow: 0 16px 34px rgba(27, 74, 140, 0.12);
+  padding: 26px 22px;
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.join-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 40px rgba(27, 74, 140, 0.18);
+}
+
+.join-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #d7eeff, #c8f8ff);
+  font-size: 1.8rem;
+  margin-bottom: 14px;
+}
+
+.join-card h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: #15356a;
+}
+
+.join-card p {
+  margin: 11px 0 20px;
+  color: #4f6388;
+  line-height: 1.5;
+}
+
+.join-card-btn {
+  margin-top: auto;
+  text-decoration: none;
+  text-align: center;
+  background: linear-gradient(135deg, #2b74da, #3f8dff);
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.join-login-link {
+  margin: 24px 2px 0;
+  color: #4d6693;
+  font-weight: 700;
+}
+
+.join-login-link a {
+  color: #1757bb;
+}
+
+@media (max-width: 1100px) {
+  .join-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .join-page {
+    padding-top: 32px;
+  }
+
+  .join-grid {
+    grid-template-columns: 1fr;
+  }
+}
