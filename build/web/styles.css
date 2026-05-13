@@ -228,14 +228,14 @@ body {
   width: clamp(176px, 24vw, 270px);
   max-width: 100%;
   height: auto;
-  margin-bottom: 22px;
+  margin-bottom: 8px;
 }
 
 .hero-title {
   margin: 0;
   font-family: "Nunito", sans-serif;
   font-weight: 900;
-  font-size: clamp(2.05rem, 4.4vw, 3.5rem);
+  font-size: clamp(1.9rem, 4.05vw, 3.23rem);
   line-height: 0.98;
   letter-spacing: -0.03em;
   color: #ffffff;
@@ -291,9 +291,9 @@ body {
 }
 
 .feature-row {
-  margin-top: 8px;
+  margin-top: 4px;
   border-top: 1px solid rgba(158, 198, 255, 0.22);
-  padding-top: 10px;
+  padding-top: 6px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
