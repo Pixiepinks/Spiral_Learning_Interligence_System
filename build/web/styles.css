@@ -606,9 +606,8 @@ body {
 }
 
 .join-page {
-  min-height: 100vh;
-  padding: 52px 20px;
-  padding-top: 24px !important;
+  in-height: 100vh;
+  padding: 8px 20px 52px;
 }
 
 .join-container {
@@ -715,7 +714,7 @@ body {
 
 @media (max-width: 640px) {
   .join-page {
-    padding-top: 32px;
+    padding-top: 8px !important;
   }
 
   .join-grid {
