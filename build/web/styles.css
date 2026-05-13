@@ -814,3 +814,57 @@ body {
     min-width: 180px;
   }
 }
+
+/* Mobile homepage layout fixes (390px target) */
+@media (max-width: 640px) {
+  .feature-row {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 0 !important;
+    margin-top: 10px !important;
+    padding-top: 4px !important;
+  }
+
+  .feature-item {
+    padding: 2px 2px !important;
+  }
+
+  .feature-item img {
+    width: 22px !important;
+    height: 22px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .feature-item h3 {
+    font-size: 0.78rem !important;
+    line-height: 1 !important;
+  }
+
+  .feature-item p {
+    font-size: 0.62rem !important;
+    line-height: 1.05 !important;
+  }
+
+  .feature-item::before {
+    display: none !important;
+  }
+
+  .hero-inner {
+    padding-top: 4px !important;
+  }
+
+  .hero-left {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  .platform-badge {
+    margin-top: 0 !important;
+    margin-bottom: 4px !important;
+    width: 180px !important;
+  }
+
+  .hero-title {
+    margin-top: 0 !important;
+  }
+}
