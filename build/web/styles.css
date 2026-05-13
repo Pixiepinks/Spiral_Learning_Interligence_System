@@ -608,11 +608,13 @@ body {
 .join-page {
   min-height: 100vh;
   padding: 52px 20px;
+  padding-top: 24px !important;
 }
 
 .join-container {
   width: min(1200px, 100%);
   margin: 0 auto;
+  padding-top: 0 !important;
 }
 
 .join-back {
@@ -625,12 +627,14 @@ body {
 
 .join-title {
   margin: 0;
+  margin-top: 0 !important;
   font-size: clamp(2rem, 4vw, 3rem);
   color: #0f2f66;
 }
 
 .join-subtitle {
   margin: 14px 0 34px;
+  margin-top: 10px !important;
   max-width: 760px;
   font-size: clamp(1rem, 1.8vw, 1.2rem);
   color: #35507f;
