@@ -47,6 +47,15 @@
             <img src="assets/btn-members-login.png" alt="Members Login" />
           </a>
         </div>
+
+        <button class="mobile-menu-toggle" type="button" aria-label="Toggle mobile menu" aria-expanded="false" aria-controls="mobile-nav-panel">☰</button>
+
+        <nav class="mobile-nav-panel" id="mobile-nav-panel" aria-label="Mobile navigation">
+          <a href="#">For Learners</a>
+          <a href="#">For Educators</a>
+          <a href="#">For Parents</a>
+          <a href="#">For Institute</a>
+        </nav>
       </div>
     </header>
 
@@ -159,5 +168,17 @@
         startAutoplay();
       })();
     </script>
-  </body>
+    <script>
+    (function () {
+      const toggle = document.querySelector('.mobile-menu-toggle');
+      const panel = document.querySelector('.mobile-nav-panel');
+      if (!toggle || !panel) return;
+
+      toggle.addEventListener('click', function () {
+        const isOpen = panel.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', String(isOpen));
+      });
+    })();
+  </script>
+</body>
 </html>
