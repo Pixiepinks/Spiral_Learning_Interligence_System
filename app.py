@@ -1538,6 +1538,12 @@ def home() -> object:
     return send_from_directory(FRONTEND_BUILD_DIR, "index.html")
 
 
+@app.route("/join")
+@app.route("/join/")
+def join_page() -> object:
+    return send_from_directory(FRONTEND_BUILD_DIR, "join/index.html")
+
+
 @app.route("/<path:path>")
 def frontend_static_or_spa(path: str) -> object:
     file_path = os.path.join(FRONTEND_BUILD_DIR, path)
