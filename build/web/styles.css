@@ -930,7 +930,7 @@ body {
 .register-hero-img {
   position: absolute !important;
   left: 74% !important;
-  bottom: 250px !important;
+  bottom: 350px !important;
   transform: translateX(-50%) !important;
   width: min(125%, 900px) !important;
   max-height: 85vh !important;
