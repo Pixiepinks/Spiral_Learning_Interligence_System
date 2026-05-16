@@ -932,8 +932,8 @@ body {
   left: 78% !important;
   bottom: 180px !important;
   transform: translateX(-50%) !important;
-  width: min(90%, 640px) !important;
-  max-height: 70vh !important;
+  width: min(125%, 900px) !important;
+  max-height: 85vh !important;
   object-fit: contain !important;
   z-index: 1 !important;
   opacity: 0.96 !important;
