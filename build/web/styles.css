@@ -875,15 +875,14 @@ body {
   min-height: calc(100vh - 104px);
   display: grid;
   grid-template-columns: 42% 58%;
+  padding-top: 0 !important;
   background:
     radial-gradient(900px 480px at 0% 20%, rgba(70, 165, 255, 0.20), transparent 65%),
     linear-gradient(135deg, #eef8ff 0%, #ffffff 54%, #eaf6ff 100%);
   color: #0b2c68;
 }
-.register-left { position: relative; overflow: hidden; padding: 42px 44px 0; background: radial-gradient(650px 420px at 35% 85%, rgba(50, 145, 255, 0.22), transparent 70%); }
-.register-brand { display: flex; align-items: center; gap: 16px; font-weight: 900; color: #072a66; font-size: 1.15rem; }
-.register-brand-logo { width: 82px; height: auto; }
-.register-left h1 { margin: 42px 0 16px; font-size: clamp(2.6rem, 4.4vw, 4.8rem); line-height: 0.98; letter-spacing: -0.04em; }
+.register-left { position: relative; overflow: hidden; padding: 18px 44px 0 !important; background: radial-gradient(650px 420px at 35% 85%, rgba(50, 145, 255, 0.22), transparent 70%); }
+.register-left h1 { margin: 0 0 16px; margin-top: 0 !important; font-size: clamp(2.6rem, 4.4vw, 4.8rem); line-height: 0.98; letter-spacing: -0.04em; }
 .register-left h1 span { display: block; background: linear-gradient(90deg, #0a4ddf, #16a8ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .register-left-text { max-width: 520px; font-size: 1.25rem; line-height: 1.5; color: #2d4778; }
 .register-benefits { margin-top: 28px; display: grid; gap: 18px; max-width: 480px; }
@@ -913,7 +912,6 @@ body {
 @media (max-width: 1100px) {
   .register-page { grid-template-columns: 1fr; }
   .register-left { padding: 28px 28px 0; text-align: center; }
-  .register-brand { justify-content: center; }
   .register-left-text, .register-benefits { margin-left: auto; margin-right: auto; }
   .register-hero-img { max-height: 520px; object-fit: contain; }
   .register-right { padding: 28px 20px 40px; }
@@ -921,8 +919,6 @@ body {
 @media (max-width: 640px) {
   .register-page { min-height: auto; }
   .register-left { padding: 18px 16px 0; }
-  .register-brand-logo { width: 58px; }
-  .register-brand { font-size: 0.95rem; }
   .register-left h1 { margin-top: 20px; font-size: 2.35rem; }
   .register-left-text { font-size: 1rem; }
   .register-benefits { display: none; }
