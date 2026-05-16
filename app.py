@@ -1716,19 +1716,31 @@ def register_student():
     db.session.flush()
     student.username = generate_student_username_for_id(student.id)
     db.session.commit()
-    email_recipient = (student.parent_email or student.email or "").strip()
-    if email_recipient:
+    recipients = []
+    if student.email:
+        recipients.append(student.email.strip().lower())
+    if student.parent_email:
+        recipients.append(student.parent_email.strip().lower())
+    recipients = list(dict.fromkeys(recipients))
+
+    if recipients:
         try:
             send_welcome_email(
                 student_name=student.name,
-                email=email_recipient,
+                recipients=recipients,
                 grade=display_grade(student.grade, student.medium),
                 medium=student.medium,
                 username=student.username or "",
                 plain_password=password,
             )
         except Exception:
-            app.logger.exception("Failed to send welcome email for student_id=%s", student.id)
+            app.logger.exception(
+                "Failed to send welcome email for student_id=%s to recipients=%s",
+                student.id,
+                recipients,
+            )
+    else:
+        app.logger.warning("No email available for welcome email.")
 
     if is_form_submission:
         return redirect("/login?registered=1")
