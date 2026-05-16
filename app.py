@@ -1548,7 +1548,20 @@ def join_page() -> object:
 @app.route("/register-form/", methods=["GET", "POST"])
 def register_form() -> object:
     if request.method == "GET":
-        return send_from_directory(FRONTEND_BUILD_DIR, "register-form/index.html")
+        template_path = os.path.join(FRONTEND_BUILD_DIR, "register-form", "index.html")
+        with open(template_path, "r", encoding="utf-8") as f:
+            html = f.read()
+
+        schools = School.query.order_by(School.school_name.asc(), School.id.asc()).all()
+        school_options = "".join(
+            f'<option value="{school.id}">{escape(school.school_name)}</option>'
+            for school in schools
+        )
+        html = html.replace(
+            '<select name="school_id"><option value="">Select your school</option></select>',
+            f'<select name="school_id"><option value="">Select your school</option>{school_options}</select>',
+        )
+        return html
     return register_student()
 
 
