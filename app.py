@@ -489,6 +489,11 @@ def ensure_student_username_schema() -> None:
     db.session.commit()
 
 
+def run_startup_migrations() -> None:
+    """Apply safe, idempotent schema/data migrations required at runtime."""
+    ensure_student_username_schema()
+
+
 class School(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     school_name = db.Column(db.String(200), nullable=False)
@@ -8222,10 +8227,14 @@ def update_family_registration_db() -> tuple:
         return jsonify({"success": False, "message": f"Family registration DB update failed: {exc}"}), 500
 
 
+with app.app_context():
+    run_startup_migrations()
+
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-        ensure_student_username_schema()
+        run_startup_migrations()
         normalize_existing_grade_data()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
