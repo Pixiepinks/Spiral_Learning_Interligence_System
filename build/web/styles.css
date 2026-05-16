@@ -890,7 +890,6 @@ body {
 .register-benefit span { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 16px; background: linear-gradient(145deg, #dff3ff, #ccecff); font-size: 1.5rem; }
 .register-benefit strong { display: block; font-size: 1rem; color: #0b2c68; }
 .register-benefit p { margin: 4px 0 0; color: #304b7c; line-height: 1.35; }
-.register-hero-img { width: min(92%, 620px); display: block; margin: 26px auto 0; filter: drop-shadow(0 28px 44px rgba(20, 88, 180, 0.22)); }
 .register-right { padding: 28px 44px 40px; display: flex; flex-direction: column; align-items: stretch; }
 .register-login-row { align-self: flex-end; margin-bottom: 14px; display: flex; align-items: center; gap: 14px; color: #526991; font-weight: 700; }
 .register-login-row a { text-decoration: none; color: #0f63d9; border: 1px solid rgba(40, 119, 230, 0.28); border-radius: 999px; padding: 9px 22px; background: rgba(255,255,255,0.75); }
@@ -913,7 +912,6 @@ body {
   .register-page { grid-template-columns: 1fr; }
   .register-left { padding: 28px 28px 0; text-align: center; }
   .register-left-text, .register-benefits { margin-left: auto; margin-right: auto; }
-  .register-hero-img { max-height: 520px; object-fit: contain; }
   .register-right { padding: 28px 20px 40px; }
 }
 @media (max-width: 640px) {
@@ -922,7 +920,6 @@ body {
   .register-left h1 { margin-top: 20px; font-size: 2.35rem; }
   .register-left-text { font-size: 1rem; }
   .register-benefits { display: none; }
-  .register-hero-img { width: 82%; max-height: 360px; }
   .register-login-row { justify-content: center; align-self: center; flex-wrap: wrap; }
   .register-card { padding: 22px 16px; border-radius: 22px; }
   .register-card-header { align-items: flex-start; }
@@ -930,48 +927,13 @@ body {
   .register-form-grid { grid-template-columns: 1fr; gap: 14px; }
 }
 
-/* Register form desktop hero image position override */
-@media (min-width: 1101px) {
-  .register-left {
-    position: relative;
-    overflow: hidden;
-    padding: 0 44px 0 !important;
-    min-height: calc(100vh - 104px);
-  }
-
-  .register-left h1 {
-    position: relative;
-    z-index: 2;
-    margin-top: 0 !important;
-  }
-
-  .register-left-text,
-  .register-benefits {
-    position: relative;
-    z-index: 2;
-  }
-
-  .register-hero-img {
-    position: absolute;
-    left: 10px;
-    bottom: -60px;
-    width: min(95%, 620px);
-    max-height: 62vh;
-    object-fit: contain;
-    z-index: 1;
-    opacity: 0.92;
-    filter: drop-shadow(0 24px 42px rgba(20, 88, 180, 0.18));
-  }
-}
-
-/* Register form hero artwork position override */
 .register-hero-img {
   position: absolute !important;
-  left: 50% !important;
-  bottom: -20px !important;
-  transform: translateX(-35%) !important;
-  width: min(78%, 520px) !important;
-  max-height: 58vh !important;
+  left: 82% !important;
+  bottom: 40px !important;
+  transform: translateX(-50%) !important;
+  width: min(90%, 640px) !important;
+  max-height: 70vh !important;
   object-fit: contain !important;
   z-index: 1 !important;
   opacity: 0.96 !important;
