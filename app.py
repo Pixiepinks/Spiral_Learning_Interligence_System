@@ -2,6 +2,7 @@ import json
 import os
 import random
 import re
+import uuid
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from html import escape
@@ -489,9 +490,18 @@ def ensure_student_username_schema() -> None:
     db.session.commit()
 
 
+def ensure_family_registration_schema() -> None:
+    db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS student_mobile_key"))
+    db.session.execute(db.text("DROP INDEX IF EXISTS student_mobile_key"))
+    db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS student_parent_email_key"))
+    db.session.execute(db.text("DROP INDEX IF EXISTS student_parent_email_key"))
+    db.session.commit()
+
+
 def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     ensure_student_username_schema()
+    ensure_family_registration_schema()
 
 
 class School(db.Model):
@@ -1695,7 +1705,7 @@ def register_student():
         grade=grade,
         medium=medium,
         email=email,
-        username=None,
+        username=f"TMP-{uuid.uuid4().hex}",
         parent_email=parent_email,
         mobile=mobile,
         password_hash=generate_password_hash(password),
@@ -8215,12 +8225,7 @@ def update_homework_db() -> tuple:
 def update_family_registration_db() -> tuple:
     try:
         ensure_student_username_schema()
-        db.session.execute(db.text("DROP INDEX IF EXISTS student_mobile_key"))
-        db.session.execute(db.text("DROP INDEX IF EXISTS uq_student_mobile"))
-        db.session.execute(db.text("DROP INDEX IF EXISTS ix_student_mobile"))
-        db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS student_mobile_key"))
-        db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS uq_student_mobile"))
-        db.session.commit()
+        ensure_family_registration_schema()
         return jsonify({"success": True, "message": "Family registration database updated successfully"}), 200
     except Exception as exc:
         db.session.rollback()
