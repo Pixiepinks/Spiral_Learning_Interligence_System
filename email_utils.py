@@ -7,19 +7,19 @@ resend.api_key = os.getenv("RESEND_API_KEY")
 
 def send_welcome_email(
     student_name: str,
-    email: str,
+    recipients: list[str],
     grade: str,
     medium: str,
     username: str,
     plain_password: str,
 ) -> None:
-    if not resend.api_key or not email:
+    if not resend.api_key or not recipients:
         return
 
     resend.Emails.send(
         {
             "from": "SLIS <support@slis-e.com>",
-            "to": [email],
+            "to": recipients,
             "subject": "Welcome to SLIS – Your Learning Journey Starts Here 🚀",
             "html": f"""
             <div style="margin:0;background:#f4f8ff;padding:24px 12px;font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;">
