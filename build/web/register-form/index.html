@@ -12,25 +12,49 @@
   <body>
     <header class="slis-header" id="home">
       <div class="header-inner">
-        <a class="logo-area" href="/" aria-label="SLIS Home">
-          <div class="logo-mark">
-            <img src="/assets/slis-logo.png" alt="SLIS logo" class="logo-img" />
-          </div>
-          <div class="logo-text-wrap">
-            <span class="brand-title">SLIS</span>
-            <span class="brand-sub">Spiral Learning Interligence System</span>
-          </div>
+        <a class="logo-wrap" href="/" aria-label="SLIS Home">
+          <img src="/assets/slis-logo.png" alt="SLIS logo" class="slis-logo" />
         </a>
-        <nav class="header-nav" aria-label="Primary">
-          <a href="/#home">Home</a><a href="/#about">About</a><a href="/#learning">Learning</a><a href="/#news">News</a>
-        </nav>
-        <div class="header-actions" aria-label="Account actions">
-          <a href="/join" class="action-btn become-member" aria-label="Become a Member"><img src="/assets/btn-become-member.png" alt="Become a member" class="btn-image" /></a>
-          <a href="/login" class="action-btn login" aria-label="Login">Login</a>
+
+        <div class="center-zone">
+          <form class="search-shell" role="search" aria-label="Site search">
+            <button class="icon-chip left" type="button" aria-label="Search">
+              <span class="icon">🔍</span>
+            </button>
+            <input
+              type="text"
+              placeholder="What do you want to learn today?"
+              aria-label="What do you want to learn today?"
+            />
+            <button class="icon-chip right" type="button" aria-label="Voice search">
+              <span class="icon">🎤</span>
+            </button>
+          </form>
+
+          <nav class="header-nav" aria-label="Primary">
+            <a href="#">For Learners</a>
+            <a href="#">For Educators</a>
+            <a href="#">For Parents</a>
+            <a href="#">For Institute</a>
+          </nav>
         </div>
+
+        <div class="header-actions" aria-label="Account actions">
+          <a href="/join" class="action-btn become-member" aria-label="Become a Member">
+            <img src="/assets/btn-become-member.png" alt="Become a Member" />
+          </a>
+          <a href="/login" class="action-btn members-login" aria-label="Members Login">
+            <img src="/assets/btn-members-login.png" alt="Members Login" />
+          </a>
+        </div>
+
         <button class="mobile-menu-toggle" type="button" aria-label="Toggle mobile menu" aria-expanded="false" aria-controls="mobile-nav-panel">☰</button>
+
         <nav class="mobile-nav-panel" id="mobile-nav-panel" aria-label="Mobile navigation">
-          <a href="/#home">Home</a><a href="/#about">About</a><a href="/#learning">Learning</a><a href="/#news">News</a>
+          <a href="#">For Learners</a>
+          <a href="#">For Educators</a>
+          <a href="#">For Parents</a>
+          <a href="#">For Institute</a>
         </nav>
       </div>
     </header>
