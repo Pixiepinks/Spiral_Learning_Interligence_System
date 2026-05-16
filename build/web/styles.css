@@ -929,3 +929,37 @@ body {
   .register-avatar { width: 56px; height: 56px; font-size: 1.5rem; }
   .register-form-grid { grid-template-columns: 1fr; gap: 14px; }
 }
+
+/* Register form desktop hero image position override */
+@media (min-width: 1101px) {
+  .register-left {
+    position: relative;
+    overflow: hidden;
+    padding: 0 44px 0 !important;
+    min-height: calc(100vh - 104px);
+  }
+
+  .register-left h1 {
+    position: relative;
+    z-index: 2;
+    margin-top: 0 !important;
+  }
+
+  .register-left-text,
+  .register-benefits {
+    position: relative;
+    z-index: 2;
+  }
+
+  .register-hero-img {
+    position: absolute;
+    left: 10px;
+    bottom: -60px;
+    width: min(95%, 620px);
+    max-height: 62vh;
+    object-fit: contain;
+    z-index: 1;
+    opacity: 0.92;
+    filter: drop-shadow(0 24px 42px rgba(20, 88, 180, 0.18));
+  }
+}
