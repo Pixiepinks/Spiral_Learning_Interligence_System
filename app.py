@@ -461,24 +461,32 @@ class Student(db.Model):
     school_id = db.Column(db.Integer, nullable=False)
 
 
-def generate_unique_student_username() -> str:
+def generate_student_username_for_id(student_id: int) -> str:
     year = datetime.utcnow().year
-    prefix = f"SLIS{year}"
-    latest = (
-        Student.query.filter(Student.username.like(f"{prefix}%"))
-        .order_by(Student.username.desc())
-        .first()
+    return f"SLIS{year}{student_id:05d}"
+
+
+def ensure_student_username_schema() -> None:
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
+    db.session.execute(
+        db.text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_student_username_unique
+            ON student(username)
+            WHERE username IS NOT NULL
+            """
+        )
     )
-    last_sequence = 0
-    if latest and latest.username:
-        suffix = latest.username.replace(prefix, "", 1)
-        if suffix.isdigit():
-            last_sequence = int(suffix)
-    for sequence in range(last_sequence + 1, 1_000_000):
-        candidate = f"{prefix}{sequence:05d}"
-        if not Student.query.filter_by(username=candidate).first():
-            return candidate
-    raise ValueError("Unable to generate unique username")
+    db.session.execute(
+        db.text(
+            """
+            UPDATE student
+            SET username = 'SLIS' || TO_CHAR(CURRENT_DATE, 'YYYY') || LPAD(id::text, 5, '0')
+            WHERE username IS NULL
+            """
+        )
+    )
+    db.session.commit()
 
 
 class School(db.Model):
@@ -1677,14 +1685,12 @@ def register_student():
             return "<h2>Error: Email already exists</h2><p><a href='/register-form'>Back</a></p>", 409
         return jsonify({"success": False, "message": "Email already exists"}), 409
 
-    username = generate_unique_student_username()
-
     student = Student(
         name=data["name"].strip(),
         grade=grade,
         medium=medium,
         email=email,
-        username=username,
+        username=None,
         parent_email=parent_email,
         mobile=mobile,
         password_hash=generate_password_hash(password),
@@ -1692,6 +1698,8 @@ def register_student():
     )
 
     db.session.add(student)
+    db.session.flush()
+    student.username = generate_student_username_for_id(student.id)
     db.session.commit()
     email_recipient = (student.parent_email or student.email or "").strip()
     if email_recipient:
@@ -6268,8 +6276,7 @@ def seed_basic_subjects() -> tuple:
 def update_login_db() -> tuple:
     try:
         db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)"))
-        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
-        db.session.execute(db.text("CREATE UNIQUE INDEX IF NOT EXISTS uq_student_username ON student(username)"))
+        ensure_student_username_schema()
         db.session.commit()
         return jsonify({"success": True, "message": "Login database updated successfully"}), 200
     except Exception as exc:
@@ -8202,8 +8209,7 @@ def update_homework_db() -> tuple:
 @app.route("/update-family-registration-db", methods=["GET"])
 def update_family_registration_db() -> tuple:
     try:
-        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
-        db.session.execute(db.text("CREATE UNIQUE INDEX IF NOT EXISTS uq_student_username ON student(username)"))
+        ensure_student_username_schema()
         db.session.execute(db.text("DROP INDEX IF EXISTS student_mobile_key"))
         db.session.execute(db.text("DROP INDEX IF EXISTS uq_student_mobile"))
         db.session.execute(db.text("DROP INDEX IF EXISTS ix_student_mobile"))
@@ -8219,6 +8225,7 @@ def update_family_registration_db() -> tuple:
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+        ensure_student_username_schema()
         normalize_existing_grade_data()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
