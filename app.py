@@ -12,6 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from email_utils import send_welcome_email
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
@@ -1673,6 +1674,16 @@ def register_student():
 
     db.session.add(student)
     db.session.commit()
+    if student.email:
+        try:
+            send_welcome_email(
+                student_name=student.name,
+                email=student.email,
+                grade=display_grade(student.grade, student.medium),
+                medium=student.medium,
+            )
+        except Exception:
+            app.logger.exception("Failed to send welcome email for student_id=%s", student.id)
 
     if is_form_submission:
         if student.email:
