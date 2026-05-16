@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SLIS - Student Registration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="slis-header" id="home">
+      <div class="header-inner">
+        <a class="logo-area" href="/" aria-label="SLIS Home">
+          <div class="logo-mark">
+            <img src="/assets/slis-logo.png" alt="SLIS logo" class="logo-img" />
+          </div>
+          <div class="logo-text-wrap">
+            <span class="brand-title">SLIS</span>
+            <span class="brand-sub">Spiral Learning Interligence System</span>
+          </div>
+        </a>
+        <nav class="header-nav" aria-label="Primary">
+          <a href="/#home">Home</a><a href="/#about">About</a><a href="/#learning">Learning</a><a href="/#news">News</a>
+        </nav>
+        <div class="header-actions" aria-label="Account actions">
+          <a href="/join" class="action-btn become-member" aria-label="Become a Member"><img src="/assets/btn-become-member.png" alt="Become a member" class="btn-image" /></a>
+          <a href="/login" class="action-btn login" aria-label="Login">Login</a>
+        </div>
+        <button class="mobile-menu-toggle" type="button" aria-label="Toggle mobile menu" aria-expanded="false" aria-controls="mobile-nav-panel">☰</button>
+        <nav class="mobile-nav-panel" id="mobile-nav-panel" aria-label="Mobile navigation">
+          <a href="/#home">Home</a><a href="/#about">About</a><a href="/#learning">Learning</a><a href="/#news">News</a>
+        </nav>
+      </div>
+    </header>
+    <main class="register-page">
+      <section class="register-left">
+        <div class="register-brand"><img src="/assets/slis-logo.png" alt="SLIS logo" class="register-brand-logo" /><p>Sri Lanka’s Most Advanced AI Learning Platform</p></div>
+        <h1>Start Your <span>Learning Journey</span></h1>
+        <p class="register-left-text">Create your account and unlock a world of AI-powered learning.</p>
+        <div class="register-benefits">
+          <div class="register-benefit"><span>🎓</span><div><strong>Personalized Learning</strong><p>AI adapts to your learning style and pace.</p></div></div>
+          <div class="register-benefit"><span>📊</span><div><strong>Track Your Progress</strong><p>Monitor performance and achievements.</p></div></div>
+          <div class="register-benefit"><span>🏆</span><div><strong>Interactive &amp; Fun</strong><p>Engaging lessons, activities and gamification.</p></div></div>
+          <div class="register-benefit"><span>🛡️</span><div><strong>Safe &amp; Secure</strong><p>Your data is protected with strong security.</p></div></div>
+        </div>
+        <img src="/assets/register-hero.png" alt="SLIS AI student learning assistant" class="register-hero-img" />
+      </section>
+      <section class="register-right">
+        <div class="register-login-row"><span>Already have an account?</span><a href="/login">Log in</a></div>
+        <form class="register-card" action="#" method="post">
+          <div class="register-card-header"><div class="register-avatar">👤</div><div><h2>Student Registration</h2><p>Fill in the details below to create your account.</p></div></div>
+          <div class="register-form-grid">
+            <label>Full Name<input type="text" name="name" placeholder="Enter your full name" required /></label>
+            <label>Grade<select name="grade" required><option value="">Select your grade</option><option>Grade 1</option><option>Grade 2</option><option>Grade 3</option><option>Grade 4</option><option>Grade 5</option><option>Grade 6</option><option>Grade 7</option><option>Grade 8</option><option>Grade 9</option><option>Grade 10</option><option>O/L</option><option>A/L</option></select></label>
+            <label>Medium<select name="medium" required><option value="">Select medium</option><option>English</option><option>Sinhala</option></select></label>
+            <label>Email<input type="email" name="email" placeholder="Enter your email" /></label>
+            <label>Parent Email<input type="email" name="parent_email" placeholder="Enter parent email" /></label>
+            <label>Mobile Number<input type="tel" name="mobile" placeholder="+94 7X XXX XXXX" required /></label>
+            <label>School<select name="school"><option value="">Select your school</option></select></label>
+            <label>Create Password<input type="password" name="password" placeholder="Create a password" required /></label>
+            <label>Confirm Password<input type="password" name="confirm_password" placeholder="Confirm your password" required /></label>
+          </div>
+          <div class="register-privacy-box"><strong>🔐 Your privacy is important to us</strong><p>We use your information only to personalize your learning experience and keep your account secure.</p></div>
+          <label class="register-check"><input type="checkbox" required /><span>I agree to the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a></span></label>
+          <button type="submit" class="register-submit">Create My Account →</button>
+        </form>
+      </section>
+    </main>
+    <script>
+      const toggle = document.querySelector('.mobile-menu-toggle');
+      const panel = document.querySelector('.mobile-nav-panel');
+      if (toggle && panel) {
+        toggle.addEventListener('click', () => {
+          const open = panel.classList.toggle('is-open');
+          toggle.setAttribute('aria-expanded', String(open));
+        });
+      }
+    </script>
+  </body>
+</html>

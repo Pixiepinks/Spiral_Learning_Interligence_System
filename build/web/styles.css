@@ -869,3 +869,67 @@ body {
     margin-top: 0 !important;
   }
 }
+
+/* Register form page */
+.register-page {
+  min-height: calc(100vh - 104px);
+  display: grid;
+  grid-template-columns: 42% 58%;
+  background:
+    radial-gradient(900px 480px at 0% 20%, rgba(70, 165, 255, 0.20), transparent 65%),
+    linear-gradient(135deg, #eef8ff 0%, #ffffff 54%, #eaf6ff 100%);
+  color: #0b2c68;
+}
+.register-left { position: relative; overflow: hidden; padding: 42px 44px 0; background: radial-gradient(650px 420px at 35% 85%, rgba(50, 145, 255, 0.22), transparent 70%); }
+.register-brand { display: flex; align-items: center; gap: 16px; font-weight: 900; color: #072a66; font-size: 1.15rem; }
+.register-brand-logo { width: 82px; height: auto; }
+.register-left h1 { margin: 42px 0 16px; font-size: clamp(2.6rem, 4.4vw, 4.8rem); line-height: 0.98; letter-spacing: -0.04em; }
+.register-left h1 span { display: block; background: linear-gradient(90deg, #0a4ddf, #16a8ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.register-left-text { max-width: 520px; font-size: 1.25rem; line-height: 1.5; color: #2d4778; }
+.register-benefits { margin-top: 28px; display: grid; gap: 18px; max-width: 480px; }
+.register-benefit { display: grid; grid-template-columns: 54px 1fr; gap: 14px; align-items: start; }
+.register-benefit span { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 16px; background: linear-gradient(145deg, #dff3ff, #ccecff); font-size: 1.5rem; }
+.register-benefit strong { display: block; font-size: 1rem; color: #0b2c68; }
+.register-benefit p { margin: 4px 0 0; color: #304b7c; line-height: 1.35; }
+.register-hero-img { width: min(92%, 620px); display: block; margin: 26px auto 0; filter: drop-shadow(0 28px 44px rgba(20, 88, 180, 0.22)); }
+.register-right { padding: 28px 44px 40px; display: flex; flex-direction: column; align-items: stretch; }
+.register-login-row { align-self: flex-end; margin-bottom: 14px; display: flex; align-items: center; gap: 14px; color: #526991; font-weight: 700; }
+.register-login-row a { text-decoration: none; color: #0f63d9; border: 1px solid rgba(40, 119, 230, 0.28); border-radius: 999px; padding: 9px 22px; background: rgba(255,255,255,0.75); }
+.register-card { background: rgba(255,255,255,0.92); border: 1px solid rgba(122, 166, 224, 0.25); border-radius: 28px; padding: 34px; box-shadow: 0 24px 70px rgba(36, 88, 150, 0.16), inset 0 1px 0 rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
+.register-card-header { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+.register-avatar { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(145deg, #e4f4ff, #caebff); font-size: 2rem; }
+.register-card h2 { margin: 0; font-size: clamp(1.8rem, 2.4vw, 2.6rem); color: #071f58; }
+.register-card-header p { margin: 6px 0 0; color: #4d638c; font-weight: 700; }
+.register-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
+.register-form-grid label { display: grid; gap: 8px; font-weight: 800; color: #102858; }
+.register-form-grid input, .register-form-grid select { width: 100%; border: 1px solid rgba(80, 116, 168, 0.24); border-radius: 13px; padding: 13px 14px; font-family: "Nunito", sans-serif; font-size: 0.98rem; font-weight: 700; color: #25375d; background: #fff; outline: none; }
+.register-form-grid input:focus, .register-form-grid select:focus { border-color: #2a8cff; box-shadow: 0 0 0 4px rgba(42, 140, 255, 0.12); }
+.register-privacy-box { margin-top: 22px; padding: 16px 18px; border-radius: 16px; background: linear-gradient(135deg, #eef7ff, #f8fcff); border: 1px solid rgba(85, 154, 233, 0.18); color: #1c3b73; }
+.register-privacy-box p { margin: 6px 0 0; color: #526991; }
+.register-check { margin-top: 18px; display: flex; align-items: flex-start; gap: 10px; color: #334e7d; font-weight: 700; }
+.register-check a { color: #0e63dc; text-decoration: none; }
+.register-submit { width: 100%; margin-top: 22px; border: 0; border-radius: 999px; padding: 16px 18px; font-family: "Nunito", sans-serif; font-size: 1.05rem; font-weight: 900; color: #fff; background: linear-gradient(135deg, #0c55df, #2c99ff); box-shadow: 0 14px 28px rgba(18, 104, 229, 0.26); cursor: pointer; transition: transform 0.22s ease, box-shadow 0.22s ease; }
+.register-submit:hover { transform: translateY(-2px); box-shadow: 0 18px 34px rgba(18, 104, 229, 0.34); }
+@media (max-width: 1100px) {
+  .register-page { grid-template-columns: 1fr; }
+  .register-left { padding: 28px 28px 0; text-align: center; }
+  .register-brand { justify-content: center; }
+  .register-left-text, .register-benefits { margin-left: auto; margin-right: auto; }
+  .register-hero-img { max-height: 520px; object-fit: contain; }
+  .register-right { padding: 28px 20px 40px; }
+}
+@media (max-width: 640px) {
+  .register-page { min-height: auto; }
+  .register-left { padding: 18px 16px 0; }
+  .register-brand-logo { width: 58px; }
+  .register-brand { font-size: 0.95rem; }
+  .register-left h1 { margin-top: 20px; font-size: 2.35rem; }
+  .register-left-text { font-size: 1rem; }
+  .register-benefits { display: none; }
+  .register-hero-img { width: 82%; max-height: 360px; }
+  .register-login-row { justify-content: center; align-self: center; flex-wrap: wrap; }
+  .register-card { padding: 22px 16px; border-radius: 22px; }
+  .register-card-header { align-items: flex-start; }
+  .register-avatar { width: 56px; height: 56px; font-size: 1.5rem; }
+  .register-form-grid { grid-template-columns: 1fr; gap: 14px; }
+}
