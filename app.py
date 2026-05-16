@@ -1544,6 +1544,12 @@ def join_page() -> object:
     return send_from_directory(FRONTEND_BUILD_DIR, "join/index.html")
 
 
+@app.route("/register-form")
+@app.route("/register-form/")
+def register_form() -> object:
+    return send_from_directory(FRONTEND_BUILD_DIR, "register-form/index.html")
+
+
 @app.route("/<path:path>")
 def frontend_static_or_spa(path: str) -> object:
     file_path = os.path.join(FRONTEND_BUILD_DIR, path)
@@ -1556,80 +1562,6 @@ def frontend_static_or_spa(path: str) -> object:
 def create_db() -> str:
     db.create_all()
     return "Database tables created successfully"
-
-
-@app.route("/register-form", methods=["GET"])
-def register_form() -> str:
-    selected_medium = resolve_medium(request.args.get("medium"))
-    english_selected = "selected" if selected_medium == "English" else ""
-    sinhala_selected = "selected" if selected_medium == "Sinhala" else ""
-    schools = School.query.order_by(School.school_name.asc()).all()
-    school_options = ''.join(
-        f'<option value="{school.id}">{escape(school.school_name)}</option>' for school in schools
-    )
-
-    return f"""
-    <!doctype html>
-    <html lang="{'si' if selected_medium == 'Sinhala' else 'en'}">
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{t(selected_medium, "student_registration")}</title>
-      </head>
-      <body>
-        <h1>{t(selected_medium, "student_registration")}</h1>
-        <form method="post" action="/register">
-          <label>
-            {t(selected_medium, "name")}:
-            <input type="text" name="name" required>
-          </label>
-          <br><br>
-          <label>
-            {t(selected_medium, "grade")}:
-            <select name="grade" required>{grade_options_html()}</select>
-          </label>
-          <br><br>
-          <label>
-            {t(selected_medium, "medium")}:
-            <select name="medium" required>
-              <option value="English" {english_selected}>English</option>
-              <option value="Sinhala" {sinhala_selected}>Sinhala</option>
-            </select>
-          </label>
-          <br><br>
-          <label>
-            {t(selected_medium, "email")}:
-            <input type="email" name="email" required>
-          </label>
-          <br><br>
-          <label>
-            Parent Email:
-            <input type="email" name="parent_email" required>
-          </label>
-          <br><br>
-          <label>
-            {t(selected_medium, "mobile")}:
-            <input type="text" name="mobile" required>
-          </label>
-          <br><br>
-          <label>
-            School:
-            <select name="school_id" required>
-              <option value="">Select school</option>
-              {school_options}
-            </select>
-          </label>
-          <br><br>
-          <label>
-            Password:
-            <input type="password" name="password" required>
-          </label>
-          <br><br>
-          <button type="submit">{t(selected_medium, "register")}</button>
-        </form>
-      </body>
-    </html>
-    """
 
 
 @app.route("/register", methods=["POST"])
