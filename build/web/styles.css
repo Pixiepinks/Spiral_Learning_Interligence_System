@@ -881,7 +881,7 @@ body {
     linear-gradient(135deg, #eef8ff 0%, #ffffff 54%, #eaf6ff 100%);
   color: #0b2c68;
 }
-.register-left { position: relative; overflow: hidden; padding: 18px 44px 0 !important; background: radial-gradient(650px 420px at 35% 85%, rgba(50, 145, 255, 0.22), transparent 70%); }
+.register-left { position: relative; overflow: hidden; padding: 2px 44px 0 !important; background: radial-gradient(650px 420px at 35% 85%, rgba(50, 145, 255, 0.22), transparent 70%); }
 .register-left h1 { margin: 0 0 16px; margin-top: 0 !important; font-size: clamp(2.6rem, 4.4vw, 4.8rem); line-height: 0.98; letter-spacing: -0.04em; }
 .register-left h1 span { display: block; background: linear-gradient(90deg, #0a4ddf, #16a8ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .register-left-text { max-width: 520px; font-size: 1.25rem; line-height: 1.5; color: #2d4778; }
