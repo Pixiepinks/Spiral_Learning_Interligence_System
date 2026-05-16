@@ -963,3 +963,29 @@ body {
     filter: drop-shadow(0 24px 42px rgba(20, 88, 180, 0.18));
   }
 }
+
+/* Register form hero artwork position override */
+.register-hero-img {
+  position: absolute !important;
+  left: 50% !important;
+  bottom: -20px !important;
+  transform: translateX(-35%) !important;
+  width: min(78%, 520px) !important;
+  max-height: 58vh !important;
+  object-fit: contain !important;
+  z-index: 1 !important;
+  opacity: 0.96 !important;
+  filter: drop-shadow(0 24px 42px rgba(20, 88, 180, 0.18)) !important;
+}
+
+.register-left h1,
+.register-left-text,
+.register-benefits {
+  position: relative;
+  z-index: 2;
+}
+
+.register-left {
+  position: relative;
+  overflow: hidden;
+}
