@@ -444,8 +444,9 @@ class Student(db.Model):
     name = db.Column(db.String(120), nullable=False)
     grade = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(50), unique=True, nullable=True)
     parent_email = db.Column(db.String(120), nullable=True)
-    mobile = db.Column(db.String(20), unique=True, nullable=False)
+    mobile = db.Column(db.String(20), nullable=False)
     medium = db.Column(db.String(20), nullable=False, default="English")
     password_hash = db.Column(db.String(255), nullable=True)
     xp = db.Column(db.Integer, nullable=False, default=0)
@@ -458,6 +459,26 @@ class Student(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     class_id = db.Column(db.Integer, nullable=True)
     school_id = db.Column(db.Integer, nullable=False)
+
+
+def generate_unique_student_username() -> str:
+    year = datetime.utcnow().year
+    prefix = f"SLIS{year}"
+    latest = (
+        Student.query.filter(Student.username.like(f"{prefix}%"))
+        .order_by(Student.username.desc())
+        .first()
+    )
+    last_sequence = 0
+    if latest and latest.username:
+        suffix = latest.username.replace(prefix, "", 1)
+        if suffix.isdigit():
+            last_sequence = int(suffix)
+    for sequence in range(last_sequence + 1, 1_000_000):
+        candidate = f"{prefix}{sequence:05d}"
+        if not Student.query.filter_by(username=candidate).first():
+            return candidate
+    raise ValueError("Unable to generate unique username")
 
 
 class School(db.Model):
@@ -1656,16 +1677,14 @@ def register_student():
             return "<h2>Error: Email already exists</h2><p><a href='/register-form'>Back</a></p>", 409
         return jsonify({"success": False, "message": "Email already exists"}), 409
 
-    if Student.query.filter_by(mobile=mobile).first():
-        if is_form_submission:
-            return "<h2>Error: Mobile already exists</h2><p><a href='/register-form'>Back</a></p>", 409
-        return jsonify({"success": False, "message": "Mobile already exists"}), 409
+    username = generate_unique_student_username()
 
     student = Student(
         name=data["name"].strip(),
         grade=grade,
         medium=medium,
         email=email,
+        username=username,
         parent_email=parent_email,
         mobile=mobile,
         password_hash=generate_password_hash(password),
@@ -1674,22 +1693,21 @@ def register_student():
 
     db.session.add(student)
     db.session.commit()
-    if student.email:
+    email_recipient = (student.parent_email or student.email or "").strip()
+    if email_recipient:
         try:
             send_welcome_email(
                 student_name=student.name,
-                email=student.email,
+                email=email_recipient,
                 grade=display_grade(student.grade, student.medium),
                 medium=student.medium,
+                username=student.username or "",
+                plain_password=password,
             )
         except Exception:
             app.logger.exception("Failed to send welcome email for student_id=%s", student.id)
 
     if is_form_submission:
-        if student.email:
-            session["student_email"] = student.email
-            session["student_id"] = student.id
-            return redirect("/student_dashboard")
         return redirect("/login?registered=1")
 
     return (
@@ -1703,6 +1721,7 @@ def register_student():
                     "grade": student.grade,
                     "medium": student.medium,
                     "email": student.email,
+                    "username": student.username,
                     "parent_email": student.parent_email,
                     "mobile": student.mobile,
                     "school_id": student.school_id,
@@ -1758,7 +1777,7 @@ def login():
                   <option value="school_admin">School Admin</option>
                 </select>
               </label><br><br>
-              <label>Email: <input type="email" name="email" required></label><br><br>
+              <label>Username or Email: <input type="text" name="login_id" required></label><br><br>
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
             </form>
@@ -1767,7 +1786,7 @@ def login():
         """
 
     role = (request.form.get("role") or "student").strip()
-    email = (request.form.get("email") or "").strip()
+    login_id = (request.form.get("login_id") or "").strip()
     password = request.form.get("password") or ""
 
     try:
@@ -1778,14 +1797,14 @@ def login():
         db.session.rollback()
 
     if role == "school_admin":
-        school_admin = SchoolAdmin.query.filter_by(email=email).first()
+        school_admin = SchoolAdmin.query.filter_by(email=login_id).first()
         if school_admin and check_password_hash(school_admin.password_hash, password):
             session["school_admin_logged_in"] = True
             session["school_id"] = school_admin.school_id
             return redirect("/school-admin/dashboard")
 
         school_admin_email, school_admin_password = get_school_admin_credentials()
-        if email == school_admin_email and password == school_admin_password:
+        if login_id == school_admin_email and password == school_admin_password:
             school = School.query.order_by(School.id.asc()).first()
             if not school:
                 return "<h2>No school found</h2><p>Run <code>/update-school-db</code> first.</p>", 400
@@ -1795,7 +1814,7 @@ def login():
 
         return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
 
-    student = Student.query.filter_by(email=email).first()
+    student = Student.query.filter((Student.email == login_id) | (Student.username == login_id)).first()
     if not student or not student.password_hash or not check_password_hash(student.password_hash, password):
         return "<h2>Invalid email or password</h2><p><a href='/login'>Try again</a></p>", 401
 
@@ -6249,6 +6268,8 @@ def seed_basic_subjects() -> tuple:
 def update_login_db() -> tuple:
     try:
         db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)"))
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
+        db.session.execute(db.text("CREATE UNIQUE INDEX IF NOT EXISTS uq_student_username ON student(username)"))
         db.session.commit()
         return jsonify({"success": True, "message": "Login database updated successfully"}), 200
     except Exception as exc:
@@ -8176,6 +8197,23 @@ def update_homework_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Homework DB update failed: {exc}"}), 500
+
+
+@app.route("/update-family-registration-db", methods=["GET"])
+def update_family_registration_db() -> tuple:
+    try:
+        db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
+        db.session.execute(db.text("CREATE UNIQUE INDEX IF NOT EXISTS uq_student_username ON student(username)"))
+        db.session.execute(db.text("DROP INDEX IF EXISTS student_mobile_key"))
+        db.session.execute(db.text("DROP INDEX IF EXISTS uq_student_mobile"))
+        db.session.execute(db.text("DROP INDEX IF EXISTS ix_student_mobile"))
+        db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS student_mobile_key"))
+        db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS uq_student_mobile"))
+        db.session.commit()
+        return jsonify({"success": True, "message": "Family registration database updated successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Family registration DB update failed: {exc}"}), 500
 
 
 if __name__ == "__main__":
