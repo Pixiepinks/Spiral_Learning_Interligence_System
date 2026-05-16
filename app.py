@@ -1544,10 +1544,12 @@ def join_page() -> object:
     return send_from_directory(FRONTEND_BUILD_DIR, "join/index.html")
 
 
-@app.route("/register-form")
-@app.route("/register-form/")
+@app.route("/register-form", methods=["GET", "POST"])
+@app.route("/register-form/", methods=["GET", "POST"])
 def register_form() -> object:
-    return send_from_directory(FRONTEND_BUILD_DIR, "register-form/index.html")
+    if request.method == "GET":
+        return send_from_directory(FRONTEND_BUILD_DIR, "register-form/index.html")
+    return register_student()
 
 
 @app.route("/<path:path>")
@@ -1578,7 +1580,9 @@ def register_student():
             return "<h2>Error: Invalid or missing form data</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": "Invalid or missing JSON body"}), 400
 
-    required_fields = ["name", "grade", "email", "parent_email", "mobile", "medium", "password", "school_id"]
+    required_fields = ["name", "grade", "mobile", "medium", "password", "confirm_password"]
+    if Student.email.nullable is False:
+        required_fields.append("email")
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
     if missing_fields:
         if is_form_submission:
@@ -1597,6 +1601,14 @@ def register_student():
             400,
         )
 
+    password = str(data.get("password", ""))
+    confirm_password = str(data.get("confirm_password", ""))
+    if password != confirm_password:
+        msg = "Password and confirm password do not match"
+        if is_form_submission:
+            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
+        return jsonify({"success": False, "message": msg}), 400
+
     medium = data["medium"].strip()
     if medium not in SUPPORTED_MEDIA:
         msg = "Invalid medium. Use 'English' or 'Sinhala'"
@@ -1612,22 +1624,17 @@ def register_student():
         return jsonify({"success": False, "message": msg}), 400
 
     school_id_raw = str(data.get("school_id", "")).strip()
-    if not school_id_raw:
-        msg = "Please select school"
-        if is_form_submission:
-            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
-        return jsonify({"success": False, "message": msg}), 400
+    school_id = None
+    if school_id_raw:
+        if not school_id_raw.isdigit() or not School.query.get(int(school_id_raw)):
+            msg = "Invalid school selected"
+            if is_form_submission:
+                return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
+            return jsonify({"success": False, "message": msg}), 400
+        school_id = int(school_id_raw)
 
-    if not school_id_raw.isdigit() or not School.query.get(int(school_id_raw)):
-        msg = "Invalid school selected"
-        if is_form_submission:
-            return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
-        return jsonify({"success": False, "message": msg}), 400
-
-    school_id = int(school_id_raw)
-
-    email = data["email"].strip()
-    parent_email = data["parent_email"].strip()
+    email = str(data.get("email", "")).strip()
+    parent_email = str(data.get("parent_email", "")).strip()
     mobile = data["mobile"].strip()
 
     if Student.query.filter_by(email=email).first():
@@ -1647,7 +1654,7 @@ def register_student():
         email=email,
         parent_email=parent_email,
         mobile=mobile,
-        password_hash=generate_password_hash(data["password"]),
+        password_hash=generate_password_hash(password),
         school_id=school_id,
     )
 
@@ -1655,13 +1662,11 @@ def register_student():
     db.session.commit()
 
     if is_form_submission:
-        admin_back_link = "<p><a href='/admin/students'>Back to Manage Students</a></p>" if session.get("admin_logged_in") is True else ""
-        return (
-            "<h2>Success: Student registered successfully</h2>"
-            "<p><a href='/register-form'>Register another student</a></p>"
-            f"{admin_back_link}",
-            201,
-        )
+        if student.email:
+            session["student_email"] = student.email
+            session["student_id"] = student.id
+            return redirect("/student_dashboard")
+        return redirect("/login?registered=1")
 
     return (
         jsonify(
