@@ -890,7 +890,7 @@ body {
 .register-benefit span { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 16px; background: linear-gradient(145deg, #dff3ff, #ccecff); font-size: 1.5rem; }
 .register-benefit strong { display: block; font-size: 1rem; color: #0b2c68; }
 .register-benefit p { margin: 4px 0 0; color: #304b7c; line-height: 1.35; }
-.register-right { padding: 28px 44px 40px; display: flex; flex-direction: column; align-items: stretch; }
+.register-right { padding: 28px 5px 40px; display: flex; flex-direction: column; align-items: stretch; }
 .register-login-row { align-self: flex-end; margin-bottom: 14px; display: flex; align-items: center; gap: 14px; color: #526991; font-weight: 700; }
 .register-login-row a { text-decoration: none; color: #0f63d9; border: 1px solid rgba(40, 119, 230, 0.28); border-radius: 999px; padding: 9px 22px; background: rgba(255,255,255,0.75); }
 .register-card { background: rgba(255,255,255,0.92); border: 1px solid rgba(122, 166, 224, 0.25); border-radius: 28px; padding: 34px; box-shadow: 0 24px 70px rgba(36, 88, 150, 0.16), inset 0 1px 0 rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
