@@ -1977,7 +1977,7 @@ def login():
                 overflow-x: hidden;
               }}
               .login-card {{
-                width: min(100%, 420px);
+                width: min(90%, 380px);
                 background: var(--slis-card-bg);
                 border: 1px solid var(--slis-border);
                 border-radius: 28px;
@@ -1987,7 +1987,7 @@ def login():
                   inset 0 1px 0 rgba(255, 255, 255, 0.72);
                 backdrop-filter: blur(14px);
                 -webkit-backdrop-filter: blur(14px);
-                padding: 30px 26px;
+                padding: 34px 28px;
                 animation: cardFadeIn 560ms ease-out;
               }}
               @keyframes cardFadeIn {{
@@ -2002,14 +2002,14 @@ def login():
               }}
               .brand {{
                 text-align: center;
-                margin-bottom: 22px;
+                margin-bottom: 18px;
               }}
               .login-logo {{
-                width: clamp(120px, 28vw, 140px);
+                width: clamp(108px, 24vw, 120px);
                 height: auto;
                 object-fit: contain;
                 display: block;
-                margin: 0 auto 10px auto;
+                margin: 0 auto 8px auto;
               }}
               .brand h1 {{
                 margin: 0;
@@ -2018,12 +2018,12 @@ def login():
                 letter-spacing: 0.5px;
               }}
               .brand p {{
-                margin: 6px 0 0;
+                margin: 4px 0 0;
                 color: #3d4a67;
-                font-size: 0.95rem;
+                font-size: 0.94rem;
               }}
               .field {{
-                margin-bottom: 14px;
+                margin-bottom: 16px;
               }}
               label {{
                 display: block;
@@ -2036,7 +2036,7 @@ def login():
                 width: 100%;
                 border-radius: 12px;
                 border: 1px solid #c8d8ff;
-                padding: 12px;
+                padding: 11px 12px;
                 font-size: 0.95rem;
               }}
               input, select {{
@@ -2053,7 +2053,8 @@ def login():
                 color: #fff;
                 font-weight: 700;
                 cursor: pointer;
-                margin-top: 4px;
+                margin-top: 2px;
+                min-height: 52px;
               }}
               button:hover {{
                 filter: brightness(1.03);
@@ -2063,9 +2064,9 @@ def login():
                   padding: 14px;
                 }}
                 .login-card {{
-                  width: min(100%, 440px);
+                  width: min(92%, 380px);
                   border-radius: 24px;
-                  padding: 24px 20px;
+                  padding: 28px 22px;
                   backdrop-filter: blur(12px);
                   -webkit-backdrop-filter: blur(12px);
                 }}
@@ -7738,7 +7739,7 @@ def upgrade_page() -> str:
           h2 {{ margin: 22px 0 10px; font-size: 1.1rem; color: #1a3f8b; }}
           ul {{ margin: 0; padding-left: 20px; }}
           li {{ margin: 8px 0; }}
-          .price {{ font-size: 1.5rem; font-weight: 700; color: #0f7b43; margin: 6px 0 0; }}
+          .price {{ font-size: 1.5rem; font-weight: 700; color: #0f7b43; margin: 4px 0 0; }}
           .cta-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
           .btn {{
             display: inline-block;
