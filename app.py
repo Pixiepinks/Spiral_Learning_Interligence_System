@@ -2066,7 +2066,7 @@ def login():
                 .login-card {{
                   width: min(92%, 380px);
                   border-radius: 24px;
-                  padding: 28px 22px;
+                  padding: 24px 20px;
                   backdrop-filter: blur(12px);
                   -webkit-backdrop-filter: blur(12px);
                 }}
