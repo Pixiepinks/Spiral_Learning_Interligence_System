@@ -2023,7 +2023,7 @@ def login():
                 font-size: 0.94rem;
               }}
               .field {{
-                margin-bottom: 16px;
+                margin-bottom: 14px;
               }}
               label {{
                 display: block;
