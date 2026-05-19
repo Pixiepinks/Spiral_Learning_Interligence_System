@@ -2002,7 +2002,14 @@ def login():
               }}
               .brand {{
                 text-align: center;
-                margin-bottom: 20px;
+                margin-bottom: 22px;
+              }}
+              .login-logo {{
+                width: clamp(120px, 28vw, 140px);
+                height: auto;
+                object-fit: contain;
+                display: block;
+                margin: 0 auto 10px auto;
               }}
               .brand h1 {{
                 margin: 0;
@@ -2068,7 +2075,7 @@ def login():
           <body class="login-page">
             <div class="login-card">
               <div class="brand">
-                <h1>SLIS</h1>
+                <img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo">
                 <p>Spiral Learning Intelligence System</p>
               </div>
               <form method="post" action="/login">
