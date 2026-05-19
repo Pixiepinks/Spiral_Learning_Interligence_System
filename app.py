@@ -1743,7 +1743,26 @@ def register_student():
         app.logger.warning("No email available for welcome email.")
 
     if is_form_submission:
-        return redirect("/login?registered=1")
+        safe_email = quote_plus(student.email or "")
+        return f"""
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Registration Success</title>
+          </head>
+          <body>
+            <h2>Account Created Successfully! Your login details have been sent to the student and parent email. Redirecting to login…</h2>
+            <p>You will be redirected shortly. If not, <a href="/login?email={safe_email}">click here to login</a>.</p>
+            <script>
+              setTimeout(function () {{
+                window.location.href = "/login?email={safe_email}";
+              }}, 2500);
+            </script>
+          </body>
+        </html>
+        """
 
     return (
         jsonify(
@@ -1795,7 +1814,8 @@ def get_students():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        return """
+        prefill_email = escape((request.args.get("email") or "").strip(), quote=True)
+        return f"""
         <!doctype html>
         <html lang="en">
           <head>
@@ -1812,7 +1832,7 @@ def login():
                   <option value="school_admin">School Admin</option>
                 </select>
               </label><br><br>
-              <label>Username or Email: <input type="text" name="login_id" required></label><br><br>
+              <label>Username or Email: <input type="text" name="login_id" value="{prefill_email}" required></label><br><br>
               <label>Password: <input type="password" name="password" required></label><br><br>
               <button type="submit">Login</button>
             </form>
