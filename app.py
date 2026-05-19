@@ -1973,21 +1973,21 @@ def login():
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                padding: 20px;
+                padding: 18px 20px 42px;
                 overflow-x: hidden;
               }}
               .login-card {{
-                width: min(90%, 380px);
+                width: min(88vw, 360px);
                 background: var(--slis-card-bg);
                 border: 1px solid var(--slis-border);
-                border-radius: 28px;
+                border-radius: 26px;
                 box-shadow:
                   0 12px 40px rgba(0, 0, 0, 0.18),
                   0 24px 60px rgba(20, 56, 120, 0.15),
                   inset 0 1px 0 rgba(255, 255, 255, 0.72);
                 backdrop-filter: blur(14px);
                 -webkit-backdrop-filter: blur(14px);
-                padding: 34px 28px;
+                padding: 24px 28px 18px;
                 animation: cardFadeIn 560ms ease-out;
               }}
               @keyframes cardFadeIn {{
@@ -2002,14 +2002,14 @@ def login():
               }}
               .brand {{
                 text-align: center;
-                margin-bottom: 18px;
+                margin-bottom: 10px;
               }}
               .login-logo {{
-                width: clamp(108px, 24vw, 120px);
+                width: clamp(98px, 22vw, 105px);
                 height: auto;
                 object-fit: contain;
                 display: block;
-                margin: 0 auto 8px auto;
+                margin: 0 auto 6px auto;
               }}
               .brand h1 {{
                 margin: 0;
@@ -2018,30 +2018,31 @@ def login():
                 letter-spacing: 0.5px;
               }}
               .brand p {{
-                margin: 4px 0 0;
+                margin: 2px 0 0;
                 color: #3d4a67;
-                font-size: 0.94rem;
+                font-size: 0.88rem;
               }}
               .field {{
-                margin-bottom: 14px;
+                margin-bottom: 12px;
               }}
               label {{
                 display: block;
                 font-weight: 600;
                 margin-bottom: 6px;
                 color: #1f2a44;
-                font-size: 0.95rem;
+                font-size: 0.9rem;
               }}
               input, select, button {{
                 width: 100%;
                 border-radius: 12px;
                 border: 1px solid #c8d8ff;
-                padding: 11px 12px;
-                font-size: 0.95rem;
+                padding: 8px 14px;
+                font-size: 0.94rem;
               }}
               input, select {{
                 background: rgba(255, 255, 255, 0.92);
                 color: #1a2540;
+                min-height: 42px;
               }}
               input:focus, select:focus {{
                 outline: 2px solid rgba(30, 102, 245, 0.25);
@@ -2053,8 +2054,8 @@ def login():
                 color: #fff;
                 font-weight: 700;
                 cursor: pointer;
-                margin-top: 2px;
-                min-height: 52px;
+                margin-top: 6px;
+                min-height: 48px;
               }}
               button:hover {{
                 filter: brightness(1.03);
@@ -2064,9 +2065,9 @@ def login():
                   padding: 14px;
                 }}
                 .login-card {{
-                  width: min(92%, 380px);
+                  width: min(92vw, 360px);
                   border-radius: 24px;
-                  padding: 24px 20px;
+                  padding: 22px 20px 18px;
                   backdrop-filter: blur(12px);
                   -webkit-backdrop-filter: blur(12px);
                 }}
