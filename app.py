@@ -2578,172 +2578,25 @@ def student_dashboard():
         latest_html = f"<h2>{text['latest_result']}</h2><p>No results yet.</p>"
 
     return f"""
-    <!doctype html>
-    <html lang='{'si' if language == 'si' else 'en'}'>
-      <head>
-        <meta charset='utf-8'>
-        <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <title>{text["dashboard"]}</title>
-        <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-      </head>
-      <body>
-        <h1>{text["dashboard"]}</h1>
-        {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
-        <p><strong>{text["name"]}:</strong> {student.name}</p>
-        <p><strong>{text["grade"]}:</strong> {student.grade}</p>
-        <p><strong>{text["medium"]}:</strong> {student.medium}</p>
-        <p><strong>{text['xp']} ({text['xp_sinhala']}):</strong> {student.xp}</p>
-        <p><strong>{text['level']}:</strong> {student.level}</p>
-        <p><strong>🔥 {text['current_streak']}:</strong> {student.current_streak or 0}</p>
-        <p><strong>🏆 {text['longest_streak']}:</strong> {student.longest_streak or 0}</p>
-        <p><strong>{text['goal_completed_today'] if completed_activity_today else text['complete_one_activity_today']}</strong></p>
-        <p><strong>{text['progress_to_next_level']}:</strong> {student.xp % 100}%</p>
-
-        {latest_html}
-
-        <h2>{text["progress_overview"]}</h2>
-        <div style='max-width:900px; margin-bottom:20px;'>
-          <canvas id='progressOverviewChart' height='120'></canvas>
-        </div>
-
-        <h2>{text["topic_trend"]}</h2>
-        <table style='border-collapse:collapse;width:100%;'>
-          <thead>
-            <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["topic"] if "topic" in text else "Topic"}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["last_score"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["previous_score"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["trend"]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic trend data available.</td></tr>"}
-          </tbody>
-        </table>
-
-        <h2>{text["result_history"]}</h2>
-        <table style='border-collapse:collapse;width:100%;'>
-          <thead>
-            <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["date"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["score"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["level"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["correct_answers"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["medium"]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history_rows if history_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No results found.</td></tr>"}
-          </tbody>
-        </table>
-
-        <h2>{text["topic_performance"]}</h2>
-        <table style='border-collapse:collapse;width:100%;'>
-          <thead>
-            <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Topic</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Correct/Total</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Percentage</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic performance available.</td></tr>"}
-          </tbody>
-        </table>
-
-        <h2>{text["latest_practice_attempts"]}</h2>
-        <table style='border-collapse:collapse;width:100%;'>
-          <thead>
-            <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>Topic</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["score"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["correct_answers"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["date"]}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{text["improvement"]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {practice_rows if practice_rows else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}
-          </tbody>
-        </table>
-        <h2>{"මගේ ඊළඟ පියවර" if language == "si" else "My Next Steps"}</h2>
-        <table style='border-collapse:collapse;width:100%;'>
-          <thead>
-            <tr>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"මාතෘකාව" if language == "si" else "Topic"}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"දැනට මට්ටම" if language == "si" else "Current Level"}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"නිර්දේශිත ක්‍රියාව" if language == "si" else "Recommended Action"}</th>
-              <th style='border:1px solid #ccc;padding:8px;text-align:left;'>{"සබැඳිය" if language == "si" else "Link"}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rec_rows if rec_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No recommendations found.</td></tr>"}
-          </tbody>
-        </table>
-        <h2>{"පරීක්ෂා" if language == "si" else "Tests"}</h2>
-        {f"<p style='padding:10px;border:1px solid #c9e6ff;background:#eef7ff;border-radius:8px;'>{'ඔබට ' + next_test.test_date.strftime('%Y-%m-%d') + ' දින පරීක්ෂාවක් ඇත' if language == 'si' else 'You have a test on ' + next_test.test_date.strftime('%Y-%m-%d')}</p>" if next_test else ""}
-        <p><a href='/student/tests'>{"ඉදිරියට ඇති පරීක්ෂා" if language == "si" else "View Upcoming Tests"}</a></p>
-        <p><a href='/test'>{"SkillScan පරීක්ෂාව ලබාගන්න" if language == "si" else "Take SkillScan Test"}</a></p>
-
-        <p>
-          <a href='/student/learning-path'>My Learning Chapters / මගේ පාඩම් පරිච්ඡේද</a>
-          &nbsp;|&nbsp;
-          <a href='/student/homework'>{"මගේ ගෙදර වැඩ" if language == "si" else "My Homework"}</a>
-          &nbsp;|&nbsp;
-          <a href='/test'>{text["take_test"]}</a>
-          &nbsp;|&nbsp;
-          <a href='/leaderboard'>{text['leaderboard']}</a>
-          &nbsp;|&nbsp;
-          <a href='/logout'>{text["logout"]}</a>
-        </p>
-        <script>
-          const progressCtx = document.getElementById('progressOverviewChart');
-          if (progressCtx) {{
-            const practiceData = {json.dumps(chart_practice_points)};
-            const datasets = [
-              {{
-                label: 'SkillScan',
-                data: {json.dumps(chart_result_scores)},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37,99,235,0.2)',
-                tension: 0.25,
-                fill: false
-              }}
-            ];
-
-            if (practiceData.length) {{
-              datasets.push({{
-                label: 'Practice',
-                data: practiceData,
-                parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.2)',
-                tension: 0.25,
-                fill: false
-              }});
-            }}
-
-            new Chart(progressCtx, {{
-              type: 'line',
-              data: {{
-                labels: {json.dumps(chart_labels)},
-                datasets: datasets
-              }},
-              options: {{
-                responsive: true,
-                scales: {{
-                  x: {{ title: {{ display: true, text: '{text["date"]}' }} }},
-                  y: {{ title: {{ display: true, text: '{text["score"]}' }}, min: 0, max: 100 }}
-                }}
-              }}
-            }});
-          }}
-        </script>
-      </body>
-    </html>
+    <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{text["dashboard"]}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#f4f8ff;color:#0f172a}}.app{{display:grid;grid-template-columns:280px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#0b1d52,#1e3a8a);color:#dbeafe;padding:20px}}.side a{{display:block;color:#dbeafe;text-decoration:none;padding:10px;border-radius:10px;margin:6px 0;background:rgba(255,255,255,.06)}}.main{{padding:16px}}.top,.card{{background:#fff;border-radius:16px;box-shadow:0 8px 20px rgba(0,0,0,.06)}}.top{{padding:14px 16px;display:flex;justify-content:space-between;align-items:center}}.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}}.card{{padding:14px}}.layout{{display:grid;grid-template-columns:2fr 1fr;gap:12px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}}@media(max-width:1000px){{.app{{grid-template-columns:1fr}}.grid{{grid-template-columns:repeat(2,1fr)}}.layout{{grid-template-columns:1fr}}}}</style>
+    </head><body><div class='app'><aside class='side'><h3>SLIS</h3><small>Spiral Learning Intelligence System</small>
+    <a href='/student-dashboard'>{text['dashboard']}</a><a href='/student/learning-path'>{'මගේ විෂයයන්' if language=='si' else 'My Subjects'}</a><a href='/student/tests'>{'සජීවී පන්ති' if language=='si' else 'Live Classes'}</a><a href='/student/homework'>{'පැවරුම්' if language=='si' else 'Assignments'}</a><a href='/student/learning-path'>{'අධ්‍යයන ද්‍රව්‍ය' if language=='si' else 'Study Materials'}</a><a href='/student/tests'>{'ඇගයීම්' if language=='si' else 'Assessments'}</a><a href='/test'>AI Tutor</a><a href='/leaderboard'>{text['leaderboard']}</a><a href='/logout'>{text['logout']}</a></aside>
+    <main class='main'><div class='top'><div><h2 style='margin:0'>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small></div><div>{student.medium}</div></div>
+    {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
+    <section class='grid'><div class='card'><b>{text['xp']}</b><h3>{student.xp}</h3></div><div class='card'><b>{text['level']}</b><h3>{student.level}</h3></div><div class='card'><b>{text['current_streak']}</b><h3>🔥 {student.current_streak or 0}</h3></div><div class='card'><b>{text['latest_result']}</b><h3>{latest_result.score if latest_result else 0}%</h3></div><div class='card'><b>{text['progress_to_next_level']}</b><h3>{student.xp % 100}%</h3></div></section>
+    <section class='layout'><div>
+    <div class='card'><h3>{text['topic_trend']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['last_score']}</th><th>{text['previous_score']}</th><th>{text['trend']}</th></tr></thead><tbody>{''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4'>No topic trend data available.</td></tr>"}</tbody></table></div>
+    <div class='card' style='margin-top:10px'><h3>{text['result_history']}</h3><table><thead><tr><th>{text['date']}</th><th>{text['score']}</th><th>{text['level']}</th><th>{text['correct_answers']}</th><th>{text['medium']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='5'>No results found.</td></tr>"}</tbody></table></div>
+    <div class='card' style='margin-top:10px'><h3>{text['latest_practice_attempts']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['score']}</th><th>{text['correct_answers']}</th><th>{text['date']}</th><th>{text['improvement']}</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='5'>No practice attempts found.</td></tr>"}</tbody></table></div>
+    </div><div>
+    <div class='card'><h3>{text['progress_overview']}</h3><canvas id='progressOverviewChart' height='150'></canvas></div>
+    <div class='card' style='margin-top:10px'><h3>{text['topic_performance']}</h3><table><thead><tr><th>Topic</th><th>Correct/Total</th><th>%</th><th>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4'>No topic performance available.</td></tr>"}</tbody></table></div>
+    <div class='card' style='margin-top:10px'><h3>{'අද කාලසටහන' if language=='si' else "Today's Schedule"}</h3>{f"<p>{'ඔබට ' if language=='si' else 'You have a test on '}{next_test.test_date.strftime('%Y-%m-%d') if next_test else '-'}</p>"}<p><a href='/student/tests'>{'ඉදිරි පරීක්ෂා' if language=='si' else 'Upcoming Tests'}</a> | <a href='/test'>{text['take_test']}</a></p></div>
+    </div></section></main></div>
+    <script>const progressCtx=document.getElementById('progressOverviewChart');if(progressCtx){{const practiceData={json.dumps(chart_practice_points)};const datasets=[{{label:'SkillScan',data:{json.dumps(chart_result_scores)},borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,0.2)',tension:0.25,fill:false}}];if(practiceData.length){{datasets.push({{label:'Practice',data:practiceData,parsing:{{xAxisKey:'x',yAxisKey:'y'}},borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.2)',tension:0.25,fill:false}});}}new Chart(progressCtx,{{type:'line',data:{{labels:{json.dumps(chart_labels)},datasets:datasets}},options:{{responsive:true,scales:{{x:{{title:{{display:true,text:'{text["date"]}'}}}},y:{{title:{{display:true,text:'{text["score"]}'}},min:0,max:100}}}}}});}}</script>
+    </body></html>
     """
-
 
 
 
