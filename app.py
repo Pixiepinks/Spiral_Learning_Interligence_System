@@ -1952,19 +1952,19 @@ def login():
               :root {{
                 --slis-blue: #1e66f5;
                 --slis-blue-dark: #184bb8;
-                --slis-card-bg: rgba(255, 255, 255, 0.95);
-                --slis-border: #d8e3ff;
+                --slis-card-bg: rgba(255, 255, 255, 0.72);
+                --slis-border: rgba(255, 255, 255, 0.48);
               }}
               * {{ box-sizing: border-box; }}
-              body {{
+              body.login-page {{
                 margin: 0;
                 min-height: 100vh;
                 min-height: 100svh;
                 font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
                 background:
                   linear-gradient(
-                    rgba(255, 255, 255, 0.78),
-                    rgba(240, 248, 255, 0.82)
+                    rgba(255, 255, 255, 0.30),
+                    rgba(240, 248, 255, 0.38)
                   ),
                   url('/static/images/login-bg.webp');
                 background-size: cover;
@@ -1980,11 +1980,14 @@ def login():
                 width: min(100%, 420px);
                 background: var(--slis-card-bg);
                 border: 1px solid var(--slis-border);
-                border-radius: 20px;
-                box-shadow: 0 16px 40px rgba(24, 75, 184, 0.16);
-                backdrop-filter: blur(7px);
-                -webkit-backdrop-filter: blur(7px);
-                padding: 28px 24px;
+                border-radius: 28px;
+                box-shadow:
+                  0 12px 40px rgba(0, 0, 0, 0.18),
+                  0 24px 60px rgba(20, 56, 120, 0.15),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.72);
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                padding: 30px 26px;
                 animation: cardFadeIn 560ms ease-out;
               }}
               @keyframes cardFadeIn {{
@@ -2029,6 +2032,10 @@ def login():
                 padding: 12px;
                 font-size: 0.95rem;
               }}
+              input, select {{
+                background: rgba(255, 255, 255, 0.92);
+                color: #1a2540;
+              }}
               input:focus, select:focus {{
                 outline: 2px solid rgba(30, 102, 245, 0.25);
                 border-color: var(--slis-blue);
@@ -2044,9 +2051,21 @@ def login():
               button:hover {{
                 filter: brightness(1.03);
               }}
+              @media (max-width: 640px) {{
+                body.login-page {{
+                  padding: 14px;
+                }}
+                .login-card {{
+                  width: min(100%, 440px);
+                  border-radius: 24px;
+                  padding: 24px 20px;
+                  backdrop-filter: blur(12px);
+                  -webkit-backdrop-filter: blur(12px);
+                }}
+              }}
             </style>
           </head>
-          <body>
+          <body class="login-page">
             <div class="login-card">
               <div class="brand">
                 <h1>SLIS</h1>
