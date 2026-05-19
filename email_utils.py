@@ -49,3 +49,25 @@ def send_welcome_email(
             """,
         }
     )
+
+
+def send_password_reset_email(recipients: list[str], reset_link: str) -> None:
+    if not resend.api_key or not recipients:
+        return
+
+    resend.Emails.send(
+        {
+            "from": "SLIS <support@slis-e.com>",
+            "to": recipients,
+            "subject": "Reset Your SLIS Password",
+            "text": (
+                "Hello,\n\n"
+                "We received a request to reset your SLIS account password.\n\n"
+                "Click the link below to create a new password:\n"
+                f"{reset_link}\n\n"
+                "This link will expire in 30 minutes.\n\n"
+                "If you did not request this, you can safely ignore this email.\n\n"
+                "SLIS Team"
+            ),
+        }
+    )

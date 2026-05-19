@@ -2,6 +2,8 @@ import json
 import os
 import random
 import re
+import hashlib
+import secrets
 import uuid
 from datetime import date, datetime, timedelta
 from fractions import Fraction
@@ -13,7 +15,7 @@ from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-from email_utils import send_welcome_email
+from email_utils import send_password_reset_email, send_welcome_email
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
@@ -500,6 +502,7 @@ def ensure_family_registration_schema() -> None:
 
 def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
+    db.create_all()
     ensure_student_username_schema()
     ensure_family_registration_schema()
 
@@ -525,6 +528,18 @@ class SchoolAdmin(db.Model):
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PasswordResetToken(db.Model):
+    __tablename__ = "password_reset_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    role = db.Column(db.String(20), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -1937,10 +1952,134 @@ def get_students():
     )
 
 
+VALID_PASSWORD_RESET_ROLES = {"student", "parent", "teacher", "school_admin"}
+
+
+def get_user_for_role_by_email(role: str, email: str):
+    if role == "student":
+        return Student.query.filter_by(email=email).first()
+    if role == "teacher":
+        return Teacher.query.filter_by(email=email).first()
+    if role == "school_admin":
+        return SchoolAdmin.query.filter_by(email=email).first()
+    if role == "parent":
+        return Student.query.filter_by(parent_email=email).order_by(Student.id.asc()).first()
+    return None
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    message = ""
+    if request.method == "POST":
+        role = (request.form.get("role") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
+        if role in VALID_PASSWORD_RESET_ROLES and email:
+            user = get_user_for_role_by_email(role, email)
+            if user and getattr(user, "id", None):
+                raw_token = secrets.token_urlsafe(32)
+                token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                expires_at = datetime.utcnow() + timedelta(minutes=30)
+                db.session.add(
+                    PasswordResetToken(
+                        user_id=user.id,
+                        role=role,
+                        token_hash=token_hash,
+                        expires_at=expires_at,
+                    )
+                )
+                db.session.commit()
+                reset_link = f"{request.url_root.rstrip('/')}/reset-password?token={quote_plus(raw_token)}"
+                send_password_reset_email([email], reset_link)
+        message = "If this email is registered, password reset instructions will be sent shortly."
+
+    safe_message = f"<p class='notice'>{escape(message)}</p>" if message else ""
+    return f"""
+    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Forgot Password</title>
+    <style>{LOGIN_PAGE_STYLES}
+    .notice {{margin: 0 0 12px;color:#1f2a44;font-size:.9rem;background:#e8f0ff;border-radius:10px;padding:10px 12px;}}
+    </style></head><body class="login-page"><div class="login-card"><div class="brand"><img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo"><p>Spiral Learning Intelligence System</p></div>
+    {safe_message}
+    <form method="post" action="/forgot-password"><div class="field"><label for="role">Role</label><select id="role" name="role" required>
+    <option value="student">Student</option><option value="parent">Parent</option><option value="teacher">Teacher</option><option value="school_admin">School Admin</option></select></div>
+    <div class="field"><label for="email">Email address</label><input id="email" type="email" name="email" required></div>
+    <button type="submit">Send Reset Link</button></form></div></body></html>
+    """
+
+
+@app.route("/reset-password", methods=["GET", "POST"])
+def reset_password():
+    token = (request.args.get("token") or request.form.get("token") or "").strip()
+    notice = ""
+    if request.method == "POST":
+        new_password = request.form.get("password") or ""
+        confirm_password = request.form.get("confirm_password") or ""
+        if new_password != confirm_password:
+            notice = "Passwords do not match."
+        else:
+            token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest() if token else ""
+            record = PasswordResetToken.query.filter_by(token_hash=token_hash).first() if token_hash else None
+            is_valid_record = record and not record.used_at and record.expires_at >= datetime.utcnow()
+            if not is_valid_record:
+                notice = "This reset link is invalid or has expired."
+            else:
+                user = get_user_for_role_by_email(record.role, "")  # placeholder for typing
+                if record.role == "student":
+                    user = db.session.get(Student, record.user_id)
+                elif record.role == "teacher":
+                    user = db.session.get(Teacher, record.user_id)
+                elif record.role == "school_admin":
+                    user = db.session.get(SchoolAdmin, record.user_id)
+                elif record.role == "parent":
+                    user = db.session.get(Student, record.user_id)
+                if user:
+                    user.password_hash = generate_password_hash(new_password)
+                    record.used_at = datetime.utcnow()
+                    db.session.commit()
+                    return redirect(url_for("login", reset="success"))
+                notice = "This reset link is invalid or has expired."
+
+    safe_notice = f"<p class='notice'>{escape(notice)}</p>" if notice else ""
+    safe_token = escape(token, quote=True)
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reset Password</title>
+    <style>{LOGIN_PAGE_STYLES}.notice {{margin:0 0 12px;color:#1f2a44;font-size:.9rem;background:#e8f0ff;border-radius:10px;padding:10px 12px;}}</style></head>
+    <body class="login-page"><div class="login-card"><div class="brand"><img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo"><p>Spiral Learning Intelligence System</p></div>
+    {safe_notice}<form method="post" action="/reset-password"><input type="hidden" name="token" value="{safe_token}">
+    <div class="field"><label for="password">New Password</label><input id="password" type="password" name="password" required></div>
+    <div class="field"><label for="confirm_password">Confirm Password</label><input id="confirm_password" type="password" name="confirm_password" required></div>
+    <button type="submit">Reset Password</button></form></div></body></html>"""
+
+
+LOGIN_PAGE_STYLES = """
+              :root {
+                --slis-blue: #1e66f5;
+                --slis-blue-dark: #184bb8;
+                --slis-card-bg: rgba(255, 255, 255, 0.72);
+                --slis-border: rgba(255, 255, 255, 0.48);
+              }
+              * { box-sizing: border-box; }
+              body.login-page {
+                margin: 0; min-height: 100vh; min-height: 100svh; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(rgba(255, 255, 255, 0.30), rgba(240, 248, 255, 0.38)), url('/static/images/login-bg.webp');
+                background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; padding: 18px 20px 42px; overflow-x: hidden;
+              }
+              .login-card { width: min(88vw, 360px); background: var(--slis-card-bg); border: 1px solid var(--slis-border); border-radius: 26px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 24px 60px rgba(20, 56, 120, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 24px 28px 18px; }
+              .brand { text-align: center; margin-bottom: 10px; } .login-logo { width: clamp(98px, 22vw, 105px); height: auto; object-fit: contain; display: block; margin: 0 auto 6px auto; } .brand p { margin: 2px 0 0; color: #3d4a67; font-size: 0.88rem; }
+              .field { margin-bottom: 12px; } label { display:block;font-weight:600;margin-bottom:6px;color:#1f2a44;font-size:.9rem; }
+              input, select, button { width:100%; border-radius:12px; border:1px solid #c8d8ff; padding:8px 14px; font-size:.94rem; }
+              input, select { background: rgba(255,255,255,.92); color:#1a2540; min-height:42px; } input:focus, select:focus { outline:2px solid rgba(30, 102, 245, 0.25); border-color: var(--slis-blue); }
+              button { border:none; background: linear-gradient(135deg, var(--slis-blue), var(--slis-blue-dark)); color:#fff; font-weight:700; cursor:pointer; margin-top:6px; min-height:48px; }
+              @media (max-width: 640px) { body.login-page { padding:14px; } .login-card { width:min(92vw, 360px); border-radius:24px; padding:22px 20px 18px; } }
+"""
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
         prefill_email = escape((request.args.get("email") or "").strip(), quote=True)
+        reset_message = ""
+        if (request.args.get("reset") or "").strip() == "success":
+            reset_message = "<p style='margin:0 0 10px;color:#1f2a44;background:#e8f0ff;border-radius:10px;padding:10px 12px;font-size:.9rem;'>Password reset successful. Please log in.</p>"
         return f"""
         <!doctype html>
         <html lang="en">
@@ -2080,6 +2219,7 @@ def login():
                 <img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo">
                 <p>Spiral Learning Intelligence System</p>
               </div>
+              {reset_message}
               <form method="post" action="/login">
                 <div class="field">
                   <label for="role">Role</label>
@@ -2097,6 +2237,9 @@ def login():
                 <div class="field">
                   <label for="password">Password</label>
                   <input id="password" type="password" name="password" required>
+                </div>
+                <div style="text-align:right;margin:-4px 0 10px;">
+                  <a href="/forgot-password" style="color:#184bb8;font-size:.88rem;font-weight:600;text-decoration:none;">Forgot Password?</a>
                 </div>
                 <button type="submit">Login</button>
               </form>
