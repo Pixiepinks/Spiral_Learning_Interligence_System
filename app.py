@@ -1750,11 +1750,137 @@ def register_student():
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Registration Success</title>
+            <title>SLIS Registration Success</title>
+            <style>
+              :root {{
+                --slis-blue-start: #2a7de1;
+                --slis-blue-end: #1f56bf;
+                --slis-bg-start: #f6fbff;
+                --slis-bg-end: #dceeff;
+                --slis-text: #13315f;
+                --slis-subtle: #5b6f92;
+                --success: #13a968;
+              }}
+              * {{
+                box-sizing: border-box;
+              }}
+              body {{
+                margin: 0;
+                min-height: 100vh;
+                font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+                background: linear-gradient(145deg, var(--slis-bg-start), var(--slis-bg-end));
+                color: var(--slis-text);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+              }}
+              .success-card {{
+                width: 100%;
+                max-width: 520px;
+                background: #ffffff;
+                border-radius: 24px;
+                box-shadow: 0 24px 56px rgba(33, 88, 174, 0.16);
+                padding: 32px 28px;
+                text-align: center;
+              }}
+              .brand {{
+                font-weight: 800;
+                font-size: 1.15rem;
+                letter-spacing: 0.6px;
+                margin-bottom: 18px;
+                color: #1f56bf;
+              }}
+              .checkmark {{
+                width: 74px;
+                height: 74px;
+                border-radius: 50%;
+                margin: 0 auto 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: rgba(19, 169, 104, 0.12);
+                color: var(--success);
+                font-size: 2.2rem;
+                font-weight: 700;
+              }}
+              h1 {{
+                margin: 0 0 10px;
+                font-size: clamp(1.5rem, 4.8vw, 2rem);
+                line-height: 1.2;
+              }}
+              p {{
+                margin: 0;
+                color: var(--slis-subtle);
+                line-height: 1.55;
+                font-size: 1rem;
+              }}
+              .redirecting {{
+                margin-top: 18px;
+                color: #355f99;
+                font-weight: 600;
+              }}
+              .progress {{
+                margin: 16px auto 22px;
+                width: 100%;
+                height: 8px;
+                border-radius: 999px;
+                background: #e7efff;
+                overflow: hidden;
+              }}
+              .progress-bar {{
+                height: 100%;
+                width: 40%;
+                border-radius: inherit;
+                background: linear-gradient(90deg, var(--slis-blue-start), var(--slis-blue-end));
+                animation: loadProgress 1.15s ease-in-out infinite;
+                transform-origin: left center;
+              }}
+              .login-now {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                max-width: 260px;
+                text-decoration: none;
+                color: #fff;
+                font-weight: 700;
+                padding: 12px 18px;
+                border-radius: 12px;
+                background: linear-gradient(135deg, var(--slis-blue-start), var(--slis-blue-end));
+                box-shadow: 0 12px 24px rgba(33, 88, 174, 0.24);
+              }}
+              .login-now:hover {{
+                filter: brightness(1.04);
+              }}
+              @keyframes loadProgress {{
+                0% {{
+                  transform: translateX(-110%);
+                }}
+                100% {{
+                  transform: translateX(300%);
+                }}
+              }}
+              @media (max-width: 480px) {{
+                .success-card {{
+                  border-radius: 20px;
+                  padding: 26px 18px;
+                }}
+              }}
+            </style>
           </head>
           <body>
-            <h2>Account Created Successfully! Your login details have been sent to the student and parent email. Redirecting to login…</h2>
-            <p>You will be redirected shortly. If not, <a href="/login?email={safe_email}">click here to login</a>.</p>
+            <main class="success-card">
+              <div class="brand">SLIS • Spiral Learning Intelligence System</div>
+              <div class="checkmark" aria-hidden="true">✓</div>
+              <h1>Account Created Successfully!</h1>
+              <p>Your login details have been sent to the student and parent email.</p>
+              <p class="redirecting">Redirecting to login…</p>
+              <div class="progress" role="status" aria-label="Redirecting progress">
+                <div class="progress-bar"></div>
+              </div>
+              <a class="login-now" href="/login?email={safe_email}">Go to Login Now</a>
+            </main>
             <script>
               setTimeout(function () {{
                 window.location.href = "/login?email={safe_email}";
