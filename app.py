@@ -2061,15 +2061,15 @@ LOGIN_PAGE_STYLES = """
               body.login-page {
                 margin: 0; min-height: 100vh; min-height: 100svh; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
                 background: linear-gradient(rgba(255, 255, 255, 0.30), rgba(240, 248, 255, 0.38)), url('/static/images/login-bg.webp');
-                background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; padding: 18px 20px 42px; overflow-x: hidden;
+                background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; padding: 14px 20px 64px; overflow-x: hidden;
               }
-              .login-card { width: min(88vw, 360px); background: var(--slis-card-bg); border: 1px solid var(--slis-border); border-radius: 26px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 24px 60px rgba(20, 56, 120, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 24px 28px 18px; }
-              .brand { text-align: center; margin-bottom: 10px; } .login-logo { width: clamp(98px, 22vw, 105px); height: auto; object-fit: contain; display: block; margin: 0 auto 6px auto; } .brand p { margin: 2px 0 0; color: #3d4a67; font-size: 0.88rem; }
-              .field { margin-bottom: 12px; } label { display:block;font-weight:600;margin-bottom:6px;color:#1f2a44;font-size:.9rem; }
+              .login-card { width: min(88vw, 360px); background: var(--slis-card-bg); border: 1px solid var(--slis-border); border-radius: 26px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 24px 60px rgba(20, 56, 120, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 22px 28px 14px; }
+              .brand { text-align: center; margin-bottom: 10px; } .login-logo { width: clamp(95px, 21vw, 102px); height: auto; object-fit: contain; display: block; margin: 0 auto 6px auto; } .brand p { margin: 2px 0 14px; color: #3d4a67; font-size: 0.88rem; }
+              .field { margin-bottom: 10px; } label { display:block;font-weight:600;margin-bottom:6px;color:#1f2a44;font-size:.9rem; }
               input, select, button { width:100%; border-radius:12px; border:1px solid #c8d8ff; padding:8px 14px; font-size:.94rem; }
               input, select { background: rgba(255,255,255,.92); color:#1a2540; min-height:42px; } input:focus, select:focus { outline:2px solid rgba(30, 102, 245, 0.25); border-color: var(--slis-blue); }
-              button { border:none; background: linear-gradient(135deg, var(--slis-blue), var(--slis-blue-dark)); color:#fff; font-weight:700; cursor:pointer; margin-top:6px; min-height:48px; }
-              @media (max-width: 640px) { body.login-page { padding:14px; } .login-card { width:min(92vw, 360px); border-radius:24px; padding:22px 20px 18px; } }
+              button { border:none; background: linear-gradient(135deg, var(--slis-blue), var(--slis-blue-dark)); color:#fff; font-weight:700; cursor:pointer; margin-top:0; min-height:46px; }
+              @media (max-width: 640px) { body.login-page { padding:14px; } .login-card { width:min(92vw, 360px); border-radius:24px; padding:20px 20px 14px; } }
 """
 
 
@@ -2112,7 +2112,7 @@ def login():
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                padding: 18px 20px 42px;
+                padding: 14px 20px 64px;
                 overflow-x: hidden;
               }}
               .login-card {{
@@ -2126,7 +2126,7 @@ def login():
                   inset 0 1px 0 rgba(255, 255, 255, 0.72);
                 backdrop-filter: blur(14px);
                 -webkit-backdrop-filter: blur(14px);
-                padding: 24px 28px 18px;
+                padding: 22px 28px 14px;
                 animation: cardFadeIn 560ms ease-out;
               }}
               @keyframes cardFadeIn {{
@@ -2144,7 +2144,7 @@ def login():
                 margin-bottom: 10px;
               }}
               .login-logo {{
-                width: clamp(98px, 22vw, 105px);
+                width: clamp(95px, 21vw, 102px);
                 height: auto;
                 object-fit: contain;
                 display: block;
@@ -2157,12 +2157,12 @@ def login():
                 letter-spacing: 0.5px;
               }}
               .brand p {{
-                margin: 2px 0 0;
+                margin: 2px 0 14px;
                 color: #3d4a67;
                 font-size: 0.88rem;
               }}
               .field {{
-                margin-bottom: 12px;
+                margin-bottom: 10px;
               }}
               label {{
                 display: block;
@@ -2193,8 +2193,8 @@ def login():
                 color: #fff;
                 font-weight: 700;
                 cursor: pointer;
-                margin-top: 6px;
-                min-height: 48px;
+                margin-top: 0;
+                min-height: 46px;
               }}
               button:hover {{
                 filter: brightness(1.03);
@@ -2206,7 +2206,7 @@ def login():
                 .login-card {{
                   width: min(92vw, 360px);
                   border-radius: 24px;
-                  padding: 22px 20px 18px;
+                  padding: 20px 20px 14px;
                   backdrop-filter: blur(12px);
                   -webkit-backdrop-filter: blur(12px);
                 }}
@@ -2238,7 +2238,7 @@ def login():
                   <label for="password">Password</label>
                   <input id="password" type="password" name="password" required>
                 </div>
-                <div style="text-align:right;margin:-4px 0 10px;">
+                <div style="text-align:right;margin:-2px 0 10px;font-size:14px;">
                   <a href="/forgot-password" style="color:#184bb8;font-size:.88rem;font-weight:600;text-decoration:none;">Forgot Password?</a>
                 </div>
                 <button type="submit">Login</button>
