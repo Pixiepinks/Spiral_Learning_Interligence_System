@@ -1947,21 +1947,109 @@ def login():
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Student Login</title>
+            <title>SLIS Login</title>
+            <style>
+              :root {{
+                --slis-blue: #1e66f5;
+                --slis-blue-dark: #184bb8;
+                --slis-card-bg: rgba(255, 255, 255, 0.95);
+                --slis-border: #d8e3ff;
+              }}
+              * {{ box-sizing: border-box; }}
+              body {{
+                margin: 0;
+                min-height: 100vh;
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(145deg, #eaf2ff 0%, #d9e9ff 45%, #c5ddff 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+              }}
+              .login-card {{
+                width: min(100%, 420px);
+                background: var(--slis-card-bg);
+                border: 1px solid var(--slis-border);
+                border-radius: 20px;
+                box-shadow: 0 16px 40px rgba(24, 75, 184, 0.16);
+                padding: 28px 24px;
+              }}
+              .brand {{
+                text-align: center;
+                margin-bottom: 20px;
+              }}
+              .brand h1 {{
+                margin: 0;
+                color: var(--slis-blue-dark);
+                font-size: 1.5rem;
+                letter-spacing: 0.5px;
+              }}
+              .brand p {{
+                margin: 6px 0 0;
+                color: #3d4a67;
+                font-size: 0.95rem;
+              }}
+              .field {{
+                margin-bottom: 14px;
+              }}
+              label {{
+                display: block;
+                font-weight: 600;
+                margin-bottom: 6px;
+                color: #1f2a44;
+                font-size: 0.95rem;
+              }}
+              input, select, button {{
+                width: 100%;
+                border-radius: 12px;
+                border: 1px solid #c8d8ff;
+                padding: 12px;
+                font-size: 0.95rem;
+              }}
+              input:focus, select:focus {{
+                outline: 2px solid rgba(30, 102, 245, 0.25);
+                border-color: var(--slis-blue);
+              }}
+              button {{
+                border: none;
+                background: linear-gradient(135deg, var(--slis-blue), var(--slis-blue-dark));
+                color: #fff;
+                font-weight: 700;
+                cursor: pointer;
+                margin-top: 4px;
+              }}
+              button:hover {{
+                filter: brightness(1.03);
+              }}
+            </style>
           </head>
           <body>
-            <h1>Login</h1>
-            <form method="post" action="/login">
-              <label>Role:
-                <select name="role">
-                  <option value="student">Student</option>
-                  <option value="school_admin">School Admin</option>
-                </select>
-              </label><br><br>
-              <label>Username or Email: <input type="text" name="login_id" value="{prefill_email}" required></label><br><br>
-              <label>Password: <input type="password" name="password" required></label><br><br>
-              <button type="submit">Login</button>
-            </form>
+            <div class="login-card">
+              <div class="brand">
+                <h1>SLIS</h1>
+                <p>Spiral Learning Intelligence System</p>
+              </div>
+              <form method="post" action="/login">
+                <div class="field">
+                  <label for="role">Role</label>
+                  <select id="role" name="role">
+                    <option value="student" selected>Student</option>
+                    <option value="parent">Parent</option>
+                    <option value="teacher">Teacher</option>
+                    <option value="school_admin">School Admin</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="login_id">Username or Email</label>
+                  <input id="login_id" type="text" name="login_id" value="{prefill_email}" required>
+                </div>
+                <div class="field">
+                  <label for="password">Password</label>
+                  <input id="password" type="password" name="password" required>
+                </div>
+                <button type="submit">Login</button>
+              </form>
+            </div>
           </body>
         </html>
         """
@@ -1976,6 +2064,22 @@ def login():
         ensure_subscription_columns()
     except Exception:
         db.session.rollback()
+
+    if role == "parent":
+        session["parent_logged_in"] = False
+        session["teacher_logged_in"] = False
+        session["school_admin_logged_in"] = False
+        request.form = request.form.copy()
+        request.form["email"] = login_id
+        return parent_login()
+
+    if role == "teacher":
+        session["parent_logged_in"] = False
+        session["teacher_logged_in"] = False
+        session["school_admin_logged_in"] = False
+        request.form = request.form.copy()
+        request.form["email"] = login_id
+        return teacher_login()
 
     if role == "school_admin":
         school_admin = SchoolAdmin.query.filter_by(email=login_id).first()
