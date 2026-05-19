@@ -1959,12 +1959,22 @@ def login():
               body {{
                 margin: 0;
                 min-height: 100vh;
+                min-height: 100svh;
                 font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(145deg, #eaf2ff 0%, #d9e9ff 45%, #c5ddff 100%);
+                background:
+                  linear-gradient(
+                    rgba(255, 255, 255, 0.78),
+                    rgba(240, 248, 255, 0.82)
+                  ),
+                  url('/static/images/login-bg.webp');
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 padding: 20px;
+                overflow-x: hidden;
               }}
               .login-card {{
                 width: min(100%, 420px);
@@ -1972,7 +1982,20 @@ def login():
                 border: 1px solid var(--slis-border);
                 border-radius: 20px;
                 box-shadow: 0 16px 40px rgba(24, 75, 184, 0.16);
+                backdrop-filter: blur(7px);
+                -webkit-backdrop-filter: blur(7px);
                 padding: 28px 24px;
+                animation: cardFadeIn 560ms ease-out;
+              }}
+              @keyframes cardFadeIn {{
+                from {{
+                  opacity: 0;
+                  transform: translateY(12px);
+                }}
+                to {{
+                  opacity: 1;
+                  transform: translateY(0);
+                }}
               }}
               .brand {{
                 text-align: center;
