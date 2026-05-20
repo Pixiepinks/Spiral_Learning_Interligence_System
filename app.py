@@ -2661,7 +2661,7 @@ def student_dashboard():
     <div class='card' style='margin-top:10px'><h3>{'අද කාලසටහන' if language=='si' else "Today's Schedule"}</h3>{f"<p>{'ඔබට ' if language=='si' else 'You have a test on '}{next_test.test_date.strftime('%Y-%m-%d') if next_test else '-'}</p>"}<p><a href='/student/tests'>{'ඉදිරි පරීක්ෂා' if language=='si' else 'Upcoming Tests'}</a> | <a href='/test'>{text['take_test']}</a></p></div>
     </div></section></main></div>
     <script>
-(function () {
+(function () {{
   const modal = document.getElementById("photoUploadModal");
   const closeBtn = document.getElementById("closePhotoModal");
   const startBtn = document.getElementById("startCameraBtn");
@@ -2673,83 +2673,83 @@ def student_dashboard():
 
   let stream = null;
 
-  function stopCamera() {
-    if (stream) {
-      stream.getTracks().forEach(function (track) {
+  function stopCamera() {{
+    if (stream) {{
+      stream.getTracks().forEach(function (track) {{
         track.stop();
-      });
+      }});
       stream = null;
-    }
-    if (video) {
+    }}
+    if (video) {{
       video.style.display = "none";
       video.srcObject = null;
-    }
-    if (captureBtn) {
+    }}
+    if (captureBtn) {{
       captureBtn.style.display = "none";
-    }
-  }
+    }}
+  }}
 
-  window.openStudentPhotoModal = function () {
-    if (!modal) {
+  window.openStudentPhotoModal = function () {{
+    if (!modal) {{
       alert("Photo upload modal not found.");
       return;
-    }
+    }}
     modal.classList.add("is-open");
     modal.style.display = "flex";
     modal.setAttribute("aria-hidden", "false");
-  };
+  }};
 
-  window.closeStudentPhotoModal = function () {
+  window.closeStudentPhotoModal = function () {{
     if (!modal) return;
     modal.classList.remove("is-open");
     modal.style.display = "none";
     modal.setAttribute("aria-hidden", "true");
     stopCamera();
-  };
+  }};
 
-  if (closeBtn) {
-    closeBtn.addEventListener("click", function (event) {
+  if (closeBtn) {{
+    closeBtn.addEventListener("click", function (event) {{
       event.preventDefault();
       window.closeStudentPhotoModal();
-    });
-  }
+    }});
+  }}
 
-  if (modal) {
-    modal.addEventListener("click", function (event) {
-      if (event.target === modal) {
+  if (modal) {{
+    modal.addEventListener("click", function (event) {{
+      if (event.target === modal) {{
         window.closeStudentPhotoModal();
-      }
-    });
-  }
+      }}
+    }});
+  }}
 
-  document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") {
+  document.addEventListener("keydown", function (event) {{
+    if (event.key === "Escape") {{
       window.closeStudentPhotoModal();
-    }
-  });
+    }}
+  }});
 
-  if (startBtn && video && captureBtn) {
-    startBtn.addEventListener("click", async function (event) {
+  if (startBtn && video && captureBtn) {{
+    startBtn.addEventListener("click", async function (event) {{
       event.preventDefault();
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
         alert("Camera is not supported on this device. Please upload a photo.");
         return;
-      }
+      }}
 
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      try {{
+        stream = await navigator.mediaDevices.getUserMedia({{ video: true }});
         video.srcObject = stream;
         video.style.display = "block";
         captureBtn.style.display = "inline-block";
-      } catch (error) {
+      }} catch (error) {{
         alert("Camera permission denied. Please use file upload.");
-      }
-    });
-  }
+      }}
+    }});
+  }}
 
-  if (captureBtn && video && canvas && hiddenData && preview) {
-    captureBtn.addEventListener("click", function (event) {
+  if (captureBtn && video && canvas && hiddenData && preview) {{
+    captureBtn.addEventListener("click", function (event) {{
       event.preventDefault();
 
       const context = canvas.getContext("2d");
@@ -2763,11 +2763,11 @@ def student_dashboard():
       preview.style.display = "block";
 
       stopCamera();
-    });
-  }
+    }});
+  }}
 
   console.log("SLIS student photo modal loaded");
-})();
+}})();
 </script>
     <script>const progressCtx=document.getElementById('progressOverviewChart');if(progressCtx){{const practiceData={json.dumps(chart_practice_points)};const datasets=[{{label:'SkillScan',data:{json.dumps(chart_result_scores)},borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,0.2)',tension:0.25,fill:false}}];if(practiceData.length){{datasets.push({{label:'Practice',data:practiceData,parsing:{{xAxisKey:'x',yAxisKey:'y'}},borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.2)',tension:0.25,fill:false}});}}new Chart(progressCtx,{{type:'line',data:{{labels:{json.dumps(chart_labels)},datasets:datasets}},options:{{responsive:true,scales:{{x:{{title:{{display:true,text:'{text["date"]}'}}}},y:{{title:{{display:true,text:'{text["score"]}'}},min:0,max:100}}}}}});}}</script>
     </body></html>
