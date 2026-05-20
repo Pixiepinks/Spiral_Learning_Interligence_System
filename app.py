@@ -1334,23 +1334,6 @@ def ensure_subscription_columns() -> None:
     db.session.commit()
 
 
-def ensure_student_ui_columns() -> None:
-    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS ui_language VARCHAR(10)"))
-    db.session.execute(
-        db.text(
-            """
-            UPDATE student
-            SET ui_language = CASE
-                WHEN medium = 'Sinhala' THEN 'si'
-                ELSE 'en'
-            END
-            WHERE ui_language IS NULL OR TRIM(ui_language) = ''
-            """
-        )
-    )
-    db.session.commit()
-
-
 def has_active_premium(student: Student | None) -> bool:
     if not student:
         return False
@@ -2273,7 +2256,6 @@ def login():
         ensure_gamification_columns()
         ensure_streak_columns()
         ensure_subscription_columns()
-        ensure_student_ui_columns()
     except Exception:
         db.session.rollback()
 
@@ -2319,11 +2301,10 @@ def login():
     session["student_id"] = student.id
     if expired_now:
         session["subscription_expired_message"] = get_subscription_expired_message(student.medium)
-    return redirect("/student/dashboard")
+    return redirect(url_for("student_dashboard"))
 
 
 @app.route("/student-dashboard", methods=["GET"])
-@app.route("/student/dashboard", methods=["GET"])
 def student_dashboard():
     student_id = session.get("student_id")
     previous_result = None
@@ -2345,48 +2326,6 @@ def student_dashboard():
     if not student:
         session.pop("student_id", None)
         return redirect(url_for("login"))
-    ensure_student_ui_columns()
-    default_ui = "si" if resolve_medium(student.medium) == "Sinhala" else "en"
-    ui_language = (student.ui_language or default_ui).strip().lower()
-    if ui_language not in {"en", "si", "ta"}:
-        ui_language = default_ui
-    student.ui_language = ui_language
-    db.session.commit()
-
-    translations = {
-        "appName": {"en": "Spiral Learning Intelligence System", "si": "Spiral Learning Intelligence System", "ta": "Spiral Learning Intelligence System"},
-        "dashboard": {"en": "Dashboard", "si": "උපකරණ පුවරුව", "ta": "டாஷ்போர்டு"},
-        "mySubjects": {"en": "My Subjects", "si": "මගේ විෂයන්", "ta": "என் பாடங்கள்"},
-        "liveClasses": {"en": "Live Classes", "si": "සජීවී පන්ති", "ta": "நேரலை வகுப்புகள்"},
-        "assignments": {"en": "Assignments", "si": "පැවරුම්", "ta": "பணிகள்"},
-        "studyMaterials": {"en": "Study Materials", "si": "ඉගෙනුම් ද්‍රව්‍ය", "ta": "படிப்புப் பொருட்கள்"},
-        "assessments": {"en": "Assessments", "si": "ඇගයීම්", "ta": "மதிப்பீடுகள்"},
-        "aiTutor": {"en": "AI Tutor", "si": "AI ගුරු", "ta": "AI பயிற்சியாளர்"},
-        "library": {"en": "Library", "si": "පුස්තකාලය", "ta": "நூலகம்"},
-        "projects": {"en": "Projects", "si": "ව්‍යාපෘති", "ta": "திட்டங்கள்"},
-        "competitions": {"en": "Competitions", "si": "තරඟ", "ta": "போட்டிகள்"},
-        "helpCenter": {"en": "Help Center", "si": "උදව් මධ්‍යස්ථානය", "ta": "உதவி மையம்"},
-        "greeting": {"en": "Good Morning, {name}!", "si": "සුභ උදෑසනක්, {name}!", "ta": "காலை வணக்கம், {name}!"},
-        "subtitle": {"en": "Keep going. Your future is being built today.", "si": "ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැඟේ.", "ta": "தொடருங்கள். உங்கள் எதிர்காலம் இன்று உருவாகிறது."},
-        "continueLearning": {"en": "Continue Learning", "si": "ඉගෙනීම ඉදිරියට", "ta": "கற்றலை தொடருங்கள்"},
-        "todaysSchedule": {"en": "Today's Schedule", "si": "අද කාලසටහන", "ta": "இன்றைய அட்டவணை"},
-        "subjectsOverview": {"en": "Subjects Overview", "si": "විෂය සාරාංශය", "ta": "பாட சுருக்கம்"},
-        "learningAnalytics": {"en": "Learning Analytics", "si": "ඉගෙනුම් විශ්ලේෂණ", "ta": "கற்றல் பகுப்பாய்வு"},
-        "progressSummary": {"en": "Progress Summary", "si": "ප්‍රගති සාරාංශය", "ta": "முன்னேற்ற சுருக்கம்"},
-        "recentAchievements": {"en": "Recent Achievements", "si": "මෑත ජයග්‍රහණ", "ta": "சமீபத்திய சாதனைகள்"},
-    }
-    return f"""<!doctype html><html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
-    <title>SLIS Student Dashboard</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-    <style>body{{margin:0;font-family:Inter,Segoe UI,sans-serif;background:#f5f8ff}}.app{{display:grid;grid-template-columns:280px 1fr;min-height:100vh}}.sb{{background:linear-gradient(180deg,#05235c,#0b3a94);color:#fff;padding:18px;border-radius:0 24px 24px 0}}.logo{{display:flex;align-items:center;gap:10px;font-weight:700}}.logo img{{width:44px}}.nav a{{display:block;color:#dce7ff;text-decoration:none;padding:10px 12px;border-radius:12px;margin:4px 0}}.nav a.active,.nav a:hover{{background:#2d66d6;color:#fff}}.main{{padding:20px}}.top{{display:flex;justify-content:space-between;align-items:center}}.grid{{display:grid;grid-template-columns:2fr 1fr;gap:16px}}.cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.card{{background:#fff;border-radius:16px;box-shadow:0 8px 20px rgba(20,52,120,.08);padding:14px}}.learn{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.banner{{background:linear-gradient(135deg,#0d2d73,#1959d1);color:#fff;border-radius:16px;padding:18px;margin-top:12px;text-align:center}}@media(max-width:980px){{.app{{grid-template-columns:1fr}}.sb{{border-radius:0;padding:12px}}.grid{{grid-template-columns:1fr}}.cards,.learn{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:640px){{.cards,.learn{{grid-template-columns:1fr}}}}</style></head>
-    <body><div class='app'><aside class='sb'><div class='logo'><img src='/static/images/SLIS LOGO.png'/><span>SLIS</span></div><p style='font-size:12px;opacity:.85' id='appName'></p><div class='nav'>
-    <a class='active' href='#' id='dashboard'></a><a href='#' id='mySubjects'></a><a href='#' id='liveClasses'></a><a href='#' id='assignments'></a><a href='#' id='studyMaterials'></a><a href='#' id='assessments'></a><a href='#' id='aiTutor'></a><a href='#' id='library'></a><hr/><a href='#' id='projects'></a><a href='#' id='competitions'></a><a href='#' id='helpCenter'></a></div></aside>
-    <main class='main'><div class='top'><div><h1 id='greeting'></h1><p id='subtitle'></p></div><div>🇱🇰 {escape(student.name)}</div></div>
-    <div class='grid'><section><div class='cards'><div class='card'><b>My Progress</b><h2>78%</h2></div><div class='card'><b>My Rank</b><h2>Top 12%</h2></div><div class='card'><b>Learning Streak</b><h2>{student.current_streak or 0} days</h2></div><div class='card'><b>Star Points</b><h2>{student.xp or 0}</h2></div></div>
-    <div class='card' style='margin-top:12px'><h3 id='continueLearning'></h3><div class='learn'><div class='card'>Physics<br/>75%</div><div class='card'>Mathematics<br/>60%</div><div class='card'>Biology<br/>40%</div><div class='card'>ICT<br/>30%</div></div></div>
-    <div class='card' style='margin-top:12px'><h3 id='subjectsOverview'></h3><p>Physics A · Mathematics A- · Biology A · ICT A-</p></div>
-    <div class='card' style='margin-top:12px'><h3 id='learningAnalytics'></h3><canvas id='c' height='80'></canvas></div><div class='banner'><h2>Dream • Believe • Achieve</h2><p>The future belongs to those who learn today.</p></div></section>
-    <aside><div class='card'><h3 id='todaysSchedule'></h3><p>08:00 Physics · 09:30 Mathematics · 11:00 Chemistry</p></div><div class='card' style='margin-top:12px'><h3 id='progressSummary'></h3><h2>78%</h2></div><div class='card' style='margin-top:12px'><h3 id='recentAchievements'></h3><p>Quiz Master · Consistent Learner · Top Performer</p></div></aside></div></main></div>
-    <script>const tr={json.dumps(translations)};const lang='{ui_language}';Object.keys(tr).forEach(k=>{{const el=document.getElementById(k);if(el)el.textContent=(tr[k][lang]||tr[k].en);}});document.getElementById('greeting').textContent=(tr.greeting[lang]||tr.greeting.en).replace('{{name}}',{json.dumps(student.name)});new Chart(document.getElementById('c'),{{type:'line',data:{{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],datasets:[{{label:'Hours',data:[2,4,3,5,7,6,4],borderColor:'#2463eb',backgroundColor:'rgba(36,99,235,.12)',fill:true,tension:.4}}]}}}});</script></body></html>"""
 
     expired_now = expire_subscription_if_needed(student)
     expired_message = session.pop("subscription_expired_message", None)
