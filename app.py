@@ -1372,27 +1372,6 @@ def expire_subscription_if_needed(student: Student | None) -> bool:
     return True
 
 
-
-
-def get_student_ui_language(student) -> str:
-    raw_ui_language = getattr(student, "ui_language", None)
-
-    if raw_ui_language:
-        lang = str(raw_ui_language).strip().lower()
-    else:
-        medium = str(getattr(student, "medium", "") or "").strip().lower()
-        if medium in ["sinhala", "සිංහල", "si"]:
-            lang = "si"
-        elif medium in ["english", "ඉංග්‍රීසි", "en"]:
-            lang = "en"
-        else:
-            lang = "en"
-
-    if lang not in ["en", "si"]:
-        lang = "en"
-
-    return lang
-
 def get_subscription_expired_message(medium: str) -> str:
     if resolve_medium(medium) == "Sinhala":
         return "ඔබගේ Premium අවසන් වී ඇත. දිගටම භාවිතා කිරීමට නැවත සක්‍රීය කරන්න."
@@ -2367,7 +2346,11 @@ def student_dashboard():
         session.pop("student_id", None)
         return redirect(url_for("login"))
     ensure_student_ui_columns()
-    ui_language = get_student_ui_language(student)
+    default_ui = "si" if resolve_medium(student.medium) == "Sinhala" else "en"
+    ui_language = (student.ui_language or default_ui).strip().lower()
+    if ui_language not in {"en", "si", "ta"}:
+        ui_language = default_ui
+    student.ui_language = ui_language
     db.session.commit()
 
     translations = {
