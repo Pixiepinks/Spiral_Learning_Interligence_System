@@ -5,9 +5,13 @@ import re
 import hashlib
 import secrets
 import uuid
+import base64
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from html import escape
+from io import BytesIO
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
@@ -462,6 +466,7 @@ class Student(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     class_id = db.Column(db.Integer, nullable=True)
     school_id = db.Column(db.Integer, nullable=False)
+    profile_image_url = db.Column(db.Text, nullable=True)
 
 
 def generate_student_username_for_id(student_id: int) -> str:
@@ -503,8 +508,48 @@ def ensure_family_registration_schema() -> None:
 def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
+    db.session.commit()
     ensure_student_username_schema()
     ensure_family_registration_schema()
+
+
+def student_initials(name: str | None) -> str:
+    parts = [part for part in (name or "").strip().split() if part]
+    if not parts:
+        return "ST"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return f"{parts[0][0]}{parts[1][0]}".upper()
+
+
+def upload_profile_image_to_supabase(student_id: int, image_bytes: bytes, content_type: str) -> tuple[str | None, str | None]:
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    bucket_name = (os.environ.get("SUPABASE_BUCKET") or "student-profile-images").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+    ext = ext_map.get(content_type, "webp")
+    object_name = secure_filename(f"student_{student_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{ext}")
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{bucket_name}/{object_name}"
+    req = Request(
+        upload_url,
+        data=image_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        },
+    )
+    try:
+        urlopen(req, timeout=20).read()
+    except (HTTPError, URLError, TimeoutError) as exc:
+        return None, f"Failed to upload profile image: {exc}"
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket_name}/{object_name}"
+    return public_url, None
 
 
 class School(db.Model):
@@ -2550,6 +2595,8 @@ def student_dashboard():
         )
 
     recommendations = get_student_recommendations(student.id)
+    avatar_initials = student_initials(student.name)
+    profile_image_url = (student.profile_image_url or "").strip()
     class_tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.asc()).all() if student.class_id else []
     upcoming_tests = [item for item in class_tests if item.test_date >= date.today()]
     next_test = upcoming_tests[0] if upcoming_tests else None
@@ -2579,7 +2626,7 @@ def student_dashboard():
 
     return f"""
     <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{text["dashboard"]}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-    <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#f4f8ff;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-section-title{{margin:14px 6px 5px;font-size:10px;font-weight:800;letter-spacing:.08em;color:rgba(219,234,254,.58);text-transform:uppercase}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.nav-icon{{width:18px;height:18px;flex:0 0 18px;opacity:.95;color:#dbeafe}}.nav-icon svg{{width:18px;height:18px;display:block;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}}.side-footer-link{{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;color:rgba(219,234,254,.92);text-decoration:none;font-size:13px}}.main{{padding:16px}}.top,.card{{background:#fff;border-radius:16px;box-shadow:0 8px 20px rgba(0,0,0,.06)}}.top{{padding:14px 16px;display:flex;justify-content:space-between;align-items:center}}.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}}.card{{padding:14px}}.layout{{display:grid;grid-template-columns:2fr 1fr;gap:12px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}}@media(max-width:1000px){{.app{{grid-template-columns:1fr}}.grid{{grid-template-columns:repeat(2,1fr)}}.layout{{grid-template-columns:1fr}}}}@media(max-width:768px){{.sidebar-brand-title{{font-size:10px}}.nav-link{{font-size:13px;padding:6px 9px;gap:8px;min-height:30px}}.nav-icon,.nav-icon svg{{width:16px;height:16px;flex-basis:16px}}}}</style>
+    <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#f4f8ff;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-section-title{{margin:14px 6px 5px;font-size:10px;font-weight:800;letter-spacing:.08em;color:rgba(219,234,254,.58);text-transform:uppercase}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.nav-icon{{width:18px;height:18px;flex:0 0 18px;opacity:.95;color:#dbeafe}}.nav-icon svg{{width:18px;height:18px;display:block;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}}.side-footer-link{{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;color:rgba(219,234,254,.92);text-decoration:none;font-size:13px}}.main{{padding:16px}}.top,.card{{background:#fff;border-radius:16px;box-shadow:0 8px 20px rgba(0,0,0,.06)}}.top{{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;gap:18px}}.greeting-left{{display:flex;align-items:center;gap:14px;min-width:0}}.student-avatar{{width:64px;height:64px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.9);box-shadow:0 8px 22px rgba(15,23,42,0.16);background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:800;font-size:20px;overflow:hidden}}.greeting-copy h2{{margin:0}}.greeting-copy small{{display:block;margin-top:4px;color:#64748b}}.change-photo-link{{display:inline-block;margin-top:5px;font-size:12px;font-weight:700;color:#2563eb;text-decoration:none;border:0;background:transparent;cursor:pointer;padding:0}}.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}}.card{{padding:14px}}.layout{{display:grid;grid-template-columns:2fr 1fr;gap:12px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}}.modal{{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:999;align-items:center;justify-content:center;padding:14px}}.modal-content{{background:#fff;max-width:460px;width:100%;border-radius:14px;padding:16px;box-shadow:0 25px 50px rgba(2,6,23,.35)}}#cameraStream{{width:100%;border-radius:12px;background:#0f172a;display:none}}#cameraPreview{{display:none;width:100%;border-radius:12px}}@media(max-width:1000px){{.app{{grid-template-columns:1fr}}.grid{{grid-template-columns:repeat(2,1fr)}}.layout{{grid-template-columns:1fr}}}}@media(max-width:768px){{.sidebar-brand-title{{font-size:10px}}.nav-link{{font-size:13px;padding:6px 9px;gap:8px;min-height:30px}}.nav-icon,.nav-icon svg{{width:16px;height:16px;flex-basis:16px}}.top{{align-items:flex-start;flex-direction:column}}.student-avatar{{width:52px;height:52px;font-size:16px}}.greeting-left{{gap:10px}}}}</style>
     </head><body><div class='app'><aside class='side'><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS logo'><div class='sidebar-brand-title'>Spiral Learning Intelligence System</div></div>
     <a class='nav-link active' href='/student-dashboard'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M3 10.5 12 3l9 7.5'></path><path d='M5 9.5V21h14V9.5'></path></svg></span><span>{text['dashboard']}</span></a>
     <div class='nav-section-title'>{'ඉගෙනුම' if language=='si' else 'LEARN'}</div>
@@ -2600,7 +2647,8 @@ def student_dashboard():
     <a class='nav-link' href='#'><span class='nav-icon'><svg viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='14' rx='2'></rect><path d='m4 7 8 6 8-6'></path></svg></span><span>{'පණිවිඩ' if language=='si' else 'Messages'}</span></a>
     <a class='nav-link' href='#'><span class='nav-icon'><svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'></circle><path d='M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-.9.8-1.8 1.3-1.8 2.8'></path><circle cx='12' cy='17' r='1'></circle></svg></span><span>{'උදව් මධ්‍යස්ථානය' if language=='si' else 'Help Center'}</span></a>
     <a class='side-footer-link' href='/logout'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'></path><path d='m16 17 5-5-5-5M21 12H9'></path></svg></span><span>{text['logout']}</span></a></aside>
-    <main class='main'><div class='top'><div><h2 style='margin:0'>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small></div><div>{student.medium}</div></div>
+    <main class='main'><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button id='openPhotoModal' type='button' class='change-photo-link'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div><div>{student.medium}</div></div>
+    <div id='photoModal' class='modal'><div class='modal-content'><h3>{'පැතිකඩ ඡායාරූපය යාවත්කාලීන කරන්න' if language=='si' else 'Update Profile Photo'}</h3><form id='photoForm' method='POST' action='/student/profile-photo' enctype='multipart/form-data'><input id='profilePhotoInput' name='profile_photo' type='file' accept='image/jpeg,image/png,image/webp'><input type='hidden' id='cameraImageData' name='camera_image_data'><video id='cameraStream' autoplay playsinline></video><canvas id='cameraCanvas' style='display:none'></canvas><img id='cameraPreview' alt='Preview'><div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:10px'><button type='button' id='startCameraBtn'>{'කැමරාව භාවිතා කරන්න' if language=='si' else 'Use Camera'}</button><button type='button' id='captureBtn' style='display:none'>{'ඡායාරූපය උඩුගත කරන්න' if language=='si' else 'Upload Photo'}</button><button type='submit'>{'සුරකින්න' if language=='si' else 'Save Photo'}</button><button type='button' id='closePhotoModal'>{'අවලංගු කරන්න' if language=='si' else 'Cancel'}</button></div></form></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
     <section class='grid'><div class='card'><b>{text['xp']}</b><h3>{student.xp}</h3></div><div class='card'><b>{text['level']}</b><h3>{student.level}</h3></div><div class='card'><b>{text['current_streak']}</b><h3>🔥 {student.current_streak or 0}</h3></div><div class='card'><b>{text['latest_result']}</b><h3>{latest_result.score if latest_result else 0}%</h3></div><div class='card'><b>{text['progress_to_next_level']}</b><h3>{student.xp % 100}%</h3></div></section>
     <section class='layout'><div>
@@ -2612,9 +2660,49 @@ def student_dashboard():
     <div class='card' style='margin-top:10px'><h3>{text['topic_performance']}</h3><table><thead><tr><th>Topic</th><th>Correct/Total</th><th>%</th><th>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4'>No topic performance available.</td></tr>"}</tbody></table></div>
     <div class='card' style='margin-top:10px'><h3>{'අද කාලසටහන' if language=='si' else "Today's Schedule"}</h3>{f"<p>{'ඔබට ' if language=='si' else 'You have a test on '}{next_test.test_date.strftime('%Y-%m-%d') if next_test else '-'}</p>"}<p><a href='/student/tests'>{'ඉදිරි පරීක්ෂා' if language=='si' else 'Upcoming Tests'}</a> | <a href='/test'>{text['take_test']}</a></p></div>
     </div></section></main></div>
-    <script>const progressCtx=document.getElementById('progressOverviewChart');if(progressCtx){{const practiceData={json.dumps(chart_practice_points)};const datasets=[{{label:'SkillScan',data:{json.dumps(chart_result_scores)},borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,0.2)',tension:0.25,fill:false}}];if(practiceData.length){{datasets.push({{label:'Practice',data:practiceData,parsing:{{xAxisKey:'x',yAxisKey:'y'}},borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.2)',tension:0.25,fill:false}});}}new Chart(progressCtx,{{type:'line',data:{{labels:{json.dumps(chart_labels)},datasets:datasets}},options:{{responsive:true,scales:{{x:{{title:{{display:true,text:'{text["date"]}'}}}},y:{{title:{{display:true,text:'{text["score"]}'}},min:0,max:100}}}}}});}}</script>
+    <script>const m=document.getElementById('photoModal'),o=document.getElementById('openPhotoModal'),c=document.getElementById('closePhotoModal'),s=document.getElementById('startCameraBtn'),cap=document.getElementById('captureBtn'),v=document.getElementById('cameraStream'),p=document.getElementById('cameraPreview'),x=document.getElementById('cameraCanvas'),h=document.getElementById('cameraImageData');let st=null;function stopCam(){{if(st){{st.getTracks().forEach(t=>t.stop());st=null;}}v.style.display='none';cap.style.display='none';}}if(o){{o.onclick=()=>m.style.display='flex';}}if(c){{c.onclick=()=>{{m.style.display='none';stopCam();}}}}if(s){{s.onclick=async()=>{{if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){{alert('Camera is not supported on this device.');return;}}try{{st=await navigator.mediaDevices.getUserMedia({{video:true}});v.srcObject=st;v.style.display='block';cap.style.display='inline-block';}}catch(e){{alert('Camera permission denied. Please use file upload.');}}}}}}if(cap){{cap.onclick=()=>{{const ctx=x.getContext('2d');x.width=v.videoWidth||640;x.height=v.videoHeight||480;ctx.drawImage(v,0,0,x.width,x.height);const data=x.toDataURL('image/webp',0.9);h.value=data;p.src=data;p.style.display='block';stopCam();}}}}window.onclick=(e)=>{{if(e.target===m){{m.style.display='none';stopCam();}}}};const progressCtx=document.getElementById('progressOverviewChart');if(progressCtx){{const practiceData={json.dumps(chart_practice_points)};const datasets=[{{label:'SkillScan',data:{json.dumps(chart_result_scores)},borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,0.2)',tension:0.25,fill:false}}];if(practiceData.length){{datasets.push({{label:'Practice',data:practiceData,parsing:{{xAxisKey:'x',yAxisKey:'y'}},borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.2)',tension:0.25,fill:false}});}}new Chart(progressCtx,{{type:'line',data:{{labels:{json.dumps(chart_labels)},datasets:datasets}},options:{{responsive:true,scales:{{x:{{title:{{display:true,text:'{text["date"]}'}}}},y:{{title:{{display:true,text:'{text["score"]}'}},min:0,max:100}}}}}});}}</script>
     </body></html>
     """
+
+
+@app.route("/student/profile-photo", methods=["POST"])
+def upload_student_profile_photo():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect("/login")
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect("/login")
+    image_bytes = b""
+    content_type = ""
+    uploaded_file = request.files.get("profile_photo")
+    if uploaded_file and uploaded_file.filename:
+        content_type = (uploaded_file.mimetype or "").lower().strip()
+        if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            return "<p>Invalid file type. Please upload JPG, PNG, or WEBP image.</p><p><a href='/student-dashboard'>Back</a></p>", 400
+        image_bytes = uploaded_file.read()
+    else:
+        camera_data = (request.form.get("camera_image_data") or "").strip()
+        if camera_data.startswith("data:image/") and ";base64," in camera_data:
+            header, encoded = camera_data.split(",", 1)
+            content_type = header.split(";")[0].replace("data:", "").strip().lower()
+            if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+                return "<p>Invalid camera image format.</p><p><a href='/student-dashboard'>Back</a></p>", 400
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except Exception:
+                return "<p>Invalid image data from camera capture.</p><p><a href='/student-dashboard'>Back</a></p>", 400
+    if not image_bytes:
+        return "<p>Please select or capture an image first.</p><p><a href='/student-dashboard'>Back</a></p>", 400
+    if len(image_bytes) > 2 * 1024 * 1024:
+        return "<p>Image size must be 2MB or less.</p><p><a href='/student-dashboard'>Back</a></p>", 400
+    uploaded_url, error = upload_profile_image_to_supabase(student.id, image_bytes, content_type)
+    if error:
+        return f"<p>{escape(error)}</p><p><a href='/student-dashboard'>Back</a></p>", 500
+    student.profile_image_url = uploaded_url
+    db.session.commit()
+    return redirect("/student-dashboard")
 
 
 
