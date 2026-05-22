@@ -509,6 +509,8 @@ def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT"))
     db.session.commit()
     ensure_student_username_schema()
     ensure_family_registration_schema()
