@@ -6354,15 +6354,36 @@ def admin_subject_form(subject_id: int | None = None):
         return redirect(url_for("admin_login"))
     obj = SubjectMaster.query.get(subject_id) if subject_id else SubjectMaster()
     if request.method == "POST":
+        grade = normalize_grade(request.form.get("grade"))
+        subject_code = (request.form.get("subject_code") or "").strip().upper()
+        subject_name_en = (request.form.get("subject_name_en") or "").strip()
+        subject_name_si = (request.form.get("subject_name_si") or "").strip()
+        is_active = bool(request.form.get("is_active"))
+
+        errors = []
+        if not grade:
+            errors.append("Grade is required.")
+        if not subject_code:
+            errors.append("Subject code is required.")
+        if not subject_name_en:
+            errors.append("Subject Name EN is required.")
+        if not subject_name_si:
+            errors.append("Subject Name SI is required.")
+        if errors:
+            return f"<h3>{'<br>'.join(escape(err) for err in errors)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 400
+
         if not subject_id:
             db.session.add(obj)
             db.session.flush()
-        obj.grade = normalize_grade(request.form.get("grade"))
-        obj.subject_code = (request.form.get("subject_code") or "").strip().upper()
-        obj.subject_name_en = (request.form.get("subject_name_en") or "").strip()
-        obj.subject_name_si = (request.form.get("subject_name_si") or "").strip()
-        si_file = request.files.get("image_si_file")
-        en_file = request.files.get("image_en_file")
+
+        obj.grade = grade
+        obj.subject_code = subject_code
+        obj.subject_name_en = subject_name_en
+        obj.subject_name_si = subject_name_si
+        obj.is_active = is_active
+
+        si_file = request.files.get("image_si")
+        en_file = request.files.get("image_en")
         if si_file and si_file.filename:
             si_image_bytes = si_file.read()
             si_upload_url, si_upload_error = upload_subject_image_to_supabase(obj.id, "si", si_image_bytes, si_file.mimetype or "image/webp")
@@ -6375,12 +6396,11 @@ def admin_subject_form(subject_id: int | None = None):
             if en_upload_error:
                 return f"<h3>{escape(en_upload_error)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 500
             obj.image_en_url = en_upload_url
-        obj.is_active = (request.form.get("is_active") or "false").lower() in {"1","true","yes","on"}
         db.session.commit()
         return redirect("/admin/subjects")
     si_current = f"<small>Current: <a href='{escape(obj.image_si_url)}' target='_blank'>View Sinhala image</a></small><br>" if subject_id and obj.image_si_url else ""
     en_current = f"<small>Current: <a href='{escape(obj.image_en_url)}' target='_blank'>View English image</a></small><br>" if subject_id and obj.image_en_url else ""
-    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='post' enctype='multipart/form-data'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Sinhala Medium Image <input type='file' name='image_si_file' accept='image/jpeg,image/png,image/webp'></label><br>{si_current}<label>English Medium Image <input type='file' name='image_en_file' accept='image/jpeg,image/png,image/webp'></label><br>{en_current}<label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
+    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='POST' enctype='multipart/form-data'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Sinhala Medium Image <input type='file' name='image_si' accept='image/jpeg,image/png,image/webp'></label><br>{si_current}<label>English Medium Image <input type='file' name='image_en' accept='image/jpeg,image/png,image/webp'></label><br>{en_current}<label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
 
 
 @app.route("/admin/syllabus", methods=["GET"])
