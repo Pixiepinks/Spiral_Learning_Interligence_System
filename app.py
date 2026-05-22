@@ -552,6 +552,38 @@ def upload_profile_image_to_supabase(student_id: int, image_bytes: bytes, conten
     return public_url, None
 
 
+def upload_subject_image_to_supabase(subject_id: int | None, medium_key: str, image_bytes: bytes, content_type: str) -> tuple[str | None, str | None]:
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    bucket_name = "subject-images"
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+    ext = ext_map.get(content_type, "webp")
+    subject_ref = subject_id if subject_id else "new"
+    object_name = secure_filename(
+        f"subject_{subject_ref}_{medium_key}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{ext}"
+    )
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{bucket_name}/{object_name}"
+    req = Request(
+        upload_url,
+        data=image_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        },
+    )
+    try:
+        urlopen(req, timeout=20).read()
+    except (HTTPError, URLError, TimeoutError) as exc:
+        return None, f"Failed to upload subject image: {exc}"
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket_name}/{object_name}"
+    return public_url, None
+
+
 class School(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     school_name = db.Column(db.String(200), nullable=False)
@@ -906,6 +938,8 @@ class SubjectMaster(db.Model):
     subject_code = db.Column(db.String(50), nullable=False)
     subject_name_en = db.Column(db.String(150), nullable=False)
     subject_name_si = db.Column(db.String(150), nullable=False)
+    image_si_url = db.Column(db.Text, nullable=True)
+    image_en_url = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -6264,16 +6298,33 @@ def admin_subject_form(subject_id: int | None = None):
         return redirect(url_for("admin_login"))
     obj = SubjectMaster.query.get(subject_id) if subject_id else SubjectMaster()
     if request.method == "POST":
+        if not subject_id:
+            db.session.add(obj)
+            db.session.flush()
         obj.grade = normalize_grade(request.form.get("grade"))
         obj.subject_code = (request.form.get("subject_code") or "").strip().upper()
         obj.subject_name_en = (request.form.get("subject_name_en") or "").strip()
         obj.subject_name_si = (request.form.get("subject_name_si") or "").strip()
+        si_file = request.files.get("image_si_file")
+        en_file = request.files.get("image_en_file")
+        if si_file and si_file.filename:
+            si_image_bytes = si_file.read()
+            si_upload_url, si_upload_error = upload_subject_image_to_supabase(obj.id, "si", si_image_bytes, si_file.mimetype or "image/webp")
+            if si_upload_error:
+                return f"<h3>{escape(si_upload_error)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 500
+            obj.image_si_url = si_upload_url
+        if en_file and en_file.filename:
+            en_image_bytes = en_file.read()
+            en_upload_url, en_upload_error = upload_subject_image_to_supabase(obj.id, "en", en_image_bytes, en_file.mimetype or "image/webp")
+            if en_upload_error:
+                return f"<h3>{escape(en_upload_error)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 500
+            obj.image_en_url = en_upload_url
         obj.is_active = (request.form.get("is_active") or "false").lower() in {"1","true","yes","on"}
-        if not subject_id:
-            db.session.add(obj)
         db.session.commit()
         return redirect("/admin/subjects")
-    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='post'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
+    si_current = f"<small>Current: <a href='{escape(obj.image_si_url)}' target='_blank'>View Sinhala image</a></small><br>" if subject_id and obj.image_si_url else ""
+    en_current = f"<small>Current: <a href='{escape(obj.image_en_url)}' target='_blank'>View English image</a></small><br>" if subject_id and obj.image_en_url else ""
+    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='post' enctype='multipart/form-data'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Sinhala Medium Image <input type='file' name='image_si_file' accept='image/jpeg,image/png,image/webp'></label><br>{si_current}<label>English Medium Image <input type='file' name='image_en_file' accept='image/jpeg,image/png,image/webp'></label><br>{en_current}<label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
 
 
 @app.route("/admin/syllabus", methods=["GET"])
@@ -6550,11 +6601,22 @@ def admin_delete_question(question_id: int):
 @app.route("/api/subjects", methods=["GET"])
 def api_subjects():
     grade = request.args.get("grade")
+    medium = resolve_medium(request.args.get("medium"))
     subjects = get_subjects_for_grade(grade, active_only=True)
     return jsonify(
         {
             "subjects": [
-                {"id": item.id, "grade": item.grade, "subject_code": item.subject_code, "subject_name_en": item.subject_name_en}
+                {
+                    "id": item.id,
+                    "grade": item.grade,
+                    "subject_code": item.subject_code,
+                    "subject_name_en": item.subject_name_en,
+                    "image_url": (
+                        (item.image_si_url or "").strip()
+                        if medium == "Sinhala"
+                        else (item.image_en_url or "").strip()
+                    ) or "/static/images/subjects/default-subject.jpg",
+                }
                 for item in subjects
             ]
         }
@@ -6819,6 +6881,8 @@ def update_syllabus_db() -> tuple[str, int]:
 def update_subject_master_db() -> tuple:
     try:
         SubjectMaster.__table__.create(bind=db.engine, checkfirst=True)
+        db.session.execute(db.text("ALTER TABLE subject_master ADD COLUMN IF NOT EXISTS image_si_url TEXT"))
+        db.session.execute(db.text("ALTER TABLE subject_master ADD COLUMN IF NOT EXISTS image_en_url TEXT"))
         db.session.commit()
         return jsonify({"success": True, "message": "Subject master database updated successfully"}), 200
     except Exception as exc:
