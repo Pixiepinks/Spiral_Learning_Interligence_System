@@ -1005,11 +1005,34 @@ def _syllabus_terms_for_grade_subject(grade: str | None, subject_id: str | None)
     normalized_subject_id = (subject_id or "").strip()
     if not normalized_grade or not normalized_subject_id.isdigit():
         return []
-    return (
-        SyllabusTerm.query.filter_by(grade=normalized_grade, subject_id=int(normalized_subject_id))
+
+    subject_obj = SubjectMaster.query.get(int(normalized_subject_id))
+    if not subject_obj:
+        app.logger.error(
+            "TERMS LOOKUP DEBUG grade=%s subject_id=%s subject_keys=%s terms=%s",
+            normalized_grade,
+            normalized_subject_id,
+            [],
+            0,
+        )
+        return []
+
+    subject_keys = [subject_obj.subject_code, subject_obj.subject_name_en, subject_obj.subject_name_si]
+    lookup_subjects = [x for x in subject_keys if x]
+    terms = (
+        SyllabusTerm.query.filter(SyllabusTerm.grade == normalized_grade)
+        .filter(SyllabusTerm.subject.in_(lookup_subjects))
         .order_by(SyllabusTerm.term_number.asc())
         .all()
     )
+    app.logger.error(
+        "TERMS LOOKUP DEBUG grade=%s subject_id=%s subject_keys=%s terms=%s",
+        normalized_grade,
+        normalized_subject_id,
+        lookup_subjects,
+        len(terms),
+    )
+    return terms
 
 
 def dependent_dropdown_script(
