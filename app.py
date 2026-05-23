@@ -5697,6 +5697,33 @@ def admin_create_school():
     """
 
 
+
+
+def render_student_shell(*, student, language: str, page_title: str, active_nav: str, content_html: str) -> str:
+    avatar_initials = student_initials(student.name)
+    profile_image_url = (student.profile_image_url or "").strip()
+    nav = [
+        ("dashboard", "/student-dashboard", "Dashboard"),
+        ("my_subjects", "/student/learning-path", "My Subjects"),
+        ("live_classes", "/student/live-classes", "Live Classes"),
+        ("assignments", "/student/assignments", "Assignments"),
+        ("quizzes", "/student/quizzes", "Quizzes"),
+        ("study_materials", "/student/study-materials", "Study Materials"),
+        ("ai_tutor", "/student/ai-tutor", "AI Tutor"),
+        ("progress", "/student/progress", "Progress"),
+        ("calendar", "/student/calendar", "Calendar"),
+        ("messages", "/student/messages", "Messages"),
+        ("achievements", "/student/achievements", "Achievements"),
+        ("settings", "/student/settings", "Settings"),
+    ]
+    nav_html = ''.join(
+        f"<a class='nav-link{' active' if key==active_nav else ''}' href='{href}'><span>{label}</span></a>"
+        for key, href, label in nav
+    )
+    return f"""<!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{escape(page_title)}</title>
+    <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.main{{padding:0 16px 8px;background:#edf2fa}}.dashboard-topbar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:0px;padding:0;margin-top:0px}}.dashboard-topbar-spacer{{flex:1}}.top{{width:calc(100% - 330px);max-width:600px;min-height:64px;padding:6px 18px;margin-top:-20px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,0.12);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:18px}}.greeting-left{{display:flex;align-items:center;gap:14px;min-width:0}}.student-avatar{{width:58px;height:58px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.9);box-shadow:0 8px 22px rgba(15,23,42,0.16);background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:800;font-size:20px;overflow:hidden}}.greeting-copy h2{{margin:0;font-size:22px;line-height:1.15}}.header-actions{{display:flex;align-items:center;gap:4px;margin-left:auto}}.header-icon-btn{{width:36px;height:36px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center}}.student-menu-btn{{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid #dbe3f3;background:#fff}}.content-wrap{{margin-top:16px}}@media (max-width:1024px){{.app{{grid-template-columns:1fr}}.side{{position:sticky;top:0;z-index:20}}.top{{width:100%;max-width:none}}}}</style></head>
+    <body><div class='app'><aside class='side'><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS'><span class='sidebar-brand-title'>Spiral Learning</span></div><nav class='sidebar-nav'>{nav_html}</nav></aside><main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn' type='button' aria-label='Search'>🔍</button><button class='header-icon-btn' type='button' aria-label='Notifications'>🔔</button><button class='header-icon-btn' type='button' aria-label='Messages'>💬</button><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img' style='width:24px;height:24px;border-radius:50%'></div><button class='student-menu-btn' type='button'><span>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</span><span>{escape(student.name)}</span></button></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{escape(page_title)}</h2></div></div></div><div class='content-wrap'>{content_html}</div></main></div></body></html>"""
+
 @app.route("/student/learning-path", methods=["GET"])
 def student_learning_path():
     student_id = session.get("student_id")
@@ -5746,11 +5773,43 @@ def student_learning_path():
             f"""<article class='card subject-learning-card'><div class='subject-card-head'><h3>{escape(chapter_name)}</h3><span class='subject-status-pill {status_class}'>{escape(status_label)}</span></div><p class='subject-current-chapter'>Chapter {idx + 1}</p><div class='subject-progress-row'><span>Progress</span><strong>{pct}%</strong></div><div class='subject-progress-track'><span class='subject-progress-fill' style='width:{pct}%;'></span></div><button type='button' class='subject-continue-btn' {btn_disabled} onclick="location.href='/student/chapter/{chapter.id}'">{btn_label}</button></article>"""
         )
 
-    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>My Subjects</title>
-    <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#fff;font-size:12px;font-weight:700}}.sidebar-nav{{display:flex;flex-direction:column}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.nav-icon svg{{width:18px;height:18px;stroke:currentColor;stroke-width:1.9;fill:none}}.main{{padding:0 16px 20px;background:#edf2fa}}.dashboard-topbar{{display:flex;align-items:center;justify-content:space-between;padding-top:14px}}.top{{width:calc(100% - 330px);max-width:600px;min-height:64px;padding:6px 18px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.12);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.08);border-radius:18px}}.greeting-left{{display:flex;align-items:center;gap:14px}}.student-avatar{{width:58px;height:58px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#dbeafe;font-weight:800}}.student-avatar img{{width:100%;height:100%;object-fit:cover}}.greeting-copy h2{{margin:0;font-size:22px}}.greeting-copy small{{color:#64748b}}.header-actions{{display:flex;align-items:center;gap:4px;margin-left:auto}}.header-icon-btn{{width:36px;height:36px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center}}.header-icon-btn svg{{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}}.lang-pill{{font-size:12px;padding:6px 10px;border-radius:10px;background:#fff;border:1px solid #dbe3f3}}.student-menu-btn{{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid #dbe3f3;background:#fff}}.subject-page-hero h1{{margin:18px 0 6px;font-size:32px}}.subject-page-hero p{{margin:0;color:#64748b}}.subject-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}}.card{{background:rgba(255,255,255,.5);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.6);border-radius:18px;padding:18px}}.subject-card-head{{display:flex;justify-content:space-between;gap:12px}}.subject-card-head h3{{margin:0;font-size:20px}}.subject-status-pill{{font-size:12px;padding:5px 10px;border-radius:999px;font-weight:700}}.subject-status-pill.completed{{background:#dcfce7;color:#166534}}.subject-status-pill.in-progress{{background:#dbeafe;color:#1e40af}}.subject-status-pill.locked{{background:#e2e8f0;color:#334155}}.subject-current-chapter{{margin:8px 0 10px;color:#475569}}.subject-progress-row{{display:flex;justify-content:space-between;color:#334155;font-size:14px}}.subject-progress-track{{height:8px;background:#dbe3f3;border-radius:999px;overflow:hidden;margin-top:6px}}.subject-progress-fill{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#34d399)}}.subject-continue-btn{{margin-top:14px;width:100%;padding:10px 12px;border:0;border-radius:12px;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer}}.subject-continue-btn:disabled{{background:#94a3b8;cursor:not-allowed}}@media (max-width:1024px){{.app{{grid-template-columns:1fr}}.side{{position:sticky;top:0;z-index:20}}.top{{width:100%;max-width:none}}.subject-grid{{grid-template-columns:1fr}}}}</style></head>
-    <body><div class='app'><aside class='side'><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS'><span class='sidebar-brand-title'>Spiral Learning</span></div><nav class='sidebar-nav'><a class='nav-link' href='/student-dashboard'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M3 10.5 12 3l9 7.5'></path><path d='M5 9.5V21h14V9.5'></path></svg></span><span>Dashboard</span></a><a class='nav-link active' href='/student/learning-path'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M4 5h6a4 4 0 0 1 4 4v10H8a4 4 0 0 0-4 4z'></path><path d='M20 5h-6a4 4 0 0 0-4 4v10h6a4 4 0 0 1 4 4z'></path></svg></span><span>My Subjects</span></a></nav></aside>
-    <main class='main'><div class='dashboard-topbar'><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>My Subjects</h2><small>Continue your personalized learning journey</small></div></div></div><div class='header-actions'><button class='header-icon-btn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5'></path><path d='M10 20a2 2 0 0 0 4 0'></path></svg></button><button class='header-icon-btn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'></path></svg></button><span class='lang-pill'>🇱🇰 EN</span><button class='student-menu-btn'>{escape(student.name)}</button></div></div><section class='subject-page-hero'><h1>My Subjects</h1><p>Continue your personalized learning journey</p></section><section class='subject-grid'>{''.join(subject_cards) if subject_cards else "<div class='card'>No subjects available yet.</div>"}</section></main></div></body></html>"""
+    content_html = f"<section class='subject-page-hero'><h1>My Subjects</h1><p>Continue your personalized learning journey</p></section><section class='subject-grid'>{''.join(subject_cards) if subject_cards else "<div class='card'>No subjects available yet.</div>"}</section>"
+    return render_student_shell(student=student, language=("si" if student.medium == "Sinhala" else "en"), page_title="My Subjects", active_nav="my_subjects", content_html=content_html)
 
+
+
+
+
+@app.route("/student/live-classes", methods=["GET"])
+@app.route("/student/assignments", methods=["GET"])
+@app.route("/student/quizzes", methods=["GET"])
+@app.route("/student/study-materials", methods=["GET"])
+@app.route("/student/ai-tutor", methods=["GET"])
+@app.route("/student/progress", methods=["GET"])
+@app.route("/student/calendar", methods=["GET"])
+@app.route("/student/messages", methods=["GET"])
+@app.route("/student/achievements", methods=["GET"])
+@app.route("/student/settings", methods=["GET"])
+def student_shell_pages():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    route_map = {
+        "/student/live-classes": ("Live Classes", "live_classes"),
+        "/student/assignments": ("Assignments", "assignments"),
+        "/student/quizzes": ("Quizzes", "quizzes"),
+        "/student/study-materials": ("Study Materials", "study_materials"),
+        "/student/ai-tutor": ("AI Tutor", "ai_tutor"),
+        "/student/progress": ("Progress", "progress"),
+        "/student/calendar": ("Calendar", "calendar"),
+        "/student/messages": ("Messages", "messages"),
+        "/student/achievements": ("Achievements", "achievements"),
+        "/student/settings": ("Settings", "settings"),
+    }
+    page_title, active_nav = route_map.get(request.path, ("Student", "dashboard"))
+    content_html = f"<div class='card' style='padding:18px;'><h2>{escape(page_title)}</h2><p>Content coming soon.</p></div>"
+    return render_student_shell(student=student, language=("si" if student.medium == "Sinhala" else "en"), page_title=page_title, active_nav=active_nav, content_html=content_html)
 
 @app.route("/student/chapter/<int:chapter_id>", methods=["GET", "POST"])
 def student_chapter_page(chapter_id: int):
