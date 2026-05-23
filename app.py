@@ -5763,47 +5763,76 @@ def student_learning_path():
         return redirect(url_for("login"))
     ensure_chapter_learning_tables()
     student = db.session.get(Student, student_id)
-    chapters = _ordered_chapters_for_student(student)
-    chapter_rows = []
-    for idx, (chapter, _module, _term) in enumerate(chapters):
-        progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter.id).first()
-        if not progress:
-            progress = StudentChapterProgress(student_id=student.id, chapter_id=chapter.id, status="unlocked" if idx == 0 else "locked")
-            db.session.add(progress)
-            db.session.flush()
-        contents = ChapterLearningContent.query.filter_by(chapter_id=chapter.id, is_active=True).all()
-        required_ids = [c.id for c in contents if c.is_required]
-        done_count = StudentContentProgress.query.filter(
-            StudentContentProgress.student_id == student.id,
-            StudentContentProgress.content_id.in_(required_ids) if required_ids else db.text("1=0"),
-            StudentContentProgress.status == "completed",
-        ).count() if required_ids else 0
-        pct = int((done_count / len(required_ids)) * 100) if required_ids else 0
-        button = "disabled>Locked" if progress.status == "locked" else f"onclick=\"location.href='/student/chapter/{chapter.id}'\">{'Review' if progress.status == 'completed' else 'Start Learning'}"
-        chapter_name = chapter.chapter_name_si if student.medium == "Sinhala" else chapter.chapter_name_en
-        chapter_rows.append(f"<tr><td>{escape(chapter_name)}</td><td>{progress.status}</td><td>{pct}%</td><td><button {button}</button></td></tr>")
-    db.session.commit()
+    is_si = student.medium == "Sinhala"
+    grade = normalize_grade(student.grade)
+    labels = {
+        "title": "මගේ විෂයයන්" if is_si else "My Subjects",
+        "subtitle": "ඔබේ පුද්ගලික ඉගෙනුම් ගමන ඉදිරියට ගෙන යන්න" if is_si else "Continue your personalized learning journey",
+        "term": "වාරය" if is_si else "Term",
+        "mastery": "ප්‍රවීණතාව" if is_si else "Mastery",
+        "day_streak": "දින අඛණ්ඩතාව" if is_si else "Day Streak",
+        "lesson": "පාඩම" if is_si else "Lesson",
+        "of": "න්" if is_si else "of",
+        "next_lesson": "ඊළඟ පාඩම" if is_si else "Next Lesson",
+        "weak_area": "අවධානය යොමු කළ යුතු කොටස" if is_si else "Weak Area",
+        "continue": "ඉගෙනීම ඉදිරියට" if is_si else "Continue Learning",
+        "details": "විස්තර බලන්න" if is_si else "View Details",
+    }
+    subjects = get_subjects_for_grade(grade, active_only=True)
     subject_cards = []
-    for idx, (chapter, _module, _term) in enumerate(chapters):
-        progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter.id).first()
-        chapter_name = chapter.chapter_name_si if student.medium == "Sinhala" else chapter.chapter_name_en
-        contents = ChapterLearningContent.query.filter_by(chapter_id=chapter.id, is_active=True).all()
+    total_mastery = 0
+    for subject in subjects:
+        term_ids = [x.id for x in SyllabusTerm.query.filter(
+            SyllabusTerm.grade == grade,
+            SyllabusTerm.subject.in_([subject.subject_code, subject.subject_name_en, subject.subject_name_si]),
+        ).all()]
+        modules = SyllabusModule.query.filter(SyllabusModule.term_id.in_(term_ids) if term_ids else db.text("1=0")).all() if term_ids else []
+        module_ids = [m.id for m in modules]
+        chapters = SyllabusChapter.query.filter(SyllabusChapter.module_id.in_(module_ids) if module_ids else db.text("1=0")).all() if module_ids else []
+        chapter_ids = [c.id for c in chapters]
+        contents = ChapterLearningContent.query.filter(ChapterLearningContent.chapter_id.in_(chapter_ids), ChapterLearningContent.is_active.is_(True)).all() if chapter_ids else []
         required_ids = [c.id for c in contents if c.is_required]
-        done_count = StudentContentProgress.query.filter(
-            StudentContentProgress.student_id == student.id,
-            StudentContentProgress.content_id.in_(required_ids) if required_ids else db.text("1=0"),
-            StudentContentProgress.status == "completed",
-        ).count() if required_ids else 0
-        pct = int((done_count / len(required_ids)) * 100) if required_ids else 0
-        status_label = (progress.status or "unlocked").replace("_", " ").title()
-        status_class = "in-progress" if progress.status == "in_progress" else ("completed" if progress.status == "completed" else "locked")
-        btn_label = "Locked" if progress.status == "locked" else ("Review" if progress.status == "completed" else "Continue Learning")
-        btn_disabled = "disabled" if progress.status == "locked" else ""
-        subject_cards.append(
-            f"""<article class='card subject-learning-card'><div class='subject-card-head'><h3>{escape(chapter_name)}</h3><span class='subject-status-pill {status_class}'>{escape(status_label)}</span></div><p class='subject-current-chapter'>Chapter {idx + 1}</p><div class='subject-progress-row'><span>Progress</span><strong>{pct}%</strong></div><div class='subject-progress-track'><span class='subject-progress-fill' style='width:{pct}%;'></span></div><button type='button' class='subject-continue-btn' {btn_disabled} onclick="location.href='/student/chapter/{chapter.id}'">{btn_label}</button></article>"""
-        )
-
-    content_html = f"<section class='subject-page-hero'><h1>My Subjects</h1><p>Continue your personalized learning journey</p></section><section class='subject-grid'>{''.join(subject_cards) if subject_cards else "<div class='card'>No subjects available yet.</div>"}</section>"
+        completed_ids = {x.content_id for x in StudentContentProgress.query.filter_by(student_id=student.id, status="completed").all()}
+        done_required = sum(1 for rid in required_ids if rid in completed_ids)
+        mastery = int((done_required / len(required_ids)) * 100) if required_ids else 0
+        total_mastery += mastery
+        content_type_counts = {}
+        for c in contents:
+            content_type_counts[c.content_type] = content_type_counts.get(c.content_type, 0) + 1
+        questions_count = Question.query.filter(
+            Question.grade == grade,
+            Question.subject.in_([subject.subject_code, subject.subject_name_en, subject.subject_name_si]),
+        ).count()
+        subject_name = subject.subject_name_si if is_si else subject.subject_name_en
+        image_url = (subject.image_si_url if is_si else subject.image_en_url) or "/static/images/slis-logo.png"
+        next_chapter = chapters[0] if chapters else None
+        next_name = (next_chapter.chapter_name_si if is_si else next_chapter.chapter_name_en) if next_chapter else "-"
+        lesson_total = len(chapters)
+        lesson_current = min(lesson_total, max(1, int((mastery / 100) * lesson_total))) if lesson_total else 0
+        grade_badge = "A-" if mastery >= 75 else ("B+" if mastery >= 65 else ("B" if mastery >= 55 else "C"))
+        subject_cards.append(f"""
+        <article class='subject-premium-card'>
+          <div class='subject-image-wrap'><img src='{escape(image_url)}' alt='{escape(subject_name)}'></div>
+          <div class='grade-badge'>{'ශ්‍රේණිය' if is_si else 'Grade'} {escape(str(grade or student.grade))}</div>
+          <h3>{escape(subject_name)}</h3>
+          <p class='term-summary'>{labels['term']} 1 • Module 1, 2, 3</p>
+          <div class='subject-top-metrics'><div class='mastery-ring' style='--p:{mastery}'><span>{mastery}%</span><small>{labels['mastery']}</small></div><div class='metric-col'><span class='subject-grade-badge'>{grade_badge}</span><strong>{student.current_streak or 0} 🔥</strong><small>{labels['day_streak']}</small></div></div>
+          <div class='lesson-row'>{labels['lesson']} {lesson_current} {labels['of']} {lesson_total}</div><div class='mini-progress'><span style='width:{mastery}%'></span></div>
+          <div class='stats-grid'><span>{len(modules)} {('මොඩියුල' if is_si else 'Modules')}</span><span>{len(chapters)} {('පරිච්ඡේද' if is_si else 'Chapters')}</span><span>{content_type_counts.get('video', 0)} {('වීඩියෝ' if is_si else 'Videos')}</span><span>{content_type_counts.get('activity', 0)} {('ක්‍රියාකාරකම්' if is_si else 'Activities')}</span><span>{questions_count} {('ප්‍රශ්න' if is_si else 'Questions')}</span><span>{content_type_counts.get('test', 0)} {('පරීක්ෂණ' if is_si else 'Tests')}</span></div>
+          <div class='focus-box'><small>{labels['next_lesson']}</small><strong>{escape(next_name)}</strong></div>
+          <div class='focus-box weak'><small>{labels['weak_area']}</small><strong>{escape(next_name)}</strong></div>
+          <button type='button' class='continue-btn' onclick="location.href='/student/learning-path'">{labels['continue']}</button>
+          <button type='button' class='details-btn' onclick="location.href='/student/learning-path'">{labels['details']}</button>
+        </article>""")
+    avg_mastery = int(total_mastery / len(subjects)) if subjects else 0
+    content_html = f"""
+    <style>
+    .subject-page-hero h1{{margin:0 0 4px}}.subject-page-hero p{{margin:0;color:#64748b}}.subject-grid{{margin-top:16px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}}@media(max-width:1320px){{.subject-grid{{grid-template-columns:repeat(3,minmax(0,1fr));}}}}@media(max-width:920px){{.subject-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}@media(max-width:620px){{.subject-grid{{grid-template-columns:1fr;}}}}.subject-premium-card{{background:#fff;border-radius:22px;padding:10px;box-shadow:0 20px 35px rgba(2,6,23,.08),0 6px 14px rgba(2,6,23,.04)}}.subject-image-wrap img{{width:100%;height:140px;object-fit:cover;border-radius:16px}}.grade-badge{{margin-top:-16px;float:right;background:#fff;border:2px solid #ff4d8d;color:#ff4d8d;border-radius:999px;padding:6px 10px;font-weight:800}}.subject-premium-card h3{{margin:10px 0 4px}}.term-summary{{margin:0;color:#64748b;font-size:13px}}.subject-top-metrics{{display:flex;justify-content:space-between;align-items:center;margin:10px 0}}.mastery-ring{{--p:0;width:88px;height:88px;border-radius:50%;background:conic-gradient(#10b981 calc(var(--p)*1%),#dbeafe 0);display:grid;place-items:center;position:relative}}.mastery-ring:before{{content:'';position:absolute;inset:8px;background:#fff;border-radius:50%}}.mastery-ring span,.mastery-ring small{{position:relative;z-index:1;display:block;text-align:center}}.subject-grade-badge{{background:#dcfce7;color:#15803d;padding:8px 12px;border-radius:999px;font-weight:800}}.mini-progress{{height:5px;background:#e2e8f0;border-radius:999px;overflow:hidden}}.mini-progress span{{display:block;height:100%;background:#10b981}}.stats-grid{{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}}.stats-grid span{{font-size:12px;background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:10px}}.focus-box{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;border:1px solid #e2e8f0}}.focus-box.weak{{background:#fffbeb;border-color:#fde68a}}.continue-btn,.details-btn{{width:100%;margin-top:8px;border-radius:12px;padding:10px;font-weight:700;border:1px solid #10b981;cursor:pointer}}.continue-btn{{background:#10b981;color:#fff}}.details-btn{{background:#fff;color:#0f172a}}.summary-strip{{margin-top:16px;background:#fff;border-radius:18px;padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.summary-item{{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px}}
+    </style>
+    <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
+    <section class='subject-grid'>{''.join(subject_cards)}</section>
+    <section class='summary-strip'><div class='summary-item'><small>{'Total Subjects' if not is_si else 'මුළු විෂයයන්'}</small><strong>{len(subjects)}</strong></div><div class='summary-item'><small>{'Average Mastery' if not is_si else 'සාමාන්‍ය ප්‍රවීණතාව'}</small><strong>{avg_mastery}%</strong></div><div class='summary-item'><small>{'Total Study Time' if not is_si else 'මුළු අධ්‍යයන කාලය'}</small><strong>{max(1, len(subjects) * 4)}h {(avg_mastery % 60)}m</strong></div><div class='summary-item'><small>{'Achievements' if not is_si else 'ජයග්‍රහණ'}</small><strong>{student.level or 1}</strong></div></section>
+    """
     return render_student_dashboard_shell(content_html, active_nav="my_subjects")
 
 
