@@ -2692,8 +2692,6 @@ def student_dashboard():
         )
 
     recommendations = get_student_recommendations(student.id)
-    avatar_initials = student_initials(student.name)
-    profile_image_url = (student.profile_image_url or "").strip()
     class_tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.asc()).all() if student.class_id else []
     upcoming_tests = [item for item in class_tests if item.test_date >= date.today()]
     next_test = upcoming_tests[0] if upcoming_tests else None
@@ -5700,8 +5698,6 @@ def admin_create_school():
 
 
 def render_student_shell(*, student, language: str, page_title: str, active_nav: str, content_html: str) -> str:
-    avatar_initials = student_initials(student.name)
-    profile_image_url = (student.profile_image_url or "").strip()
     nav = [
         ("dashboard", "/student-dashboard", "ඩෑෂ්බෝඩ්"),
         ("my_subjects", "/student/learning-path", "මගේ විෂයයන්"),
@@ -5751,8 +5747,6 @@ def student_learning_path():
         chapter_name = chapter.chapter_name_si if student.medium == "Sinhala" else chapter.chapter_name_en
         chapter_rows.append(f"<tr><td>{escape(chapter_name)}</td><td>{progress.status}</td><td>{pct}%</td><td><button {button}</button></td></tr>")
     db.session.commit()
-    avatar_initials = student_initials(student.name)
-    profile_image_url = (student.profile_image_url or "").strip()
     subject_cards = []
     for idx, (chapter, _module, _term) in enumerate(chapters):
         progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter.id).first()
@@ -5774,7 +5768,7 @@ def student_learning_path():
         )
 
     content_html = f"<section class='subject-page-hero'><h1>My Subjects</h1><p>Continue your personalized learning journey</p></section><section class='subject-grid'>{''.join(subject_cards) if subject_cards else "<div class='card'>No subjects available yet.</div>"}</section>"
-    return render_student_shell(student=student, language='si', page_title='මගේ විෂයයන්', active_nav='my_subjects', content_html=content_html)
+    return render_student_shell(student=student, language=('si' if student.medium == 'Sinhala' else 'en'), page_title=('මගේ විෂයයන්' if student.medium == 'Sinhala' else 'My Subjects'), active_nav='my_subjects', content_html=content_html)
 
 
 
