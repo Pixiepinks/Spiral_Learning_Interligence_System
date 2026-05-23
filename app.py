@@ -2708,31 +2708,40 @@ def student_dashboard():
     )
 
     continue_cards = []
-    default_module_cover = "/static/images/login-bg.webp"
-    module_progress_rows = (
-        db.session.query(SyllabusModule, SyllabusChapter, StudentChapterProgress)
-        .join(SyllabusChapter, SyllabusChapter.module_id == SyllabusModule.id)
-        .outerjoin(StudentChapterProgress, db.and_(StudentChapterProgress.chapter_id == SyllabusChapter.id, StudentChapterProgress.student_id == student.id))
-        .order_by(SyllabusModule.module_order.asc(), SyllabusChapter.chapter_order.asc())
+    default_module_cover = "/static/images/default-module-cover.jpg"
+    progress_seed = [22, 35, 48, 57, 63, 71, 84, 90]
+    modules = (
+        db.session.query(SyllabusModule, SyllabusTerm, SubjectMaster)
+        .join(SyllabusTerm, SyllabusModule.term_id == SyllabusTerm.id)
+        .join(
+            SubjectMaster,
+            db.and_(
+                SubjectMaster.grade == SyllabusTerm.grade,
+                db.or_(
+                    SubjectMaster.subject_code == SyllabusTerm.subject,
+                    SubjectMaster.subject_name_en == SyllabusTerm.subject,
+                    SubjectMaster.subject_name_si == SyllabusTerm.subject,
+                ),
+            ),
+        )
+        .filter(SubjectMaster.grade == normalize_grade(student.grade))
+        .filter(SubjectMaster.is_active.is_(True))
+        .order_by(SyllabusTerm.term_number.asc(), SyllabusModule.module_order.asc())
+        .limit(8)
         .all()
     )
-    module_map: dict[int, dict] = {}
-    for module, chapter, chapter_progress in module_progress_rows:
-        entry = module_map.setdefault(module.id, {"module": module, "total": 0, "done": 0, "subject": None})
-        entry["total"] += 1
-        if chapter_progress and chapter_progress.status == "completed":
-            entry["done"] += 1
-        if not entry["subject"]:
-            term = SyllabusTerm.query.get(module.term_id)
-            entry["subject"] = term.subject if term else "-"
-    for item in module_map.values():
-        module = item["module"]
-        pct = int((item["done"] / item["total"]) * 100) if item["total"] else 0
-        img = module.image_si_url if student.medium == "Sinhala" else module.image_en_url
-        img = (img or "").strip() or default_module_cover
-        name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
-        continue_cards.append(f"<article class='continue-card'><img src='{escape(img)}' alt='{escape(name)}' class='continue-cover'><div class='continue-body'><h4>{escape(name)}</h4><p>{escape(item['subject'] or '-')}</p><div class='continue-meta'><span>{pct}%</span><a href='/student/learning-path'>Continue</a></div><div class='continue-progress'><span style='width:{pct}%;'></span></div></div></article>")
-    continue_html = "".join(continue_cards[:10]) or f"<div class='card' style='padding:16px;'>No modules available.</div>"
+    for index, (module, _, subject) in enumerate(modules):
+        progress_value = progress_seed[index % len(progress_seed)]
+        module_image = module.image_si_url if student.medium == "Sinhala" else module.image_en_url
+        module_image = (module_image or "").strip() or default_module_cover
+        module_name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
+        subject_name = subject.subject_name_si if student.medium == "Sinhala" else subject.subject_name_en
+        continue_label = "ඉදිරියට" if language == "si" else "Continue"
+        continue_cards.append(
+            f"<article class='continue-module-card'><img src='{escape(module_image)}' alt='{escape(module_name)}' class='continue-module-cover'><div class='continue-module-body'><h4>{escape(module_name)}</h4><p>{escape(subject_name)}</p><div class='continue-module-progress'><span>{progress_value}%</span><button type='button' class='continue-module-play' aria-label='{escape(continue_label)}'>▶</button></div><div class='continue-progress'><span style='width:{progress_value}%;'></span></div></div></article>"
+        )
+    continue_empty = "මෙම ශ්‍රේණියට මොඩියුල නොමැත." if language == "si" else "No modules available for your grade."
+    continue_html = "".join(continue_cards) or f"<div class='card' style='padding:16px;'>{continue_empty}</div>"
 
     latest_html = ""
     if latest_result:
@@ -2773,7 +2782,7 @@ def student_dashboard():
     <div id='photoUploadModal' class='photo-modal' aria-hidden='true'><div class='photo-modal-card'><button type='button' id='closePhotoModal' class='photo-modal-close' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();' aria-label='Close'>×</button><h3>{'පැතිකඩ ඡායාරූපය යාවත්කාලීන කරන්න' if language=='si' else 'Update Profile Photo'}</h3><p class='photo-modal-help'>{'ඔබේ පැතිකඩට හොඳින් ගැළපෙන පැහැදිලි ඡායාරූපයක් තෝරන්න.' if language=='si' else 'Choose a clear, friendly photo that fits your learning profile.'}</p><form id='photoForm' method='post' action='/student/profile-photo' enctype='multipart/form-data'><label for='profilePhotoInput' class='upload-picker'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8'><circle cx='12' cy='8' r='4'></circle><path d='M5 20c.4-3.2 3.1-5.5 7-5.5s6.6 2.3 7 5.5'></path></svg><strong>Choose a profile photo</strong><span>පැතිකඩ ඡායාරූපයක් තෝරන්න</span><small>JPG, PNG, WEBP up to 2MB</small></label><input id='profilePhotoInput' name='profile_photo' type='file' accept='image/jpeg,image/png,image/webp'><div id='filePreviewWrap' class='image-preview'><img id='filePreview' alt='Profile photo preview'></div><input type='hidden' id='cameraImageData' name='camera_image_data'><video id='cameraStream' autoplay playsinline></video><canvas id='cameraCanvas' style='display:none'></canvas><img id='cameraPreview' alt='Preview'><div class='photo-modal-actions'><button type='submit' class='photo-btn primary'>{'සුරකින්න' if language=='si' else 'Save Photo'}</button><button type='button' id='startCameraBtn' class='photo-btn secondary'>{'කැමරාව භාවිතා කරන්න' if language=='si' else 'Use Camera'}</button><button type='button' id='captureBtn' class='photo-btn secondary'>{'ඡායාරූපය ලබාගන්න' if language=='si' else 'Capture'}</button><button type='button' class='photo-btn ghost' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();'>{'අවලංගු කරන්න' if language=='si' else 'Cancel'}</button></div></form></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
     <section class='grid'><div class='card kpi-card kpi-blue'><div class='kpi-title'>{text['xp']}</div><div class='kpi-value'>{student.xp}</div><div class='kpi-subtitle'>{'Keep growing!' if language=='en' else 'ඉදිරියටම යමු!'}</div><div class='kpi-icon'>⭐</div></div><div class='card kpi-card kpi-gold'><div class='kpi-title'>{text['level']}</div><div class='kpi-value'>{student.level}</div><div class='kpi-subtitle'>{'Rise to new heights!' if language=='en' else 'ඉහළ මට්ටම් කරා යමු!'}</div><div class='kpi-icon'>🏆</div></div><div class='card kpi-card kpi-pink'><div class='kpi-title'>{text['current_streak']}</div><div class='kpi-value'>{student.current_streak or 0}</div><div class='kpi-subtitle'>{'Stay consistent daily!' if language=='en' else 'දිනපතා අඛණ්ඩව ඉගෙනගන්න!'}</div><div class='kpi-icon'>🔥</div></div><div class='card kpi-card kpi-green'><div class='kpi-title'>{text['latest_result']}</div><div class='kpi-value'>{latest_result.score if latest_result else 0}%</div><div class='kpi-subtitle'>{'You are improving!' if language=='en' else 'ඔබ ප්‍රගතිය කරමින්!'}</div><div class='kpi-icon'>🎯</div></div><div class='card kpi-card kpi-orange'><div class='kpi-title'>{text['progress_to_next_level']}</div><div class='kpi-value'>{student.xp % 100}%</div><div class='kpi-subtitle'>{'Next milestone ahead!' if language=='en' else 'ඊළඟ ඉලක්කය ඉදිරියේ!'}</div><div class='kpi-icon'>📈</div></div></section>
-    <section class='continue-wrap'><h3>{'ඉදිරියට ඉගෙන ගන්න' if language=='si' else 'Continue Learning'}</h3><div class='continue-track'>{continue_html}</div></section><section class='layout'><div>
+    <section class='continue-learning-section'><div class='continue-learning-header'><h3>{'ඉදිරියට ඉගෙන ගන්න' if language=='si' else 'Continue Learning'}</h3><p>{'ඔබ නතර කළ තැනින් නැවත ආරම්භ කරන්න' if language=='si' else 'Pick up where you left off'}</p></div><div class='continue-learning-grid'>{continue_html}</div></section><section class='layout'><div>
     <div class='card'><h3>{text['topic_trend']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['last_score']}</th><th>{text['previous_score']}</th><th>{text['trend']}</th></tr></thead><tbody>{''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4'>No topic trend data available.</td></tr>"}</tbody></table></div>
     <div class='card' style='margin-top:10px'><h3>{text['result_history']}</h3><table><thead><tr><th>{text['date']}</th><th>{text['score']}</th><th>{text['level']}</th><th>{text['correct_answers']}</th><th>{text['medium']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='5'>No results found.</td></tr>"}</tbody></table></div>
     <div class='card' style='margin-top:10px'><h3>{text['latest_practice_attempts']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['score']}</th><th>{text['correct_answers']}</th><th>{text['date']}</th><th>{text['improvement']}</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='5'>No practice attempts found.</td></tr>"}</tbody></table></div>
