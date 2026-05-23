@@ -990,17 +990,26 @@ def subject_options_html(selected_grade: str = "", selected_subject: str = "", a
     return "".join(options)
 
 
-def _normalized_subject(value: str | None) -> str:
-    return (value or "").strip()
+def subject_options_html_by_id(selected_grade: str = "", selected_subject_id: str = "", active_only: bool = True) -> str:
+    subjects = get_subjects_for_grade(selected_grade, active_only=active_only)
+    options = ["<option value=''>Select subject</option>"]
+    selected_value = (selected_subject_id or "").strip()
+    for item in subjects:
+        sel = " selected" if str(item.id) == selected_value else ""
+        options.append(f"<option value=\"{item.id}\"{sel}>{escape(item.subject_name_en)} ({escape(item.subject_code)})</option>")
+    return "".join(options)
 
 
-def _syllabus_terms_for_grade_subject(grade: str | None, subject: str | None):
+def _syllabus_terms_for_grade_subject(grade: str | None, subject_id: str | None):
     normalized_grade = normalize_grade(grade)
-    normalized_subject = _normalized_subject(subject)
-    if not normalized_grade or not normalized_subject:
+    normalized_subject_id = (subject_id or "").strip()
+    if not normalized_grade or not normalized_subject_id.isdigit():
         return []
-    terms = SyllabusTerm.query.filter_by(grade=normalized_grade).order_by(SyllabusTerm.term_number.asc()).all()
-    return [item for item in terms if _normalized_subject(item.subject) == normalized_subject]
+    return (
+        SyllabusTerm.query.filter_by(grade=normalized_grade, subject_id=int(normalized_subject_id))
+        .order_by(SyllabusTerm.term_number.asc())
+        .all()
+    )
 
 
 def dependent_dropdown_script(
@@ -1041,7 +1050,7 @@ def dependent_dropdown_script(
           const subject = subjectEl.value.trim();
           if (!grade) return;
           const payload = await get(`/api/subjects?grade=${{encodeURIComponent(grade)}}`);
-          const options = (payload.subjects || []).map(s => ({{ id: s.subject_name_en, label: `${{s.subject_name_en}} (${{s.subject_code}})` }}));
+          const options = (payload.subjects || []).map(s => ({{ id: s.id, label: `${{s.subject_name_en}} (${{s.subject_code}})` }}));
           const selected = options.some(s => s.id === subject) ? subject : "";
           setOptions(subjectEl, options, "Select subject", selected);
         }};
@@ -5060,7 +5069,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         {error_html}
         <form method="post" action="{action}" enctype="multipart/form-data">
           <label>Grade: <select name="grade" required>{grade_options_html(data.get('grade', ''))}</select></label><br><br>
-          <label>Subject: <select name="subject" required>{subject_options_html(grade, subject, active_only=False)}</select></label><br><br>
+          <label>Subject: <select name="subject" required>{subject_options_html_by_id(grade, subject, active_only=False)}</select></label><br><br>
           <label>Term: <select name="term_id" data-selected="{selected_term_id or ''}">{term_options}</select></label><br><br>
           <label>Module: <select name="module_id" data-selected="{selected_module_id or ''}">{module_options}</select></label><br><br>
           <label>Chapter: <select name="chapter_id" data-selected="{selected_chapter_id or ''}">{chapter_options}</select></label><br><br>
@@ -6727,8 +6736,10 @@ def api_subjects():
 @app.route("/api/syllabus/terms", methods=["GET"])
 def api_syllabus_terms():
     grade = request.args.get("grade")
-    subject = request.args.get("subject")
-    terms = _syllabus_terms_for_grade_subject(grade, subject)
+    subject_id = request.args.get("subject")
+    app.logger.error("ADD QUESTION DEBUG grade=%s subject_id=%s", grade, subject_id)
+    terms = _syllabus_terms_for_grade_subject(grade, subject_id)
+    app.logger.error("TERMS FOUND=%s", len(terms))
     return jsonify({"terms": [{"id": t.id, "label": f"T{t.term_number} - {t.term_name_en}"} for t in terms]})
 
 
