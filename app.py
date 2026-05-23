@@ -6352,35 +6352,42 @@ def admin_subjects():
 def admin_subject_form(subject_id: int | None = None):
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin_login"))
+
+    def render_subject_form(subject_obj: SubjectMaster, is_edit_mode: bool = False):
+        messages = "".join([
+            f"<p style='color:#b42318;'>{escape(msg)}</p>" if cat == "error" else f"<p style='color:#027a48;'>{escape(msg)}</p>"
+            for cat, msg in get_flashed_messages(with_categories=True)
+        ])
+        si_current = f"<small>Current: <a href='{escape(subject_obj.image_si_url)}' target='_blank'>View Sinhala image</a></small><br>" if is_edit_mode and subject_obj.image_si_url else ""
+        en_current = f"<small>Current: <a href='{escape(subject_obj.image_en_url)}' target='_blank'>View English image</a></small><br>" if is_edit_mode and subject_obj.image_en_url else ""
+        return f"<h1>{'Edit' if is_edit_mode else 'Add'} Subject</h1>{messages}<form method='POST' enctype='multipart/form-data'><label>Grade <select name='grade' required>{grade_options_html(subject_obj.grade if is_edit_mode else '')}</select></label><br><label>Subject Code <input type='text' name='subject_code' value='{escape(subject_obj.subject_code if is_edit_mode else '')}' required></label><br><label>Subject Name EN <input type='text' name='subject_name_en' value='{escape(subject_obj.subject_name_en if is_edit_mode else '')}' required></label><br><label>Subject Name SI <input type='text' name='subject_name_si' value='{escape(subject_obj.subject_name_si if is_edit_mode else '')}' required></label><br><label>Sinhala Medium Image <input type='file' name='image_si' accept='image/jpeg,image/png,image/webp'></label><br>{si_current}<label>English Medium Image <input type='file' name='image_en' accept='image/jpeg,image/png,image/webp'></label><br>{en_current}<label>Active <input type='checkbox' name='is_active' value='1' {'checked' if (subject_obj.is_active if is_edit_mode else True) else ''}></label><br><button type='submit'>Save</button></form>"
+
     obj = SubjectMaster.query.get(subject_id) if subject_id else SubjectMaster()
     if request.method == "POST":
-        grade = normalize_grade(request.form.get("grade"))
-        subject_code = (request.form.get("subject_code") or "").strip().upper()
-        subject_name_en = (request.form.get("subject_name_en") or "").strip()
-        subject_name_si = (request.form.get("subject_name_si") or "").strip()
-        is_active = bool(request.form.get("is_active"))
+        app.logger.error(
+            "SUBJECT FORM DEBUG form=%s files=%s",
+            dict(request.form),
+            list(request.files.keys())
+        )
+        grade_raw = request.form.get("grade")
+        subject_code = request.form.get("subject_code")
+        subject_name_en = request.form.get("subject_name_en")
+        subject_name_si = request.form.get("subject_name_si")
+        is_active = request.form.get("is_active") == "1"
 
-        errors = []
-        if not grade:
-            errors.append("Grade is required.")
-        if not subject_code:
-            errors.append("Subject code is required.")
-        if not subject_name_en:
-            errors.append("Subject Name EN is required.")
-        if not subject_name_si:
-            errors.append("Subject Name SI is required.")
-        if errors:
-            return f"<h3>{'<br>'.join(escape(err) for err in errors)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 400
+        if not grade_raw or not subject_code or not subject_name_en or not subject_name_si:
+            flash("Grade, Subject Code, Subject Name EN and Subject Name SI are required.", "error")
+            return render_subject_form(obj, is_edit_mode=bool(subject_id)), 400
+
+        obj.grade = int(grade_raw)
+        obj.subject_code = subject_code.strip()
+        obj.subject_name_en = subject_name_en.strip()
+        obj.subject_name_si = subject_name_si.strip()
+        obj.is_active = is_active
 
         if not subject_id:
             db.session.add(obj)
             db.session.flush()
-
-        obj.grade = grade
-        obj.subject_code = subject_code
-        obj.subject_name_en = subject_name_en
-        obj.subject_name_si = subject_name_si
-        obj.is_active = is_active
 
         si_file = request.files.get("image_si")
         en_file = request.files.get("image_en")
@@ -6398,9 +6405,8 @@ def admin_subject_form(subject_id: int | None = None):
             obj.image_en_url = en_upload_url
         db.session.commit()
         return redirect("/admin/subjects")
-    si_current = f"<small>Current: <a href='{escape(obj.image_si_url)}' target='_blank'>View Sinhala image</a></small><br>" if subject_id and obj.image_si_url else ""
-    en_current = f"<small>Current: <a href='{escape(obj.image_en_url)}' target='_blank'>View English image</a></small><br>" if subject_id and obj.image_en_url else ""
-    return f"<h1>{'Edit' if subject_id else 'Add'} Subject</h1><form method='POST' enctype='multipart/form-data'><label>Grade <select name='grade' required>{grade_options_html(obj.grade if subject_id else '')}</select></label><br><label>Subject Code <input name='subject_code' value='{escape(obj.subject_code if subject_id else '')}' required></label><br><label>Subject Name EN <input name='subject_name_en' value='{escape(obj.subject_name_en if subject_id else '')}' required></label><br><label>Subject Name SI <input name='subject_name_si' value='{escape(obj.subject_name_si if subject_id else '')}' required></label><br><label>Sinhala Medium Image <input type='file' name='image_si' accept='image/jpeg,image/png,image/webp'></label><br>{si_current}<label>English Medium Image <input type='file' name='image_en' accept='image/jpeg,image/png,image/webp'></label><br>{en_current}<label>Active <input type='checkbox' name='is_active' {'checked' if (obj.is_active if subject_id else True) else ''}></label><br><button type='submit'>Save</button></form>"
+
+    return render_subject_form(obj, is_edit_mode=bool(subject_id))
 
 
 @app.route("/admin/syllabus", methods=["GET"])
