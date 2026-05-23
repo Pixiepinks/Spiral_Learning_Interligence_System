@@ -5710,7 +5710,15 @@ def admin_create_school():
 
 
 
-def render_student_shell(*, student, language: str, page_title: str, active_nav: str, content_html: str) -> str:
+def render_student_dashboard_shell(inner_html, active_nav="dashboard"):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+    language = "si" if student.medium == "Sinhala" else "en"
     profile_image_url = ""
     if student:
         profile_image_url = (
@@ -5742,9 +5750,12 @@ def render_student_shell(*, student, language: str, page_title: str, active_nav:
         f"<a class='nav-link{' active' if key==active_nav else ''}' href='{href}'><span>{label}</span></a>"
         for key, href, label in nav
     )
-    return f"""<!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{escape(page_title)}</title>
+    dashboard_shell_start = f"""<!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{'ශිෂ්‍ය ඩෑෂ්බෝඩ්' if language == 'si' else 'Student Dashboard'}</title>
     <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.main{{padding:0 16px 8px;background:#edf2fa}}.dashboard-topbar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:0px;padding:0;margin-top:0px}}.dashboard-topbar-spacer{{flex:1}}.top{{width:calc(100% - 330px);max-width:600px;min-height:64px;padding:6px 18px;margin-top:-20px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,0.12);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:18px}}.greeting-left{{display:flex;align-items:center;gap:14px;min-width:0}}.student-avatar{{width:58px;height:58px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.9);box-shadow:0 8px 22px rgba(15,23,42,0.16);background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:800;font-size:20px;overflow:hidden}}.greeting-copy h2{{margin:0;font-size:22px;line-height:1.15}}.header-actions{{display:flex;align-items:center;gap:4px;margin-left:auto}}.header-icon-btn{{width:36px;height:36px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center}}.student-menu-btn{{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid #dbe3f3;background:#fff}}.content-wrap{{margin-top:16px}}@media (max-width:1024px){{.app{{grid-template-columns:1fr}}.side{{position:sticky;top:0;z-index:20}}.top{{width:100%;max-width:none}}}}</style></head>
-    <body><div class='app'><aside class='side'><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS'><span class='sidebar-brand-title'>Spiral Learning</span></div><nav class='sidebar-nav'>{nav_html}</nav></aside><main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn' type='button' aria-label='Search'>🔍</button><button class='header-icon-btn' type='button' aria-label='Notifications'>🔔<span class='notification-badge'>3</span></button><button class='header-icon-btn' type='button' aria-label='Messages'>💬</button><button class='header-action-btn' type='button' aria-label='Language'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img' style='width:16px;height:16px;border-radius:50%'> LK</button><button class='student-menu-btn' type='button'><span>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</span><span>{escape(student.name)}</span></button></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{escape(page_title)}</h2></div></div></div><div class='content-wrap'>{content_html}</div></main></div></body></html>"""
+    <body><div class='app'><aside class='side'><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS'><span class='sidebar-brand-title'>Spiral Learning</span></div><nav class='sidebar-nav'>{nav_html}</nav></aside><main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn' type='button' aria-label='Search'>🔍</button><button class='header-icon-btn' type='button' aria-label='Notifications'>🔔<span class='notification-badge'>3</span></button><button class='header-icon-btn' type='button' aria-label='Messages'>💬</button><button class='header-action-btn' type='button' aria-label='Language'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img' style='width:16px;height:16px;border-radius:50%'> LK</button><button class='student-menu-btn' type='button'><span>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</span><span>{escape(student.name)}</span></button></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{escape(student.name)}!</h2></div></div></div><div class='content-wrap'>"""
+    dashboard_shell_end = """</div></main></div></body></html>"""
+    page_inner_content = inner_html
+    return dashboard_shell_start + page_inner_content + dashboard_shell_end
 
 @app.route("/student/learning-path", methods=["GET"])
 def student_learning_path():
@@ -5794,7 +5805,7 @@ def student_learning_path():
         )
 
     content_html = f"<section class='subject-page-hero'><h1>My Subjects</h1><p>Continue your personalized learning journey</p></section><section class='subject-grid'>{''.join(subject_cards) if subject_cards else "<div class='card'>No subjects available yet.</div>"}</section>"
-    return render_student_shell(student=student, language=('si' if student.medium == 'Sinhala' else 'en'), page_title=('මගේ විෂයයන්' if student.medium == 'Sinhala' else 'My Subjects'), active_nav='my_subjects', content_html=content_html)
+    return render_student_dashboard_shell(content_html, active_nav="my_subjects")
 
 
 
@@ -5829,7 +5840,7 @@ def student_shell_pages():
     }
     page_title, active_nav = route_map.get(request.path, ("Student", "dashboard"))
     content_html = f"<div class='card' style='padding:18px;'><h2>{escape(page_title)}</h2><p>Content coming soon.</p></div>"
-    return render_student_shell(student=student, language=("si" if student.medium == "Sinhala" else "en"), page_title=page_title, active_nav=active_nav, content_html=content_html)
+    return render_student_dashboard_shell(content_html, active_nav=active_nav)
 
 @app.route("/student/chapter/<int:chapter_id>", methods=["GET", "POST"])
 def student_chapter_page(chapter_id: int):
