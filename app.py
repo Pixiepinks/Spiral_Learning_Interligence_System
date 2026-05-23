@@ -2467,6 +2467,19 @@ def student_dashboard():
         session.pop("student_id", None)
         return redirect(url_for("login"))
 
+    profile_image_url = ""
+    if student:
+        profile_image_url = (
+            getattr(student, "profile_image_url", None)
+            or getattr(student, "photo_url", None)
+            or getattr(student, "avatar_url", None)
+            or ""
+        )
+
+    avatar_initials = "S"
+    if student and getattr(student, "name", None):
+        avatar_initials = "".join([part[0].upper() for part in student.name.split()[:2]])
+
     expired_now = expire_subscription_if_needed(student)
     expired_message = session.pop("subscription_expired_message", None)
     if expired_now and not expired_message:
@@ -5698,6 +5711,19 @@ def admin_create_school():
 
 
 def render_student_shell(*, student, language: str, page_title: str, active_nav: str, content_html: str) -> str:
+    profile_image_url = ""
+    if student:
+        profile_image_url = (
+            getattr(student, "profile_image_url", None)
+            or getattr(student, "photo_url", None)
+            or getattr(student, "avatar_url", None)
+            or ""
+        )
+
+    avatar_initials = "S"
+    if student and getattr(student, "name", None):
+        avatar_initials = "".join([part[0].upper() for part in student.name.split()[:2]])
+
     nav = [
         ("dashboard", "/student-dashboard", "ඩෑෂ්බෝඩ්"),
         ("my_subjects", "/student/learning-path", "මගේ විෂයයන්"),
