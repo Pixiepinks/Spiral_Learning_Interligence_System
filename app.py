@@ -6093,7 +6093,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
     total_test_count = 0
     total_required_items = 0
     total_completed_items = 0
-    total_estimated_minutes = 0
+    total_estimated_minutes = int(getattr(module, "estimated_minutes", None) or 45)
     for idx, ch in enumerate(chapters):
         content_rows = ChapterLearningContent.query.filter_by(chapter_id=ch.id, is_active=True).all()
         ctype_counts = {"video": 0, "note": 0, "activity": 0, "practice": 0, "test": 0}
@@ -6125,6 +6125,9 @@ def student_subject_module_page(subject_id: int, module_id: int):
         ch_name = (ch.chapter_name_si if is_si else ch.chapter_name_en) or ch.chapter_name_en
         chapter_subtitle = ch.chapter_name_en if is_si else (ch.chapter_name_si or ch.chapter_name_en)
         chapter_icon = escape(getattr(ch, "chapter_icon", None) or "📘")
+        chapter_estimated_minutes = int(getattr(ch, "estimated_minutes", None) or 30)
+        chapter_xp_reward = int(getattr(ch, "xp_reward", None) or 10)
+        total_estimated_minutes += chapter_estimated_minutes
         locked = status_key == "locked"
         chapter_btn = (
             f"<button class='chapter-cta locked' type='button' aria-label='Locked'>🔒</button>"
@@ -6142,7 +6145,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
               <small>{'පරිච්ඡේදය' if is_si else 'Chapter'} {ch.chapter_order or idx+1}</small>
               <h3>{escape(ch_name)}</h3>
               <p>{escape(chapter_subtitle)}</p>
-              <div class='content-metrics'><span>🎬 {ctype_counts['video']}</span><span>📝 {ctype_counts['note']}</span><span>🧩 {ctype_counts['activity']}</span><span>🎯 {ctype_counts['practice']}</span><span>❓ {ctype_counts['test']}</span></div>
+              <div class='content-metrics'><span>🎬 {ctype_counts['video']}</span><span>📝 {ctype_counts['note']}</span><span>🧩 {ctype_counts['activity']}</span><span>🎯 {ctype_counts['practice']}</span><span>❓ {ctype_counts['test']}</span><span>⏱️ {chapter_estimated_minutes}m</span><span>⭐ {chapter_xp_reward} XP</span></div>
             </div>
             <div class='chapter-progress-wrap'>
               <span class='status-pill {status_key}'>{status_text}</span>
@@ -6158,7 +6161,8 @@ def student_subject_module_page(subject_id: int, module_id: int):
     eta_hours = max(1, int((total_estimated_minutes or (total_count * 35)) / 60))
     xp_goal = max(student.xp + 150, 150)
     xp_progress = min(100, int((student.xp / xp_goal) * 100)) if xp_goal else 0
-    streak_days = max(1, int(student.current_streak_days or 0))
+    streak_days = max(0, int(getattr(student, "current_streak", 0) or 0))
+    total_study_time = int(getattr(student, "total_study_time", 0) or 0)
     mastery_level = "Advanced" if progress_pct >= 80 else ("Growing" if progress_pct >= 50 else "Starter")
     module_thumb = escape(module.module_image_url or "https://img.icons8.com/fluency/240/calculator.png")
     weekly_target = min(total_count, max(3, int((total_count or 3) * 0.6)))
