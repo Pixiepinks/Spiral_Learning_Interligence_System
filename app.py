@@ -6049,18 +6049,75 @@ def student_subject_module_page(subject_id: int, module_id: int):
     subject = db.session.get(SubjectMaster, subject_id)
     if not module or not subject:
         return redirect("/student/learning-path")
+    term = db.session.get(SyllabusTerm, module.term_id)
+    is_si = student.medium == "Sinhala"
+    subject_name = (subject.subject_name_si if is_si else subject.subject_name_en) or subject.subject_name_en
+    module_name = (module.module_name_si if is_si else module.module_name_en) or module.module_name_en
+    grade_label = f"{term.grade}" if term and term.grade else f"{student.grade}"
+    term_label = str(term.term_number) if term else "-"
 
-    first_chapter = SyllabusChapter.query.filter_by(module_id=module.id, is_active=True).order_by(SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).first()
-    if first_chapter:
-        chapter_progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=first_chapter.id).first()
-        if not chapter_progress:
-            chapter_progress = StudentChapterProgress(student_id=student.id, chapter_id=first_chapter.id, status="unlocked")
-            db.session.add(chapter_progress)
-            db.session.commit()
-        return redirect(f"/student/chapter/{first_chapter.id}")
+    chapters = SyllabusChapter.query.filter_by(module_id=module.id, is_active=True).order_by(SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).all()
+    chapter_ids = [c.id for c in chapters]
+    progress_map = {p.chapter_id: p for p in StudentChapterProgress.query.filter(StudentChapterProgress.student_id == student.id, StudentChapterProgress.chapter_id.in_(chapter_ids)).all()} if chapter_ids else {}
+    completed_count = sum(1 for c in chapters if (progress_map.get(c.id) and progress_map[c.id].status == "completed"))
+    total_count = len(chapters)
+    progress_pct = int((completed_count / total_count) * 100) if total_count else 0
 
-    module_name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
-    return render_student_dashboard_shell(f"<div class='card' style='padding:18px;'><h2>{escape(module_name)}</h2><p>No chapters found for this module yet.</p><p><a href='/student/learning-path'>Back to My Subjects</a></p></div>", active_nav="my_subjects")
+    if chapters and chapters[0].id not in progress_map:
+        db.session.add(StudentChapterProgress(student_id=student.id, chapter_id=chapters[0].id, status="unlocked"))
+        db.session.commit()
+        progress_map[chapters[0].id] = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapters[0].id).first()
+
+    def chapter_status(ch, idx):
+        row = progress_map.get(ch.id)
+        if row and row.status == "completed":
+            return ("completed", "සම්පූර්ණයි" if is_si else "Completed")
+        if row and row.status in ("in_progress", "unlocked"):
+            return ("in-progress", "ක්‍රියාත්මකයි" if is_si else "In Progress")
+        if idx == 0:
+            return ("not-started", "ආරම්භ නොකළ" if is_si else "Not Started")
+        prev = chapters[idx - 1]
+        prev_row = progress_map.get(prev.id)
+        if prev_row and prev_row.status == "completed":
+            return ("not-started", "ආරම්භ නොකළ" if is_si else "Not Started")
+        return ("locked", "අගුළු දමා ඇත" if is_si else "Locked")
+
+    chapter_cards = []
+    weak_chapters = []
+    for idx, ch in enumerate(chapters):
+        content_rows = ChapterLearningContent.query.filter_by(chapter_id=ch.id, is_active=True).all()
+        ctype_counts = {"video": 0, "note": 0, "activity": 0, "practice": 0, "test": 0}
+        for item in content_rows:
+            key = (item.content_type or "").strip().lower()
+            if key in ctype_counts:
+                ctype_counts[key] += 1
+        total_content = len(content_rows)
+        completed_content = StudentContentProgress.query.filter(
+            StudentContentProgress.student_id == student.id,
+            StudentContentProgress.content_id.in_([c.id for c in content_rows]) if content_rows else False,
+            StudentContentProgress.status == "completed"
+        ).count() if content_rows else 0
+        chapter_pct = int((completed_content / total_content) * 100) if total_content else (100 if progress_map.get(ch.id) and progress_map[ch.id].status == "completed" else 0)
+        status_key, status_text = chapter_status(ch, idx)
+        if chapter_pct < 50 and status_key != "locked":
+            weak_chapters.append((ch, chapter_pct))
+        ch_name = (ch.chapter_name_si if is_si else ch.chapter_name_en) or ch.chapter_name_en
+        chapter_cards.append(f"""
+        <article class='module-chapter-card'>
+          <div class='module-chapter-top'><div><small>{'අධ්‍යාය' if is_si else 'Chapter'} {ch.chapter_order or idx+1}</small><h3>{escape(ch_name)}</h3></div><span class='status-pill {status_key}'>{status_text}</span></div>
+          <div class='content-metrics'><span>{'වීඩියෝ' if is_si else 'Videos'}: {ctype_counts['video']}</span><span>{'සටහන්' if is_si else 'Notes'}: {ctype_counts['note']}</span><span>{'ක්‍රියාකාරකම්' if is_si else 'Activities'}: {ctype_counts['activity']}</span><span>{'පුහුණුව' if is_si else 'Practice'}: {ctype_counts['practice']}</span><span>{'පරීක්ෂණ' if is_si else 'Tests'}: {ctype_counts['test']}</span></div>
+          <div class='module-progress'><span style='width:{chapter_pct}%;'></span></div>
+          <div class='chapter-actions'><a class='chapter-open-btn {status_key}' href='/student/chapter/{ch.id}'>{'ඉදිරියට යන්න' if status_key=='in-progress' else ('ආරම්භ කරන්න' if is_si else ('Continue' if status_key=='in-progress' else 'Start'))}</a></div>
+        </article>""")
+
+    first_available = next((c for i, c in enumerate(chapters) if chapter_status(c, i)[0] != "locked"), None)
+    right_focus = "".join([f"<li>{escape((c.chapter_name_si if is_si else c.chapter_name_en) or c.chapter_name_en)} <strong>{pct}%</strong></li>" for c, pct in weak_chapters[:3]]) or f"<li>{'හොඳින් කරගෙන යනවා!' if is_si else 'Great momentum across chapters!'}</li>"
+    eta_hours = max(1, int((total_count * 35) / 60))
+    html = f"""
+    <style>.module-hub-layout{{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px}}.module-hero,.module-chapter-card,.module-side-panel{{background:rgba(255,255,255,.84);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 12px 30px rgba(15,23,42,.08)}}.module-hero{{padding:20px}}.module-meta{{display:flex;gap:8px;flex-wrap:wrap}}.meta-pill{{padding:6px 10px;border-radius:999px;background:#e0ecff;font-weight:700;color:#1e40af;font-size:12px}}.hero-bottom{{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px}}.module-chapter-list{{display:flex;flex-direction:column;gap:14px;margin-top:14px}}.module-chapter-card{{padding:16px}}.module-chapter-top{{display:flex;justify-content:space-between;gap:10px}}.status-pill{{padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}}.status-pill.completed{{background:#dcfce7;color:#166534}}.status-pill.in-progress{{background:#dbeafe;color:#1d4ed8}}.status-pill.not-started{{background:#f1f5f9;color:#334155}}.status-pill.locked{{background:#e2e8f0;color:#64748b}}.content-metrics{{margin:10px 0;display:flex;flex-wrap:wrap;gap:10px;color:#475569;font-size:13px}}.chapter-open-btn{{display:inline-flex;padding:8px 14px;border-radius:10px;text-decoration:none;background:#2563eb;color:#fff;font-weight:700}}.chapter-open-btn.locked{{pointer-events:none;opacity:.55}}.module-side-panel{{padding:16px;height:max-content;position:sticky;top:10px}}.module-side-panel ul{{padding-left:18px}}@media(max-width:980px){{.module-hub-layout{{grid-template-columns:1fr}}}}</style>
+    <section class='module-hub-layout'><div><div class='module-hero'><h1 style='margin:0'>{escape(subject_name)}</h1><h2 style='margin:8px 0 10px'>{escape(module_name)}</h2><div class='module-meta'><span class='meta-pill'>{'ශ්‍රේණිය' if is_si else 'Grade'} {escape(str(grade_label))}</span><span class='meta-pill'>{'වාරය' if is_si else 'Term'} {escape(term_label)}</span><span class='meta-pill'>{progress_pct}% {'සම්පූර්ණයි' if is_si else 'Completed'}</span></div><div class='hero-bottom'><p style='margin:0;color:#475569'>{completed_count} / {total_count} {'පාඩම් අවසන්' if is_si else 'Lessons Finished'}</p><a class='chapter-open-btn' href='/student/chapter/{first_available.id if first_available else "#"}'>{'ඉදිරියට ඉගෙන ගන්න' if is_si else 'Continue Learning'}</a></div></div><div class='module-chapter-list'>{''.join(chapter_cards) if chapter_cards else f"<div class='module-chapter-card'><p>{'මෙම මොඩියුලයට තවම අධ්‍යාය නැත.' if is_si else 'No chapters are available for this module yet.'}</p></div>"}</div></div><aside class='module-side-panel'><h3 style='margin-top:0'>{'මොඩියුල සාරාංශය' if is_si else 'Module Summary'}</h3><p style='margin:0 0 10px'>{progress_pct}% {'සම්පූර්ණයි' if is_si else 'completed'}</p><a class='chapter-open-btn' href='/student/ai-tutor' style='margin-bottom:12px'>{'AI ගුරුතුමා' if is_si else 'AI Tutor'}</a><h4>{'අවධානය දිය යුතු අධ්‍යාය' if is_si else 'Recommended Focus'}</h4><ul>{right_focus}</ul><p><strong>{'ඇස්තමේන්තු කාලය' if is_si else 'Estimated Study Time'}:</strong> ~{eta_hours} {'පැය' if is_si else 'hours'}</p></aside></section>
+    """
+    return render_student_dashboard_shell(html, active_nav="my_subjects")
 
 
 
