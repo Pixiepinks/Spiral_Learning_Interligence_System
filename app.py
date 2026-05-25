@@ -5839,30 +5839,26 @@ def student_learning_path():
 
     content_html = f"""
     <style>
-      .student-learning-path-page{{position:relative;z-index:1}}
-      .student-learning-path-page .subject-page-hero h1{{margin:0 0 4px}}
-      .student-learning-path-page .subject-page-hero p{{margin:0;color:#64748b}}
-      .student-learning-path-page .subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}
-      .student-learning-path-page .subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}
-      .student-learning-path-page .subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
-      .student-learning-path-page .subject-header h2{{margin:0;font-size:22px}}
-      .student-learning-path-page .carousel-controls{{display:flex;gap:8px}}
-      .student-learning-path-page .carousel-btn{{width:34px;height:34px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
-      .student-learning-path-page .module-carousel{{display:flex;gap:14px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}}
-      .student-learning-path-page .module-card{{flex:0 0 260px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
-      .student-learning-path-page .module-card img{{width:100%;height:148px;object-fit:cover;display:block}}
-      .student-learning-path-page .module-card-body{{padding:12px}}
-      .student-learning-path-page .module-card-body h4{{margin:0 0 6px;font-size:16px}}
-      .student-learning-path-page .module-card-body p{{margin:0 0 8px;font-size:13px;color:#475569}}
-      .student-learning-path-page .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
-      .student-learning-path-page .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
-      .student-learning-path-page .no-modules{{padding:10px 0;color:#64748b}}
-      @media (max-width: 768px) {{ .student-learning-path-page .subject-header h2{{font-size:19px}} .student-learning-path-page .module-card{{flex-basis:220px}} }}
+      .subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}
+      .subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}
+      .subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}
+      .subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
+      .subject-header h2{{margin:0;font-size:22px}}
+      .carousel-controls{{display:flex;gap:8px}}
+      .carousel-btn{{width:34px;height:34px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
+      .module-carousel{{display:flex;gap:14px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}}
+      .module-card{{flex:0 0 260px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
+      .module-card img{{width:100%;height:148px;object-fit:cover;display:block}}
+      .module-card-body{{padding:12px}}
+      .module-card-body h4{{margin:0 0 6px;font-size:16px}}
+      .module-card-body p{{margin:0 0 8px;font-size:13px;color:#475569}}
+      .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
+      .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
+      .no-modules{{padding:10px 0;color:#64748b}}
+      @media (max-width: 768px) {{ .subject-header h2{{font-size:19px}} .module-card{{flex-basis:220px}} }}
     </style>
-    <div class='student-learning-path-page'>
-      <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
-      <section class='subjects-stack'>{''.join(subject_sections)}</section>
-    </div>
+    <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
+    <section class='subjects-stack'>{''.join(subject_sections)}</section>
     <script>
       document.querySelectorAll('.subject-section').forEach((section) => {{
         const track = section.querySelector('.module-carousel');
