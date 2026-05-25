@@ -6084,6 +6084,16 @@ def student_subject_module_page(subject_id: int, module_id: int):
 
     chapter_cards = []
     weak_chapters = []
+    unlocked_chapter_ids = set()
+    status_counts = {"completed": 0, "in-progress": 0, "not-started": 0, "locked": 0}
+    total_video_count = 0
+    total_note_count = 0
+    total_activity_count = 0
+    total_practice_count = 0
+    total_test_count = 0
+    total_required_items = 0
+    total_completed_items = 0
+    total_estimated_minutes = 0
     for idx, ch in enumerate(chapters):
         content_rows = ChapterLearningContent.query.filter_by(chapter_id=ch.id, is_active=True).all()
         ctype_counts = {"video": 0, "note": 0, "activity": 0, "practice": 0, "test": 0}
@@ -6091,31 +6101,125 @@ def student_subject_module_page(subject_id: int, module_id: int):
             key = (item.content_type or "").strip().lower()
             if key in ctype_counts:
                 ctype_counts[key] += 1
+            total_estimated_minutes += max(5, int(item.estimated_minutes or 0))
         total_content = len(content_rows)
+        total_video_count += ctype_counts["video"]
+        total_note_count += ctype_counts["note"]
+        total_activity_count += ctype_counts["activity"]
+        total_practice_count += ctype_counts["practice"]
+        total_test_count += ctype_counts["test"]
         completed_content = StudentContentProgress.query.filter(
             StudentContentProgress.student_id == student.id,
             StudentContentProgress.content_id.in_([c.id for c in content_rows]) if content_rows else False,
             StudentContentProgress.status == "completed"
         ).count() if content_rows else 0
+        total_required_items += total_content
+        total_completed_items += completed_content
         chapter_pct = int((completed_content / total_content) * 100) if total_content else (100 if progress_map.get(ch.id) and progress_map[ch.id].status == "completed" else 0)
         status_key, status_text = chapter_status(ch, idx)
+        status_counts[status_key] = status_counts.get(status_key, 0) + 1
+        if status_key != "locked":
+            unlocked_chapter_ids.add(ch.id)
         if chapter_pct < 50 and status_key != "locked":
             weak_chapters.append((ch, chapter_pct))
         ch_name = (ch.chapter_name_si if is_si else ch.chapter_name_en) or ch.chapter_name_en
+        chapter_subtitle = ch.chapter_name_en if is_si else (ch.chapter_name_si or ch.chapter_name_en)
+        chapter_icon = escape(ch.chapter_icon or "📘")
+        locked = status_key == "locked"
+        chapter_btn = (
+            f"<button class='chapter-cta locked' type='button' aria-label='Locked'>🔒</button>"
+            if locked else
+            f"<a class='chapter-cta' href='/student/chapter/{ch.id}'>{'ඉදිරියට යන්න' if status_key == 'in-progress' else ('නැවත බලන්න' if status_key == 'completed' else ('Continue' if status_key == 'in-progress' else 'Start'))}</a>"
+        )
         chapter_cards.append(f"""
-        <article class='module-chapter-card'>
-          <div class='module-chapter-top'><div><small>{'අධ්‍යාය' if is_si else 'Chapter'} {ch.chapter_order or idx+1}</small><h3>{escape(ch_name)}</h3></div><span class='status-pill {status_key}'>{status_text}</span></div>
-          <div class='content-metrics'><span>{'වීඩියෝ' if is_si else 'Videos'}: {ctype_counts['video']}</span><span>{'සටහන්' if is_si else 'Notes'}: {ctype_counts['note']}</span><span>{'ක්‍රියාකාරකම්' if is_si else 'Activities'}: {ctype_counts['activity']}</span><span>{'පුහුණුව' if is_si else 'Practice'}: {ctype_counts['practice']}</span><span>{'පරීක්ෂණ' if is_si else 'Tests'}: {ctype_counts['test']}</span></div>
-          <div class='module-progress'><span style='width:{chapter_pct}%;'></span></div>
-          <div class='chapter-actions'><a class='chapter-open-btn {status_key}' href='/student/chapter/{ch.id}'>{'ඉදිරියට යන්න' if status_key=='in-progress' else ('ආරම්භ කරන්න' if is_si else ('Continue' if status_key=='in-progress' else 'Start'))}</a></div>
+        <article class='module-chapter-card {"locked-card" if locked else ""}'>
+          <div class='chapter-row'>
+            <div class='chapter-leading'>
+              <div class='chapter-order'>{ch.chapter_order or idx+1}</div>
+              <div class='chapter-icon'>{chapter_icon}</div>
+            </div>
+            <div class='chapter-main'>
+              <small>{'පරිච්ඡේදය' if is_si else 'Chapter'} {ch.chapter_order or idx+1}</small>
+              <h3>{escape(ch_name)}</h3>
+              <p>{escape(chapter_subtitle)}</p>
+              <div class='content-metrics'><span>🎬 {ctype_counts['video']}</span><span>📝 {ctype_counts['note']}</span><span>🧩 {ctype_counts['activity']}</span><span>🎯 {ctype_counts['practice']}</span><span>❓ {ctype_counts['test']}</span></div>
+            </div>
+            <div class='chapter-progress-wrap'>
+              <span class='status-pill {status_key}'>{status_text}</span>
+              <div class='chapter-progress-label'>{chapter_pct}%</div>
+              <div class='module-progress'><span style='width:{chapter_pct}%;'></span></div>
+            </div>
+            <div class='chapter-actions'>{chapter_btn}</div>
+          </div>
         </article>""")
 
     first_available = next((c for i, c in enumerate(chapters) if chapter_status(c, i)[0] != "locked"), None)
     right_focus = "".join([f"<li>{escape((c.chapter_name_si if is_si else c.chapter_name_en) or c.chapter_name_en)} <strong>{pct}%</strong></li>" for c, pct in weak_chapters[:3]]) or f"<li>{'හොඳින් කරගෙන යනවා!' if is_si else 'Great momentum across chapters!'}</li>"
-    eta_hours = max(1, int((total_count * 35) / 60))
+    eta_hours = max(1, int((total_estimated_minutes or (total_count * 35)) / 60))
+    xp_goal = max(student.xp + 150, 150)
+    xp_progress = min(100, int((student.xp / xp_goal) * 100)) if xp_goal else 0
+    streak_days = max(1, int(student.current_streak_days or 0))
+    mastery_level = "Advanced" if progress_pct >= 80 else ("Growing" if progress_pct >= 50 else "Starter")
+    module_thumb = escape(module.module_image_url or "https://img.icons8.com/fluency/240/calculator.png")
+    weekly_target = min(total_count, max(3, int((total_count or 3) * 0.6)))
+    remaining_to_target = max(0, weekly_target - completed_count)
+    completed_for_chart = status_counts.get("completed", 0)
+    in_progress_for_chart = status_counts.get("in-progress", 0)
+    not_started_for_chart = status_counts.get("not-started", 0) + status_counts.get("locked", 0)
     html = f"""
-    <style>.module-hub-layout{{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px}}.module-hero,.module-chapter-card,.module-side-panel{{background:rgba(255,255,255,.84);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 12px 30px rgba(15,23,42,.08)}}.module-hero{{padding:20px}}.module-meta{{display:flex;gap:8px;flex-wrap:wrap}}.meta-pill{{padding:6px 10px;border-radius:999px;background:#e0ecff;font-weight:700;color:#1e40af;font-size:12px}}.hero-bottom{{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px}}.module-chapter-list{{display:flex;flex-direction:column;gap:14px;margin-top:14px}}.module-chapter-card{{padding:16px}}.module-chapter-top{{display:flex;justify-content:space-between;gap:10px}}.status-pill{{padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}}.status-pill.completed{{background:#dcfce7;color:#166534}}.status-pill.in-progress{{background:#dbeafe;color:#1d4ed8}}.status-pill.not-started{{background:#f1f5f9;color:#334155}}.status-pill.locked{{background:#e2e8f0;color:#64748b}}.content-metrics{{margin:10px 0;display:flex;flex-wrap:wrap;gap:10px;color:#475569;font-size:13px}}.chapter-open-btn{{display:inline-flex;padding:8px 14px;border-radius:10px;text-decoration:none;background:#2563eb;color:#fff;font-weight:700}}.chapter-open-btn.locked{{pointer-events:none;opacity:.55}}.module-side-panel{{padding:16px;height:max-content;position:sticky;top:10px}}.module-side-panel ul{{padding-left:18px}}@media(max-width:980px){{.module-hub-layout{{grid-template-columns:1fr}}}}</style>
-    <section class='module-hub-layout'><div><div class='module-hero'><h1 style='margin:0'>{escape(subject_name)}</h1><h2 style='margin:8px 0 10px'>{escape(module_name)}</h2><div class='module-meta'><span class='meta-pill'>{'ශ්‍රේණිය' if is_si else 'Grade'} {escape(str(grade_label))}</span><span class='meta-pill'>{'වාරය' if is_si else 'Term'} {escape(term_label)}</span><span class='meta-pill'>{progress_pct}% {'සම්පූර්ණයි' if is_si else 'Completed'}</span></div><div class='hero-bottom'><p style='margin:0;color:#475569'>{completed_count} / {total_count} {'පාඩම් අවසන්' if is_si else 'Lessons Finished'}</p><a class='chapter-open-btn' href='/student/chapter/{first_available.id if first_available else "#"}'>{'ඉදිරියට ඉගෙන ගන්න' if is_si else 'Continue Learning'}</a></div></div><div class='module-chapter-list'>{''.join(chapter_cards) if chapter_cards else f"<div class='module-chapter-card'><p>{'මෙම මොඩියුලයට තවම අධ්‍යාය නැත.' if is_si else 'No chapters are available for this module yet.'}</p></div>"}</div></div><aside class='module-side-panel'><h3 style='margin-top:0'>{'මොඩියුල සාරාංශය' if is_si else 'Module Summary'}</h3><p style='margin:0 0 10px'>{progress_pct}% {'සම්පූර්ණයි' if is_si else 'completed'}</p><a class='chapter-open-btn' href='/student/ai-tutor' style='margin-bottom:12px'>{'AI ගුරුතුමා' if is_si else 'AI Tutor'}</a><h4>{'අවධානය දිය යුතු අධ්‍යාය' if is_si else 'Recommended Focus'}</h4><ul>{right_focus}</ul><p><strong>{'ඇස්තමේන්තු කාලය' if is_si else 'Estimated Study Time'}:</strong> ~{eta_hours} {'පැය' if is_si else 'hours'}</p></aside></section>
+    <style>
+    .module-hub-layout{{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:20px}}
+    .module-hero,.module-chapter-card,.module-side-card,.chapter-section{{background:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 20px 40px rgba(15,23,42,.08);backdrop-filter:blur(14px);transition:transform .28s ease,box-shadow .28s ease}}
+    .module-hero:hover,.module-chapter-card:hover,.module-side-card:hover{{transform:translateY(-4px);box-shadow:0 26px 48px rgba(37,99,235,.16)}}
+    .module-hero{{padding:22px;background:linear-gradient(130deg,#eef4ff,#f3ebff 54%,#eafdf6)}}
+    .hero-grid{{display:grid;grid-template-columns:170px 1fr auto;gap:18px;align-items:center}}
+    .hero-media img{{width:160px;height:160px;object-fit:cover;border-radius:20px;box-shadow:0 12px 25px rgba(59,130,246,.2)}}
+    .hero-title h1{{margin:0;font-size:18px}} .hero-title h2{{margin:4px 0;font-size:34px;line-height:1.1}} .hero-title p{{margin:0;color:#334155;font-size:27px;font-weight:700}} .hero-title em{{display:block;font-style:normal;font-size:24px;color:#1e3a8a}}
+    .hero-stats{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}}
+    .hero-stat{{border-radius:16px;background:rgba(255,255,255,.72);padding:10px 12px;font-size:13px;color:#475569}} .hero-stat strong{{display:block;color:#0f172a;font-size:16px}}
+    .module-progress{{height:10px;border-radius:999px;background:#dbeafe;overflow:hidden}} .module-progress span{{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#4f46e5);transition:width .7s ease}}
+    .hero-cta{{display:flex;flex-direction:column;gap:10px}} .hero-cta a{{text-decoration:none;text-align:center;padding:12px 16px;border-radius:14px;font-weight:700;transition:all .25s ease}}
+    .cta-primary{{background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;box-shadow:0 10px 22px rgba(37,99,235,.3)}} .cta-primary:hover{{box-shadow:0 0 0 4px rgba(59,130,246,.2),0 18px 30px rgba(37,99,235,.35)}}
+    .cta-secondary{{background:white;color:#1e3a8a;border:1px solid #c7d2fe}}
+    .chapter-section{{padding:18px;margin-top:14px}} .chapter-section h3{{margin:0 0 14px}}
+    .module-chapter-list{{display:flex;flex-direction:column;gap:12px}}
+    .module-chapter-card{{padding:14px 16px}} .chapter-row{{display:grid;grid-template-columns:auto 1fr 210px auto;gap:14px;align-items:center}}
+    .chapter-leading{{display:flex;gap:10px;align-items:center}} .chapter-order{{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1d4ed8;color:#fff;font-weight:700}}
+    .chapter-icon{{width:50px;height:50px;border-radius:14px;background:#eff6ff;display:flex;align-items:center;justify-content:center;font-size:22px}}
+    .chapter-main h3{{margin:3px 0;font-size:20px}} .chapter-main p{{margin:0;color:#64748b}} .content-metrics{{margin-top:8px;display:flex;gap:9px;flex-wrap:wrap;color:#334155;font-size:13px}}
+    .chapter-progress-wrap{{display:flex;flex-direction:column;gap:6px}} .chapter-progress-label{{font-weight:700;color:#1e3a8a}}
+    .status-pill{{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:700;justify-self:flex-start}} .status-pill.completed{{background:#dcfce7;color:#166534}} .status-pill.in-progress{{background:#dbeafe;color:#1d4ed8}} .status-pill.not-started{{background:#e2e8f0;color:#334155}} .status-pill.locked{{background:#e5e7eb;color:#6b7280}}
+    .chapter-cta{{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;text-decoration:none;font-weight:700;white-space:nowrap}}
+    .chapter-cta.locked{{background:#cbd5e1;color:#64748b;cursor:not-allowed;border:0}}
+    .locked-card{{opacity:.62}}
+    .module-right{{display:flex;flex-direction:column;gap:14px}} .module-side-card{{padding:16px}}
+    .radial{{width:160px;height:160px;margin:4px auto 10px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#22c55e 0 {completed_for_chart*100//max(1,total_count)}%,#3b82f6 {completed_for_chart*100//max(1,total_count)}% {(completed_for_chart+in_progress_for_chart)*100//max(1,total_count)}%,#e2e8f0 0 100%)}}
+    .radial-inner{{width:118px;height:118px;border-radius:50%;display:grid;place-items:center;background:white;font-weight:800;font-size:33px;color:#1e3a8a}}
+    .legend{{display:grid;gap:6px;font-size:13px;color:#475569}} .legend div{{display:flex;justify-content:space-between}}
+    @media(max-width:1180px){{.hero-grid{{grid-template-columns:140px 1fr}}.hero-cta{{grid-column:1/-1;flex-direction:row}}.module-hub-layout{{grid-template-columns:1fr}}.module-right{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+    @media(max-width:860px){{.chapter-row{{grid-template-columns:1fr;gap:10px}}.module-right{{grid-template-columns:1fr}}.hero-grid{{grid-template-columns:1fr}}.hero-media img{{width:120px;height:120px}}.hero-title h2{{font-size:28px}}.hero-title p{{font-size:22px}}.hero-title em{{font-size:19px}}}}
+    </style>
+    <section class='module-hub-layout'>
+      <div>
+        <div class='module-hero'>
+          <div class='hero-grid'>
+            <div class='hero-media'><img src='{module_thumb}' alt='Module image'></div>
+            <div class='hero-title'><h1>{escape(subject_name)}</h1><h2>{escape(module_name)}</h2><p>{escape(module.module_name_si or module_name)}</p><em>{escape(module.module_name_en or module_name)}</em>
+              <div class='hero-stats'><div class='hero-stat'><strong>{progress_pct}%</strong>{'සම්පූර්ණ ප්‍රගතිය' if is_si else 'Overall progress'}</div><div class='hero-stat'><strong>{completed_count}/{total_count}</strong>{'අවසන් පාඩම්' if is_si else 'Completed lessons'}</div><div class='hero-stat'><strong>~{eta_hours}h</strong>{'ඇස්තමේන්තු කාලය' if is_si else 'Estimated time'}</div><div class='hero-stat'><strong>{streak_days} {'දින' if is_si else 'days'}</strong>{'නිරන්තර ඉගෙනීම' if is_si else 'Learning streak'}</div><div class='hero-stat'><strong>{mastery_level}</strong>{'දක්ෂතා මට්ටම' if is_si else 'Mastery level'}</div><div class='hero-stat'><strong>{total_completed_items}/{total_required_items or 1}</strong>{'අන්තර්ගත අවසන්' if is_si else 'Content complete'}</div></div>
+              <div class='module-progress' style='margin-top:12px'><span style='width:{progress_pct}%'></span></div>
+            </div>
+            <div class='hero-cta'><a class='cta-primary' href='/student/chapter/{first_available.id if first_available else "#"}'>▶ {'ඉගෙනීම පටන් ගන්න' if is_si else 'Start Learning'}</a><a class='cta-secondary' href='/student/chapter/{first_available.id if first_available else "#"}'>{'ඉදිරියට යන්න' if is_si else 'Continue'}</a></div>
+          </div>
+        </div>
+        <section class='chapter-section'><h3>📘 {'පරිච්ඡේද' if is_si else 'Chapters'}</h3><div class='module-chapter-list'>{''.join(chapter_cards) if chapter_cards else f"<div class='module-chapter-card'><p>{'මෙම මොඩියුලයට තවම අධ්‍යාය නැත.' if is_si else 'No chapters are available for this module yet.'}</p></div>"}</div></section>
+      </div>
+      <aside class='module-right'>
+        <div class='module-side-card'><h3>{'මොඩියුල ප්‍රගතිය' if is_si else 'Progress Snapshot'}</h3><div class='radial'><div class='radial-inner'>{progress_pct}%</div></div><div class='legend'><div><span>🟢 {'සම්පූර්ණයි' if is_si else 'Completed'}</span><strong>{completed_for_chart}</strong></div><div><span>🔵 {'ක්‍රියාත්මකයි' if is_si else 'In Progress'}</span><strong>{in_progress_for_chart}</strong></div><div><span>⚪ {'ආරම්භ කර නැහැ' if is_si else 'Not Started'}</span><strong>{not_started_for_chart}</strong></div></div></div>
+        <div class='module-side-card'><h3>AI {'ගුරුහිතම' if is_si else 'Tutor'}</h3><p>{'ඔබගේ දුර්වල කොටස් සඳහා අභිරුචි සහාය ලබාගන්න.' if is_si else 'Get adaptive help for weak chapters and quick concept explainers.'}</p><div style='font-size:48px'>🤖</div><a class='chapter-cta' href='/student/ai-tutor' style='margin-top:8px'>AI {'උදව් ලබා ගන්න' if is_si else 'Get Help'}</a></div>
+        <div class='module-side-card'><h3>{'ත්‍යාග සහ XP' if is_si else 'Rewards & XP'}</h3><p>XP {student.xp} / {xp_goal}</p><div class='module-progress'><span style='width:{xp_progress}%;background:linear-gradient(90deg,#22c55e,#14b8a6)'></span></div><p style='margin:8px 0 0'>🔥 {streak_days} {'දින' if is_si else 'day streak'}</p></div>
+        <div class='module-side-card'><h3>{'සතියේ ඉලක්කය' if is_si else 'Weekly Target'}</h3><p>{'ඉලක්කය' if is_si else 'Target'}: {weekly_target} {'පරිච්ඡේද' if is_si else 'chapters'}</p><p>{'තවත් අවශ්‍ය' if is_si else 'Remaining'}: {remaining_to_target}</p><ul>{right_focus}</ul></div>
+      </aside>
+    </section>
     """
     return render_student_dashboard_shell(html, active_nav="my_subjects")
 
