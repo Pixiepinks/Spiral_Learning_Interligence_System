@@ -1190,6 +1190,16 @@ class StudentSubjectOrder(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class StudentSelectedSubject(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    subject_id = db.Column(db.Integer, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class VideoInteraction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content_id = db.Column(db.Integer, nullable=False)
@@ -3084,6 +3094,37 @@ def get_student_recommendations(student_id: int) -> list[dict[str, str]]:
 
 
 def ensure_chapter_learning_tables() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_selected_subject (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                subject_id INTEGER NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_student_selected_subject_unique
+            ON student_selected_subject (student_id, subject_id)
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_student_selected_subject_lookup
+            ON student_selected_subject (student_id, is_active, sort_order)
+            """
+        )
+    )
     db.session.execute(
         db.text(
             """
@@ -5802,26 +5843,28 @@ def student_learning_path():
     student = db.session.get(Student, student_id)
     is_si = student.medium == "Sinhala"
     grade = normalize_grade(student.grade)
+
     labels = {
         "title": "මගේ විෂයයන්" if is_si else "My Subjects",
         "subtitle": "ඔබේ පුද්ගලික ඉගෙනුම් ගමන ඉදිරියට ගෙන යන්න" if is_si else "Continue your personalized learning journey",
         "no_modules": "මෙම විෂයයට මොඩියුල නොමැත" if is_si else "No modules available for this subject",
+        "manage_subjects": "විෂයයන් කළමනාකරණය" if is_si else "Manage Subjects",
+        "choose_subjects": "ඔබේ විෂයයන් තෝරන්න" if is_si else "Choose Your Subjects",
+        "choose_subjects_copy": "ඔබ කැමති විෂයයන් තෝරා ඔබේ ඉගෙනුම් ගමන පෞද්ගලික කරන්න." if is_si else "Select the subjects you want to study to personalize your learning path.",
+        "save": "සුරකින්න" if is_si else "Save",
+        "no_grade_subjects": "ඔබගේ ශ්‍රේණිය සඳහා ක්‍රියාකාරී විෂයයන් නොමැත." if is_si else "No subjects are available for your grade right now.",
     }
 
     subjects = get_subjects_for_grade(grade, active_only=True)
-    saved_order_rows = StudentSubjectOrder.query.filter_by(student_id=student.id).order_by(
-        StudentSubjectOrder.sort_order.asc(),
-        StudentSubjectOrder.updated_at.desc(),
-        StudentSubjectOrder.id.asc(),
-    ).all()
-    saved_subject_order = [row.subject_id for row in saved_order_rows]
     subject_map = {s.id: s for s in subjects}
-    ordered_subjects = [subject_map[sid] for sid in saved_subject_order if sid in subject_map]
-    ordered_subjects.extend([s for s in subjects if s.id not in set(saved_subject_order)])
+    selected_rows = StudentSelectedSubject.query.filter_by(student_id=student.id, is_active=True).order_by(
+        StudentSelectedSubject.sort_order.asc(), StudentSelectedSubject.updated_at.desc(), StudentSelectedSubject.id.asc()
+    ).all()
+    selected_ids = [row.subject_id for row in selected_rows if row.subject_id in subject_map]
+    ordered_subjects = [subject_map[sid] for sid in selected_ids]
 
     fallback_image = "/static/images/subjects/default-subject.jpg"
     subject_sections = []
-
     for idx, subject in enumerate(ordered_subjects):
         subject_name = subject.subject_name_si if is_si else subject.subject_name_en
         terms = SyllabusTerm.query.filter(
@@ -5829,14 +5872,7 @@ def student_learning_path():
             SyllabusTerm.subject.in_([subject.subject_code, subject.subject_name_en, subject.subject_name_si]),
         ).order_by(SyllabusTerm.term_number.asc()).all()
         term_ids = [t.id for t in terms]
-        modules = (
-            SyllabusModule.query.filter(SyllabusModule.term_id.in_(term_ids))
-            .order_by(SyllabusModule.module_order.asc(), SyllabusModule.id.asc())
-            .all()
-            if term_ids
-            else []
-        )
-
+        modules = (SyllabusModule.query.filter(SyllabusModule.term_id.in_(term_ids)).order_by(SyllabusModule.module_order.asc(), SyllabusModule.id.asc()).all() if term_ids else [])
         module_cards = []
         for module in modules:
             module_name = module.module_name_si if is_si else module.module_name_en
@@ -5844,136 +5880,44 @@ def student_learning_path():
             active_chapters = SyllabusChapter.query.filter_by(module_id=module.id, is_active=True).all()
             chapter_ids = [c.id for c in active_chapters]
             total_count = len(chapter_ids)
-            completed_count = (
-                StudentChapterProgress.query.filter(
-                    StudentChapterProgress.student_id == student.id,
-                    StudentChapterProgress.chapter_id.in_(chapter_ids),
-                    StudentChapterProgress.status == "completed",
-                ).count()
-                if chapter_ids
-                else 0
-            )
+            completed_count = (StudentChapterProgress.query.filter(StudentChapterProgress.student_id == student.id, StudentChapterProgress.chapter_id.in_(chapter_ids), StudentChapterProgress.status == "completed").count() if chapter_ids else 0)
             progress_pct = int((completed_count / total_count) * 100) if total_count else 0
-            lesson_text = (
-                f"පාඩම් {completed_count} / {total_count}" if is_si else f"Lesson {completed_count} of {total_count}"
-            )
+            lesson_text = (f"පාඩම් {completed_count} / {total_count}" if is_si else f"Lesson {completed_count} of {total_count}")
             module_cards.append(f"""
             <a class='module-card' href='/student/subject/{subject.id}/module/{module.id}'>
               <img src='{escape(module_image)}' alt='{escape(module_name)}' loading='lazy'>
-              <div class='module-card-body'>
-                <h4>{escape(module_name)}</h4>
-                <p>{escape(lesson_text)}</p>
-                <div class='module-progress'><span style='width:{progress_pct}%;'></span></div>
-              </div>
+              <div class='module-card-body'><h4>{escape(module_name)}</h4><p>{escape(lesson_text)}</p><div class='module-progress'><span style='width:{progress_pct}%;'></span></div></div>
             </a>""")
-
         subject_sections.append(f"""
-        <section class='subject-section' data-subject-id='{subject.id}'>
-          <div class='subject-header'>
-            <h2>{escape(subject_name)}</h2>
-            <div class='subject-header-actions'>
-              <div class='subject-reorder-controls'>
-                <button type='button' class='subject-reorder-btn' data-action='up' aria-label='Move subject up' {'disabled' if idx == 0 else ''}>↑</button>
-                <button type='button' class='subject-reorder-btn' data-action='down' aria-label='Move subject down' {'disabled' if idx == len(ordered_subjects) - 1 else ''}>↓</button>
-              </div>
-              <div class='carousel-controls'>
-              <button type='button' class='carousel-btn' data-dir='left' aria-label='Scroll left'>‹</button>
-              <button type='button' class='carousel-btn' data-dir='right' aria-label='Scroll right'>›</button>
-              </div>
-            </div>
-          </div>
-          <div class='module-carousel-wrap'>
-            <div class='module-carousel'>
-              {''.join(module_cards) if module_cards else f"<div class='no-modules'>{labels['no_modules']}</div>"}
-            </div>
-          </div>
-        </section>""")
+        <section class='subject-section' data-subject-id='{subject.id}'><div class='subject-header'><h2>{escape(subject_name)}</h2><div class='subject-header-actions'><div class='subject-reorder-controls'><button type='button' class='subject-reorder-btn' data-action='up' aria-label='Move subject up' {'disabled' if idx == 0 else ''}>↑</button><button type='button' class='subject-reorder-btn' data-action='down' aria-label='Move subject down' {'disabled' if idx == len(ordered_subjects)-1 else ''}>↓</button></div><div class='carousel-controls'><button type='button' class='carousel-btn' data-dir='left' aria-label='Scroll left'>‹</button><button type='button' class='carousel-btn' data-dir='right' aria-label='Scroll right'>›</button></div></div></div><div class='module-carousel-wrap'><div class='module-carousel'>{''.join(module_cards) if module_cards else f"<div class='no-modules'>{labels['no_modules']}</div>"}</div></div></section>""")
+
+    manage_list_html = ''.join([
+        f"<label class='subject-option'><input type='checkbox' class='subject-checkbox' value='{s.id}' {'checked' if s.id in selected_ids else ''}><img src='{escape(((s.image_si_url if is_si else s.image_en_url) or fallback_image))}' alt='{escape(s.subject_name_si if is_si else s.subject_name_en)}'><span>{escape(s.subject_name_si if is_si else s.subject_name_en)}</span></label>"
+        for s in subjects
+    ])
+
+    empty_subjects_html = ""
+    if not subjects:
+        empty_subjects_html = f"<div class='empty-state-card'><h3>{labels['no_grade_subjects']}</h3></div>"
+    elif not ordered_subjects:
+        empty_subjects_html = f"<div class='premium-choose-card'><h3>{labels['choose_subjects']}</h3><p>{labels['choose_subjects_copy']}</p><button type='button' id='openManageSubjectsBtn' class='manage-subjects-btn'>{labels['manage_subjects']}</button></div>"
 
     content_html = f"""
-    <style>
-      .subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}
-      .subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}
-      .subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}
-      .subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
-      .subject-header h2{{margin:0;font-size:22px}}
-      .subject-header-actions{{display:flex;align-items:center;gap:10px}}
-      .subject-reorder-controls{{display:flex;gap:6px}}
-      .subject-reorder-btn{{width:38px;height:38px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;line-height:1;cursor:pointer}}
-      .subject-reorder-btn:disabled{{opacity:.45;cursor:not-allowed}}
-      .carousel-controls{{display:flex;gap:8px}}
-      .carousel-btn{{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
-      .module-carousel-wrap{{max-width:1148px;overflow:hidden}}
-      .module-carousel{{display:flex;gap:20px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}
-      .module-carousel::-webkit-scrollbar{{display:none}}
-      .module-card{{flex:0 0 auto;width:272px;min-width:272px;max-width:272px;min-height:260px;display:flex;flex-direction:column;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
-      .module-card img{{width:100%;height:148px;object-fit:cover;display:block;flex:0 0 148px}}
-      .module-card-body{{padding:12px;display:flex;flex-direction:column;flex:1}}
-      .module-card-body h4{{margin:0 0 6px;font-size:16px}}
-      .module-card-body p{{margin:0 0 12px;font-size:13px;color:#475569}}
-      .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
-      .module-card .module-progress{{margin-top:auto}}
-      .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
-      .no-modules{{padding:10px 0;color:#64748b}}
-      @media (max-width: 1280px) {{ .module-card{{width:300px;min-width:300px;max-width:300px}} }}
-      @media (max-width: 1280px) {{ .module-carousel-wrap{{max-width:none}} }}
-      @media (max-width: 1024px) {{ .module-card{{width:calc((100% - 20px) / 2);min-width:calc((100% - 20px) / 2);max-width:calc((100% - 20px) / 2)}} }}
-      @media (max-width: 860px) {{ .subject-header h2{{font-size:19px}} .carousel-controls{{display:none}} .subject-reorder-btn{{width:42px;height:42px;font-size:16px}} .module-card{{width:78%;min-width:78%;max-width:78%}} }}
-    </style>
-    <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
+    <style>.subject-page-hero{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}.manage-subjects-btn{{border:none;border-radius:10px;padding:10px 16px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}}.subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}.subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}.subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}.subject-header h2{{margin:0;font-size:22px}}.subject-header-actions{{display:flex;align-items:center;gap:10px}}.subject-reorder-controls{{display:flex;gap:6px}}.subject-reorder-btn{{width:38px;height:38px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;line-height:1;cursor:pointer}}.subject-reorder-btn:disabled{{opacity:.45;cursor:not-allowed}}.carousel-controls{{display:flex;gap:8px}}.carousel-btn{{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}.module-carousel-wrap{{max-width:1148px;overflow:hidden}}.module-carousel{{display:flex;gap:20px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}.module-carousel::-webkit-scrollbar{{display:none}}.module-card{{flex:0 0 auto;width:272px;min-width:272px;max-width:272px;min-height:260px;display:flex;flex-direction:column;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}.module-card img{{width:100%;height:148px;object-fit:cover;display:block;flex:0 0 148px}}.module-card-body{{padding:12px;display:flex;flex-direction:column;flex:1}}.module-card-body h4{{margin:0 0 6px;font-size:16px}}.module-card-body p{{margin:0 0 12px;font-size:13px;color:#475569}}.module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}.module-card .module-progress{{margin-top:auto}}.module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.no-modules{{padding:10px 0;color:#64748b}}.premium-choose-card,.empty-state-card{{margin-top:16px;padding:24px;border-radius:20px;background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff}}.manage-modal{{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:9999}}.manage-modal.open{{display:flex}}.manage-modal-card{{width:min(760px,92vw);max-height:84vh;overflow:auto;background:#fff;border-radius:18px;padding:18px}}.subject-options-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}}.subject-option{{display:flex;align-items:center;gap:10px;border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer}}.subject-option img{{width:48px;height:48px;border-radius:8px;object-fit:cover}}</style>
+    <section class='subject-page-hero'><div><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></div>{"" if not subjects else f"<button type='button' id='manageSubjectsTopBtn' class='manage-subjects-btn'>{labels['manage_subjects']}</button>"}</section>
+    {empty_subjects_html}
     <section class='subjects-stack'>{''.join(subject_sections)}</section>
+    <div class='manage-modal' id='manageSubjectsModal'><div class='manage-modal-card'><h3>{labels['manage_subjects']}</h3><div class='subject-options-grid'>{manage_list_html or f"<div>{labels['no_grade_subjects']}</div>"}</div><div style='margin-top:14px;display:flex;justify-content:flex-end;'><button type='button' id='saveSelectedSubjectsBtn' class='manage-subjects-btn'>{labels['save']}</button></div></div></div>
     <script>
-      document.querySelectorAll('.subject-section').forEach((section) => {{
-        const track = section.querySelector('.module-carousel');
-        const cards = track ? track.querySelectorAll('.module-card') : [];
-        const step = cards.length ? cards[0].getBoundingClientRect().width + 20 : 292;
-        section.querySelectorAll('.carousel-btn').forEach((btn) => {{
-          btn.addEventListener('click', () => {{
-            const dir = btn.dataset.dir === 'left' ? -1 : 1;
-            track.scrollBy({{ left: step * dir, behavior: 'smooth' }});
-          }});
-        }});
+      const manageModal = document.getElementById('manageSubjectsModal');
+      document.getElementById('manageSubjectsTopBtn')?.addEventListener('click', ()=>manageModal?.classList.add('open'));
+      document.getElementById('openManageSubjectsBtn')?.addEventListener('click', ()=>manageModal?.classList.add('open'));
+      manageModal?.addEventListener('click', (e)=>{{ if(e.target===manageModal) manageModal.classList.remove('open'); }});
+      document.getElementById('saveSelectedSubjectsBtn')?.addEventListener('click', async ()=>{{
+        const selectedIds = Array.from(document.querySelectorAll('.subject-checkbox:checked')).map(x=>Number(x.value)).filter(Number.isInteger);
+        await fetch('/student/subjects/select', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{subject_ids:selectedIds}})}});
+        window.location.reload();
       }});
-
-      const subjectsStack = document.querySelector('.subjects-stack');
-      const refreshSubjectMoveButtons = () => {{
-        if (!subjectsStack) return;
-        const sections = Array.from(subjectsStack.querySelectorAll('.subject-section'));
-        sections.forEach((section, idx) => {{
-          const upBtn = section.querySelector(".subject-reorder-btn[data-action='up']");
-          const downBtn = section.querySelector(".subject-reorder-btn[data-action='down']");
-          if (upBtn) upBtn.disabled = idx === 0;
-          if (downBtn) downBtn.disabled = idx === sections.length - 1;
-        }});
-      }};
-      const persistSubjectOrder = async () => {{
-        if (!subjectsStack) return;
-        const orderedSubjectIds = Array.from(subjectsStack.querySelectorAll('.subject-section'))
-          .map((section) => Number(section.dataset.subjectId))
-          .filter((v) => Number.isInteger(v));
-        await fetch('/student/subject-order', {{
-          method: 'POST',
-          headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ subject_ids: orderedSubjectIds }})
-        }});
-      }};
-      subjectsStack?.addEventListener('click', async (event) => {{
-        const btn = event.target.closest('.subject-reorder-btn');
-        if (!btn || !subjectsStack) return;
-        const section = btn.closest('.subject-section');
-        if (!section) return;
-        const action = btn.dataset.action;
-        if (action === 'up' && section.previousElementSibling) {{
-          subjectsStack.insertBefore(section, section.previousElementSibling);
-          refreshSubjectMoveButtons();
-          await persistSubjectOrder();
-        }}
-        if (action === 'down' && section.nextElementSibling) {{
-          subjectsStack.insertBefore(section.nextElementSibling, section);
-          refreshSubjectMoveButtons();
-          await persistSubjectOrder();
-        }}
-      }});
-      refreshSubjectMoveButtons();
     </script>
     """
     return render_student_dashboard_shell(content_html, active_nav="my_subjects")
@@ -5984,31 +5928,59 @@ def student_subject_order():
     student_id = session.get("student_id")
     if not student_id:
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
-
     payload = request.get_json(silent=True) or {}
     subject_ids = payload.get("subject_ids")
     if not isinstance(subject_ids, list):
         return jsonify({"ok": False, "error": "subject_ids must be a list"}), 400
-
-    clean_ids = []
-    seen = set()
+    clean_ids, seen = [], set()
     for item in subject_ids:
         if isinstance(item, int) and item > 0 and item not in seen:
-            clean_ids.append(item)
-            seen.add(item)
-
-    existing_rows = StudentSubjectOrder.query.filter_by(student_id=student_id).all()
-    existing_map = {row.subject_id: row for row in existing_rows}
-    for index, subject_id in enumerate(clean_ids):
-        row = existing_map.get(subject_id)
+            clean_ids.append(item); seen.add(item)
+    rows = StudentSelectedSubject.query.filter_by(student_id=student_id, is_active=True).all()
+    row_map = {r.subject_id: r for r in rows}
+    for idx, sid in enumerate(clean_ids):
+        row = row_map.get(sid)
         if row:
-            row.sort_order = index
+            row.sort_order = idx
             row.updated_at = datetime.utcnow()
-        else:
-            db.session.add(StudentSubjectOrder(student_id=student_id, subject_id=subject_id, sort_order=index))
-
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/student/subjects/select", methods=["POST"])
+def student_subject_select():
+    student_id = session.get("student_id")
+    if not student_id:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    ensure_chapter_learning_tables()
+    payload = request.get_json(silent=True) or {}
+    subject_ids = payload.get("subject_ids") or payload.get("selected_subject_ids")
+    if not isinstance(subject_ids, list):
+        return jsonify({"ok": False, "error": "subject_ids must be a list"}), 400
+    clean_ids, seen = [], set()
+    for item in subject_ids:
+        if isinstance(item, int) and item > 0 and item not in seen:
+            clean_ids.append(item); seen.add(item)
+    active_subject_ids = {s.id for s in get_subjects_for_grade(normalize_grade(db.session.get(Student, student_id).grade), active_only=True)}
+    clean_ids = [sid for sid in clean_ids if sid in active_subject_ids]
+
+    existing = StudentSelectedSubject.query.filter_by(student_id=student_id).all()
+    by_subject = {r.subject_id: r for r in existing}
+    now = datetime.utcnow()
+    for idx, sid in enumerate(clean_ids):
+        row = by_subject.get(sid)
+        if row:
+            row.is_active = True
+            row.sort_order = idx
+            row.updated_at = now
+        else:
+            db.session.add(StudentSelectedSubject(student_id=student_id, subject_id=sid, is_active=True, sort_order=idx, created_at=now, updated_at=now))
+    for row in existing:
+        if row.subject_id not in clean_ids and row.is_active:
+            row.is_active = False
+            row.updated_at = now
+    db.session.commit()
+    return jsonify({"ok": True, "subject_ids": clean_ids})
 
 
 @app.route("/student/subject/<int:subject_id>/module/<int:module_id>", methods=["GET"])
