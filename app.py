@@ -5889,7 +5889,7 @@ def student_learning_path():
               <div class='module-card-body'><h4>{escape(module_name)}</h4><p>{escape(lesson_text)}</p><div class='module-progress'><span style='width:{progress_pct}%;'></span></div></div>
             </a>""")
         subject_sections.append(f"""
-        <section class='subject-section' data-subject-id='{subject.id}'><div class='subject-header'><h2>{escape(subject_name)}</h2><div class='subject-header-actions'><div class='subject-reorder-controls'><button type='button' class='subject-reorder-btn' data-action='up' aria-label='Move subject up' {'disabled' if idx == 0 else ''}>↑</button><button type='button' class='subject-reorder-btn' data-action='down' aria-label='Move subject down' {'disabled' if idx == len(ordered_subjects)-1 else ''}>↓</button></div><div class='carousel-controls'><button type='button' class='carousel-btn module-carousel-prev' data-dir='left' data-carousel-target='module-carousel-track-{subject.id}' aria-label='Scroll left'>‹</button><button type='button' class='carousel-btn module-carousel-next' data-dir='right' data-carousel-target='module-carousel-track-{subject.id}' aria-label='Scroll right'>›</button></div></div></div><div class='module-carousel-shell' data-subject-id='{subject.id}'><div class='module-carousel-wrap'><div id='module-carousel-track-{subject.id}' class='module-carousel module-carousel-track'>{''.join(module_cards) if module_cards else f"<div class='no-modules'>{labels['no_modules']}</div>"}</div></div></div></section>""")
+        <section class='subject-section subject-row-section' data-subject-id='{subject.id}'><div class='subject-header'><h2>{escape(subject_name)}</h2><div class='subject-header-actions'><div class='subject-reorder-controls'><button type='button' class='subject-reorder-btn subject-move-up' data-action='up' aria-label='Move subject up' {'disabled' if idx == 0 else ''}>↑</button><button type='button' class='subject-reorder-btn subject-move-down' data-action='down' aria-label='Move subject down' {'disabled' if idx == len(ordered_subjects)-1 else ''}>↓</button></div><div class='carousel-controls'><button type='button' class='carousel-btn module-carousel-prev' data-dir='left' aria-label='Scroll left'>‹</button><button type='button' class='carousel-btn module-carousel-next' data-dir='right' aria-label='Scroll right'>›</button></div></div></div><div class='module-carousel-shell' data-subject-id='{subject.id}'><div class='module-carousel-wrap'><div class='module-carousel module-carousel-track'>{''.join(module_cards) if module_cards else f"<div class='no-modules'>{labels['no_modules']}</div>"}</div></div></div></section>""")
 
     manage_list_html = ''.join([
         f"<label class='subject-option'><input type='checkbox' class='subject-checkbox' value='{s.id}' {'checked' if s.id in selected_ids else ''}><img src='{escape(((s.image_si_url if is_si else s.image_en_url) or fallback_image))}' alt='{escape(s.subject_name_si if is_si else s.subject_name_en)}'><span>{escape(s.subject_name_si if is_si else s.subject_name_en)}</span></label>"
@@ -5903,7 +5903,7 @@ def student_learning_path():
         empty_subjects_html = f"<div class='premium-choose-card'><h3>{labels['choose_subjects']}</h3><p>{labels['choose_subjects_copy']}</p><button type='button' id='openManageSubjectsBtn' class='manage-subjects-btn'>{labels['manage_subjects']}</button></div>"
 
     content_html = f"""
-    <style>.subject-page-hero{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}.manage-subjects-btn{{border:none;border-radius:10px;padding:10px 16px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}}.subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}.subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}.subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}.subject-header h2{{margin:0;font-size:22px}}.subject-header-actions{{display:flex;align-items:center;gap:10px}}.subject-reorder-controls{{display:flex;gap:6px}}.subject-reorder-btn{{width:38px;height:38px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;line-height:1;cursor:pointer}}.subject-reorder-btn:disabled{{opacity:.45;cursor:not-allowed}}.carousel-controls{{display:flex;gap:8px}}.carousel-btn{{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}.module-carousel-wrap{{max-width:1148px;overflow:visible}}.module-carousel-track{{display:flex;gap:24px;overflow-x:auto;scroll-behavior:smooth;max-width:100%;padding:4px 2px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}.module-carousel-track::-webkit-scrollbar{{display:none}}.module-card{{flex:0 0 280px;width:280px;min-width:280px;max-width:280px;min-height:260px;display:flex;flex-direction:column;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}.module-card img{{width:100%;height:148px;object-fit:cover;display:block;flex:0 0 148px}}.module-card-body{{padding:12px;display:flex;flex-direction:column;flex:1}}.module-card-body h4{{margin:0 0 6px;font-size:16px}}.module-card-body p{{margin:0 0 12px;font-size:13px;color:#475569}}.module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}.module-card .module-progress{{margin-top:auto}}.module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.no-modules{{padding:10px 0;color:#64748b}}.premium-choose-card,.empty-state-card{{margin-top:16px;padding:24px;border-radius:20px;background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff}}.manage-modal{{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:9999}}.manage-modal.open{{display:flex}}.manage-modal-card{{width:min(760px,92vw);max-height:84vh;overflow:auto;background:#fff;border-radius:18px;padding:18px}}.subject-options-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}}.subject-option{{display:flex;align-items:center;gap:10px;border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer}}.subject-option img{{width:48px;height:48px;border-radius:8px;object-fit:cover}}</style>
+    <style>.subject-page-hero{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}.subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}.manage-subjects-btn{{border:none;border-radius:10px;padding:10px 16px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}}.subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}.subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}.subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}.subject-header h2{{margin:0;font-size:22px}}.subject-header-actions,.subject-reorder-controls,.carousel-controls{{display:flex;align-items:center;gap:8px;pointer-events:auto;position:relative;z-index:3}}.subject-reorder-btn{{width:38px;height:38px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;line-height:1;cursor:pointer;position:relative;z-index:4}}.subject-reorder-btn:disabled{{opacity:.45;cursor:not-allowed}}.carousel-btn{{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12);position:relative;z-index:4}}.module-carousel-shell{{position:relative;z-index:1}}.module-carousel-wrap{{max-width:1148px;overflow:visible}}.module-carousel-track{{display:flex;gap:24px;overflow-x:auto;scroll-behavior:smooth;max-width:100%;padding:4px 2px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}.module-carousel-track::-webkit-scrollbar{{display:none}}.module-card{{flex:0 0 280px;width:280px;min-width:280px;max-width:280px;min-height:260px;display:flex;flex-direction:column;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}.module-card img{{width:100%;height:148px;object-fit:cover;display:block;flex:0 0 148px}}.module-card-body{{padding:12px;display:flex;flex-direction:column;flex:1}}.module-card-body h4{{margin:0 0 6px;font-size:16px}}.module-card-body p{{margin:0 0 12px;font-size:13px;color:#475569}}.module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}.module-card .module-progress{{margin-top:auto}}.module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.no-modules{{padding:10px 0;color:#64748b}}.premium-choose-card,.empty-state-card{{margin-top:16px;padding:24px;border-radius:20px;background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff}}.manage-modal{{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:9999}}.manage-modal.open{{display:flex}}.manage-modal-card{{width:min(760px,92vw);max-height:84vh;overflow:auto;background:#fff;border-radius:18px;padding:18px}}.subject-options-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}}.subject-option{{display:flex;align-items:center;gap:10px;border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer}}.subject-option img{{width:48px;height:48px;border-radius:8px;object-fit:cover}}</style>
     <section class='subject-page-hero'><div><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></div>{"" if not subjects else f"<button type='button' id='manageSubjectsTopBtn' class='manage-subjects-btn'>{labels['manage_subjects']}</button>"}</section>
     {empty_subjects_html}
     <section class='subjects-stack'>{''.join(subject_sections)}</section>
@@ -5919,27 +5919,59 @@ def student_learning_path():
         window.location.reload();
       }});
 
-      document.querySelectorAll('.module-carousel-shell').forEach((shell) => {{
-        const track = shell.querySelector('.module-carousel-track');
-        const nextBtn = shell.querySelector('.module-carousel-next');
-        const prevBtn = shell.querySelector('.module-carousel-prev');
+      const saveSubjectOrder = async () => {{
+        const subjectIds = Array.from(document.querySelectorAll('.subject-row-section')).map((section) => Number(section.dataset.subjectId)).filter(Number.isInteger);
+        await fetch('/student/subject-order', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ subject_ids: subjectIds }}) }});
+      }};
 
-        if (!track) return;
+      const updateMoveButtons = () => {{
+        const sections = Array.from(document.querySelectorAll('.subject-row-section'));
+        sections.forEach((section, idx) => {{
+          const upBtn = section.querySelector('.subject-move-up');
+          const downBtn = section.querySelector('.subject-move-down');
+          if (upBtn) upBtn.disabled = idx === 0;
+          if (downBtn) downBtn.disabled = idx === sections.length - 1;
+        }});
+      }};
 
-        const scrollAmount = () => {{
-          const card = track.querySelector('.module-card');
+      document.querySelectorAll(".subject-row-section").forEach((section) => {{
+        const track = section.querySelector(".module-carousel-track");
+        const nextBtn = section.querySelector(".module-carousel-next");
+        const prevBtn = section.querySelector(".module-carousel-prev");
+        const moveUpBtn = section.querySelector(".subject-move-up");
+        const moveDownBtn = section.querySelector(".subject-move-down");
+
+        const getScrollAmount = () => {{
+          const card = track?.querySelector(".module-card");
           const gap = 24;
-          return card ? card.offsetWidth + gap : 300;
+          return card ? card.offsetWidth + gap : 320;
         }};
 
-        nextBtn?.addEventListener('click', () => {{
-          track.scrollBy({{ left: scrollAmount(), behavior: 'smooth' }});
+        nextBtn?.addEventListener("click", () => {{
+          track?.scrollBy({{ left: getScrollAmount(), behavior: "smooth" }});
         }});
 
-        prevBtn?.addEventListener('click', () => {{
-          track.scrollBy({{ left: -scrollAmount(), behavior: 'smooth' }});
+        prevBtn?.addEventListener("click", () => {{
+          track?.scrollBy({{ left: -getScrollAmount(), behavior: "smooth" }});
+        }});
+
+        moveUpBtn?.addEventListener("click", async () => {{
+          const prev = section.previousElementSibling;
+          if (!prev) return;
+          prev.parentNode?.insertBefore(section, prev);
+          updateMoveButtons();
+          await saveSubjectOrder();
+        }});
+
+        moveDownBtn?.addEventListener("click", async () => {{
+          const next = section.nextElementSibling;
+          if (!next) return;
+          next.parentNode?.insertBefore(next, section);
+          updateMoveButtons();
+          await saveSubjectOrder();
         }});
       }});
+      updateMoveButtons();
 
     </script>
     """
