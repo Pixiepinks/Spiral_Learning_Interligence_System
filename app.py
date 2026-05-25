@@ -6164,7 +6164,12 @@ def student_subject_module_page(subject_id: int, module_id: int):
     streak_days = max(0, int(getattr(student, "current_streak", 0) or 0))
     total_study_time = int(getattr(student, "total_study_time", 0) or 0)
     mastery_level = "Advanced" if progress_pct >= 80 else ("Growing" if progress_pct >= 50 else "Starter")
-    module_thumb = escape(module.module_image_url or "https://img.icons8.com/fluency/240/calculator.png")
+    module_thumb_raw = (
+        getattr(module, "image_si_url", None)
+        if student.medium == "Sinhala"
+        else getattr(module, "image_en_url", None)
+    )
+    module_thumb = escape(module_thumb_raw or "https://img.icons8.com/fluency/240/calculator.png")
     weekly_target = min(total_count, max(3, int((total_count or 3) * 0.6)))
     remaining_to_target = max(0, weekly_target - completed_count)
     completed_for_chart = status_counts.get("completed", 0)
