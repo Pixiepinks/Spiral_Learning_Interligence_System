@@ -5844,18 +5844,23 @@ def student_learning_path():
       .subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
       .subject-header h2{{margin:0;font-size:22px}}
       .carousel-controls{{display:flex;gap:8px}}
-      .carousel-btn{{width:34px;height:34px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
-      .module-carousel{{display:flex;gap:14px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}}
-      .module-card{{flex:0 0 calc((100% - 42px) / 4);min-width:220px;max-width:300px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
-      .module-card img{{width:100%;height:148px;object-fit:cover;display:block}}
-      .module-card-body{{padding:12px}}
+      .carousel-btn{{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
+      .module-carousel-wrap{{max-width:1148px;overflow:hidden}}
+      .module-carousel{{display:flex;gap:20px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}
+      .module-carousel::-webkit-scrollbar{{display:none}}
+      .module-card{{flex:0 0 auto;width:272px;min-width:272px;max-width:272px;min-height:260px;display:flex;flex-direction:column;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
+      .module-card img{{width:100%;height:148px;object-fit:cover;display:block;flex:0 0 148px}}
+      .module-card-body{{padding:12px;display:flex;flex-direction:column;flex:1}}
       .module-card-body h4{{margin:0 0 6px;font-size:16px}}
-      .module-card-body p{{margin:0 0 8px;font-size:13px;color:#475569}}
+      .module-card-body p{{margin:0 0 12px;font-size:13px;color:#475569}}
       .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
+      .module-card .module-progress{{margin-top:auto}}
       .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
       .no-modules{{padding:10px 0;color:#64748b}}
-      @media (max-width: 1024px) {{ .module-card{{flex:0 0 calc((100% - 14px) / 2)}} }}
-      @media (max-width: 768px) {{ .subject-header h2{{font-size:19px}} .module-card{{flex:0 0 82%}} }}
+      @media (max-width: 1280px) {{ .module-card{{width:300px;min-width:300px;max-width:300px}} }}
+      @media (max-width: 1280px) {{ .module-carousel-wrap{{max-width:none}} }}
+      @media (max-width: 1024px) {{ .module-card{{width:calc((100% - 20px) / 2);min-width:calc((100% - 20px) / 2);max-width:calc((100% - 20px) / 2)}} }}
+      @media (max-width: 860px) {{ .subject-header h2{{font-size:19px}} .carousel-controls{{display:none}} .module-card{{width:78%;min-width:78%;max-width:78%}} }}
     </style>
     <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
     <section class='subjects-stack'>{''.join(subject_sections)}</section>
@@ -5863,7 +5868,7 @@ def student_learning_path():
       document.querySelectorAll('.subject-section').forEach((section) => {{
         const track = section.querySelector('.module-carousel');
         const cards = track ? track.querySelectorAll('.module-card') : [];
-        const step = cards.length ? cards[0].getBoundingClientRect().width + 14 : 280;
+        const step = cards.length ? cards[0].getBoundingClientRect().width + 20 : 292;
         section.querySelectorAll('.carousel-btn').forEach((btn) => {{
           btn.addEventListener('click', () => {{
             const dir = btn.dataset.dir === 'left' ? -1 : 1;
