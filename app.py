@@ -5768,72 +5768,137 @@ def student_learning_path():
     labels = {
         "title": "මගේ විෂයයන්" if is_si else "My Subjects",
         "subtitle": "ඔබේ පුද්ගලික ඉගෙනුම් ගමන ඉදිරියට ගෙන යන්න" if is_si else "Continue your personalized learning journey",
-        "term": "වාරය" if is_si else "Term",
-        "mastery": "ප්‍රවීණතාව" if is_si else "Mastery",
-        "day_streak": "දින අඛණ්ඩතාව" if is_si else "Day Streak",
         "lesson": "පාඩම" if is_si else "Lesson",
-        "of": "න්" if is_si else "of",
-        "next_lesson": "ඊළඟ පාඩම" if is_si else "Next Lesson",
-        "weak_area": "අවධානය යොමු කළ යුතු කොටස" if is_si else "Weak Area",
-        "continue": "ඉගෙනීම ඉදිරියට" if is_si else "Continue Learning",
-        "details": "විස්තර බලන්න" if is_si else "View Details",
+        "no_modules": "මෙම විෂයයට මොඩියුල නොමැත" if is_si else "No modules available for this subject",
     }
+
     subjects = get_subjects_for_grade(grade, active_only=True)
-    subject_cards = []
-    total_mastery = 0
+    fallback_image = "/static/images/subjects/default-subject.jpg"
+    subject_sections = []
+
     for subject in subjects:
-        term_ids = [x.id for x in SyllabusTerm.query.filter(
+        subject_name = subject.subject_name_si if is_si else subject.subject_name_en
+        terms = SyllabusTerm.query.filter(
             SyllabusTerm.grade == grade,
             SyllabusTerm.subject.in_([subject.subject_code, subject.subject_name_en, subject.subject_name_si]),
-        ).all()]
-        modules = SyllabusModule.query.filter(SyllabusModule.term_id.in_(term_ids) if term_ids else db.text("1=0")).all() if term_ids else []
-        module_ids = [m.id for m in modules]
-        chapters = SyllabusChapter.query.filter(SyllabusChapter.module_id.in_(module_ids) if module_ids else db.text("1=0")).all() if module_ids else []
-        chapter_ids = [c.id for c in chapters]
-        contents = ChapterLearningContent.query.filter(ChapterLearningContent.chapter_id.in_(chapter_ids), ChapterLearningContent.is_active.is_(True)).all() if chapter_ids else []
-        required_ids = [c.id for c in contents if c.is_required]
-        completed_ids = {x.content_id for x in StudentContentProgress.query.filter_by(student_id=student.id, status="completed").all()}
-        done_required = sum(1 for rid in required_ids if rid in completed_ids)
-        mastery = int((done_required / len(required_ids)) * 100) if required_ids else 0
-        total_mastery += mastery
-        content_type_counts = {}
-        for c in contents:
-            content_type_counts[c.content_type] = content_type_counts.get(c.content_type, 0) + 1
-        questions_count = Question.query.filter(
-            Question.grade == grade,
-            Question.subject.in_([subject.subject_code, subject.subject_name_en, subject.subject_name_si]),
-        ).count()
-        subject_name = subject.subject_name_si if is_si else subject.subject_name_en
-        image_url = (subject.image_si_url if is_si else subject.image_en_url) or "/static/images/slis-logo.png"
-        next_chapter = chapters[0] if chapters else None
-        next_name = (next_chapter.chapter_name_si if is_si else next_chapter.chapter_name_en) if next_chapter else "-"
-        lesson_total = len(chapters)
-        lesson_current = min(lesson_total, max(1, int((mastery / 100) * lesson_total))) if lesson_total else 0
-        grade_badge = "A-" if mastery >= 75 else ("B+" if mastery >= 65 else ("B" if mastery >= 55 else "C"))
-        subject_cards.append(f"""
-        <article class='subject-premium-card'>
-          <div class='subject-image-wrap'><img src='{escape(image_url)}' alt='{escape(subject_name)}'></div>
-          <div class='grade-badge'>{'ශ්‍රේණිය' if is_si else 'Grade'} {escape(str(grade or student.grade))}</div>
-          <h3>{escape(subject_name)}</h3>
-          <p class='term-summary'>{labels['term']} 1 • Module 1, 2, 3</p>
-          <div class='subject-top-metrics'><div class='mastery-ring' style='--p:{mastery}'><span>{mastery}%</span><small>{labels['mastery']}</small></div><div class='metric-col'><span class='subject-grade-badge'>{grade_badge}</span><strong>{student.current_streak or 0} 🔥</strong><small>{labels['day_streak']}</small></div></div>
-          <div class='lesson-row'>{labels['lesson']} {lesson_current} {labels['of']} {lesson_total}</div><div class='mini-progress'><span style='width:{mastery}%'></span></div>
-          <div class='stats-grid'><span>{len(modules)} {('මොඩියුල' if is_si else 'Modules')}</span><span>{len(chapters)} {('පරිච්ඡේද' if is_si else 'Chapters')}</span><span>{content_type_counts.get('video', 0)} {('වීඩියෝ' if is_si else 'Videos')}</span><span>{content_type_counts.get('activity', 0)} {('ක්‍රියාකාරකම්' if is_si else 'Activities')}</span><span>{questions_count} {('ප්‍රශ්න' if is_si else 'Questions')}</span><span>{content_type_counts.get('test', 0)} {('පරීක්ෂණ' if is_si else 'Tests')}</span></div>
-          <div class='focus-box'><small>{labels['next_lesson']}</small><strong>{escape(next_name)}</strong></div>
-          <div class='focus-box weak'><small>{labels['weak_area']}</small><strong>{escape(next_name)}</strong></div>
-          <button type='button' class='continue-btn' onclick="location.href='/student/learning-path'">{labels['continue']}</button>
-          <button type='button' class='details-btn' onclick="location.href='/student/learning-path'">{labels['details']}</button>
-        </article>""")
-    avg_mastery = int(total_mastery / len(subjects)) if subjects else 0
+        ).order_by(SyllabusTerm.term_number.asc()).all()
+        term_ids = [t.id for t in terms]
+        modules = (
+            SyllabusModule.query.filter(SyllabusModule.term_id.in_(term_ids))
+            .order_by(SyllabusModule.module_order.asc(), SyllabusModule.id.asc())
+            .all()
+            if term_ids
+            else []
+        )
+
+        module_cards = []
+        for module in modules:
+            module_name = module.module_name_si if is_si else module.module_name_en
+            module_image = (module.image_si_url if is_si else module.image_en_url) or fallback_image
+            active_chapters = SyllabusChapter.query.filter_by(module_id=module.id, is_active=True).all()
+            chapter_ids = [c.id for c in active_chapters]
+            total_count = len(chapter_ids)
+            completed_count = (
+                StudentChapterProgress.query.filter(
+                    StudentChapterProgress.student_id == student.id,
+                    StudentChapterProgress.chapter_id.in_(chapter_ids),
+                    StudentChapterProgress.status == "completed",
+                ).count()
+                if chapter_ids
+                else 0
+            )
+            progress_pct = int((completed_count / total_count) * 100) if total_count else 0
+            lesson_text = (
+                f"පාඩම් {completed_count} / {total_count}" if is_si else f"Lesson {completed_count} of {total_count}"
+            )
+            module_cards.append(f"""
+            <a class='module-card' href='/student/subject/{subject.id}/module/{module.id}'>
+              <img src='{escape(module_image)}' alt='{escape(module_name)}' loading='lazy'>
+              <div class='module-card-body'>
+                <h4>{escape(module_name)}</h4>
+                <p>{escape(lesson_text)}</p>
+                <div class='module-progress'><span style='width:{progress_pct}%;'></span></div>
+              </div>
+            </a>""")
+
+        subject_sections.append(f"""
+        <section class='subject-section'>
+          <div class='subject-header'>
+            <h2>{escape(subject_name)}</h2>
+            <div class='carousel-controls'>
+              <button type='button' class='carousel-btn' data-dir='left' aria-label='Scroll left'>‹</button>
+              <button type='button' class='carousel-btn' data-dir='right' aria-label='Scroll right'>›</button>
+            </div>
+          </div>
+          <div class='module-carousel-wrap'>
+            <div class='module-carousel'>
+              {''.join(module_cards) if module_cards else f"<div class='no-modules'>{labels['no_modules']}</div>"}
+            </div>
+          </div>
+        </section>""")
+
     content_html = f"""
     <style>
-    .subject-page-hero h1{{margin:0 0 4px}}.subject-page-hero p{{margin:0;color:#64748b}}.subject-grid{{margin-top:16px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}}@media(max-width:1320px){{.subject-grid{{grid-template-columns:repeat(3,minmax(0,1fr));}}}}@media(max-width:920px){{.subject-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}@media(max-width:620px){{.subject-grid{{grid-template-columns:1fr;}}}}.subject-premium-card{{background:#fff;border-radius:22px;padding:10px;box-shadow:0 20px 35px rgba(2,6,23,.08),0 6px 14px rgba(2,6,23,.04)}}.subject-image-wrap img{{width:100%;height:140px;object-fit:cover;border-radius:16px}}.grade-badge{{margin-top:-16px;float:right;background:#fff;border:2px solid #ff4d8d;color:#ff4d8d;border-radius:999px;padding:6px 10px;font-weight:800}}.subject-premium-card h3{{margin:10px 0 4px}}.term-summary{{margin:0;color:#64748b;font-size:13px}}.subject-top-metrics{{display:flex;justify-content:space-between;align-items:center;margin:10px 0}}.mastery-ring{{--p:0;width:88px;height:88px;border-radius:50%;background:conic-gradient(#10b981 calc(var(--p)*1%),#dbeafe 0);display:grid;place-items:center;position:relative}}.mastery-ring:before{{content:'';position:absolute;inset:8px;background:#fff;border-radius:50%}}.mastery-ring span,.mastery-ring small{{position:relative;z-index:1;display:block;text-align:center}}.subject-grade-badge{{background:#dcfce7;color:#15803d;padding:8px 12px;border-radius:999px;font-weight:800}}.mini-progress{{height:5px;background:#e2e8f0;border-radius:999px;overflow:hidden}}.mini-progress span{{display:block;height:100%;background:#10b981}}.stats-grid{{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}}.stats-grid span{{font-size:12px;background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:10px}}.focus-box{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;border:1px solid #e2e8f0}}.focus-box.weak{{background:#fffbeb;border-color:#fde68a}}.continue-btn,.details-btn{{width:100%;margin-top:8px;border-radius:12px;padding:10px;font-weight:700;border:1px solid #10b981;cursor:pointer}}.continue-btn{{background:#10b981;color:#fff}}.details-btn{{background:#fff;color:#0f172a}}.summary-strip{{margin-top:16px;background:#fff;border-radius:18px;padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}.summary-item{{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px}}
+      .subject-page-hero h1{{margin:0 0 4px}} .subject-page-hero p{{margin:0;color:#64748b}}
+      .subjects-stack{{margin-top:16px;display:flex;flex-direction:column;gap:20px}}
+      .subject-section{{background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}
+      .subject-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
+      .subject-header h2{{margin:0;font-size:22px}}
+      .carousel-controls{{display:flex;gap:8px}}
+      .carousel-btn{{width:34px;height:34px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
+      .module-carousel{{display:flex;gap:14px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}}
+      .module-card{{flex:0 0 260px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
+      .module-card img{{width:100%;height:148px;object-fit:cover;display:block}}
+      .module-card-body{{padding:12px}}
+      .module-card-body h4{{margin:0 0 6px;font-size:16px}}
+      .module-card-body p{{margin:0 0 8px;font-size:13px;color:#475569}}
+      .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
+      .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
+      .no-modules{{padding:10px 0;color:#64748b}}
+      @media (max-width: 768px) {{ .subject-header h2{{font-size:19px}} .module-card{{flex-basis:220px}} }}
     </style>
     <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
-    <section class='subject-grid'>{''.join(subject_cards)}</section>
-    <section class='summary-strip'><div class='summary-item'><small>{'Total Subjects' if not is_si else 'මුළු විෂයයන්'}</small><strong>{len(subjects)}</strong></div><div class='summary-item'><small>{'Average Mastery' if not is_si else 'සාමාන්‍ය ප්‍රවීණතාව'}</small><strong>{avg_mastery}%</strong></div><div class='summary-item'><small>{'Total Study Time' if not is_si else 'මුළු අධ්‍යයන කාලය'}</small><strong>{max(1, len(subjects) * 4)}h {(avg_mastery % 60)}m</strong></div><div class='summary-item'><small>{'Achievements' if not is_si else 'ජයග්‍රහණ'}</small><strong>{student.level or 1}</strong></div></section>
+    <section class='subjects-stack'>{''.join(subject_sections)}</section>
+    <script>
+      document.querySelectorAll('.subject-section').forEach((section) => {{
+        const track = section.querySelector('.module-carousel');
+        const cards = track ? track.querySelectorAll('.module-card') : [];
+        const step = cards.length ? cards[0].getBoundingClientRect().width + 14 : 280;
+        section.querySelectorAll('.carousel-btn').forEach((btn) => {{
+          btn.addEventListener('click', () => {{
+            const dir = btn.dataset.dir === 'left' ? -1 : 1;
+            track.scrollBy({{ left: step * dir, behavior: 'smooth' }});
+          }});
+        }});
+      }});
+    </script>
     """
     return render_student_dashboard_shell(content_html, active_nav="my_subjects")
+
+
+@app.route("/student/subject/<int:subject_id>/module/<int:module_id>", methods=["GET"])
+def student_subject_module_page(subject_id: int, module_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_chapter_learning_tables()
+    student = db.session.get(Student, student_id)
+    module = db.session.get(SyllabusModule, module_id)
+    subject = db.session.get(SubjectMaster, subject_id)
+    if not module or not subject:
+        return redirect("/student/learning-path")
+
+    first_chapter = SyllabusChapter.query.filter_by(module_id=module.id, is_active=True).order_by(SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).first()
+    if first_chapter:
+        chapter_progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=first_chapter.id).first()
+        if not chapter_progress:
+            chapter_progress = StudentChapterProgress(student_id=student.id, chapter_id=first_chapter.id, status="unlocked")
+            db.session.add(chapter_progress)
+            db.session.commit()
+        return redirect(f"/student/chapter/{first_chapter.id}")
+
+    module_name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
+    return render_student_dashboard_shell(f"<div class='card' style='padding:18px;'><h2>{escape(module_name)}</h2><p>No chapters found for this module yet.</p><p><a href='/student/learning-path'>Back to My Subjects</a></p></div>", active_nav="my_subjects")
 
 
 
