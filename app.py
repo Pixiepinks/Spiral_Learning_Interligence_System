@@ -6101,7 +6101,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
             key = (item.content_type or "").strip().lower()
             if key in ctype_counts:
                 ctype_counts[key] += 1
-            total_estimated_minutes += max(5, int(item.estimated_minutes or 0))
+            total_estimated_minutes += max(5, int(getattr(item, "estimated_minutes", None) or 0))
         total_content = len(content_rows)
         total_video_count += ctype_counts["video"]
         total_note_count += ctype_counts["note"]
@@ -6124,7 +6124,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
             weak_chapters.append((ch, chapter_pct))
         ch_name = (ch.chapter_name_si if is_si else ch.chapter_name_en) or ch.chapter_name_en
         chapter_subtitle = ch.chapter_name_en if is_si else (ch.chapter_name_si or ch.chapter_name_en)
-        chapter_icon = escape(ch.chapter_icon or "📘")
+        chapter_icon = escape(getattr(ch, "chapter_icon", None) or "📘")
         locked = status_key == "locked"
         chapter_btn = (
             f"<button class='chapter-cta locked' type='button' aria-label='Locked'>🔒</button>"
