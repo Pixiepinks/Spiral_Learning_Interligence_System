@@ -5768,7 +5768,6 @@ def student_learning_path():
     labels = {
         "title": "මගේ විෂයයන්" if is_si else "My Subjects",
         "subtitle": "ඔබේ පුද්ගලික ඉගෙනුම් ගමන ඉදිරියට ගෙන යන්න" if is_si else "Continue your personalized learning journey",
-        "lesson": "පාඩම" if is_si else "Lesson",
         "no_modules": "මෙම විෂයයට මොඩියුල නොමැත" if is_si else "No modules available for this subject",
     }
 
@@ -5847,7 +5846,7 @@ def student_learning_path():
       .carousel-controls{{display:flex;gap:8px}}
       .carousel-btn{{width:34px;height:34px;border:none;border-radius:999px;background:#ffffff;color:#0f172a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.12)}}
       .module-carousel{{display:flex;gap:14px;overflow-x:auto;scroll-behavior:smooth;padding:4px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}}
-      .module-card{{flex:0 0 260px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
+      .module-card{{flex:0 0 calc((100% - 42px) / 4);min-width:220px;max-width:300px;text-decoration:none;color:#0f172a;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);border-radius:18px;overflow:hidden;box-shadow:0 10px 25px rgba(2,6,23,.08)}}
       .module-card img{{width:100%;height:148px;object-fit:cover;display:block}}
       .module-card-body{{padding:12px}}
       .module-card-body h4{{margin:0 0 6px;font-size:16px}}
@@ -5855,7 +5854,8 @@ def student_learning_path():
       .module-progress{{height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
       .module-progress span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}
       .no-modules{{padding:10px 0;color:#64748b}}
-      @media (max-width: 768px) {{ .subject-header h2{{font-size:19px}} .module-card{{flex-basis:220px}} }}
+      @media (max-width: 1024px) {{ .module-card{{flex:0 0 calc((100% - 14px) / 2)}} }}
+      @media (max-width: 768px) {{ .subject-header h2{{font-size:19px}} .module-card{{flex:0 0 82%}} }}
     </style>
     <section class='subject-page-hero'><h1>{labels['title']}</h1><p>{labels['subtitle']}</p></section>
     <section class='subjects-stack'>{''.join(subject_sections)}</section>
