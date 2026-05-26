@@ -5567,6 +5567,7 @@ def admin_dashboard():
         <p><a href='/admin/questions'>Manage Questions</a></p>
         <p><a href='/admin/syllabus'>Syllabus Management</a></p><p><a href='/admin/subjects'>Subject Management</a></p>
         <p><a href='/admin/syllabus'>Chapter Content Management</a></p>
+        <p><a href='/admin/lesson-builder'>Lesson Builder</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
@@ -6854,6 +6855,182 @@ def student_lesson_progress_update(lesson_id: int):
 
     db.session.commit()
     return jsonify({"ok": True, "completion_percent": progress.completion_percent, "is_completed": progress.is_completed})
+
+
+def _parse_bool_form(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.route("/admin/lesson-builder", methods=["GET"])
+def admin_lesson_builder():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+
+    grade = normalize_grade((request.args.get("grade") or "").strip())
+    subject_id_raw = (request.args.get("subject_id") or "").strip()
+    module_id_raw = (request.args.get("module_id") or "").strip()
+    chapter_id_raw = (request.args.get("chapter_id") or "").strip()
+    subject_id = int(subject_id_raw) if subject_id_raw.isdigit() else None
+    module_id = int(module_id_raw) if module_id_raw.isdigit() else None
+    chapter_id = int(chapter_id_raw) if chapter_id_raw.isdigit() else None
+
+    query = (
+        db.session.query(Lesson, SyllabusChapter, SyllabusModule, SyllabusTerm, SubjectMaster)
+        .join(SyllabusChapter, SyllabusChapter.id == Lesson.chapter_id)
+        .join(SyllabusModule, SyllabusModule.id == SyllabusChapter.module_id)
+        .join(SyllabusTerm, SyllabusTerm.id == SyllabusModule.term_id)
+        .outerjoin(SubjectMaster, SubjectMaster.id == subject_id)
+    )
+    if grade:
+        query = query.filter(SyllabusTerm.grade == grade)
+    if module_id:
+        query = query.filter(SyllabusModule.id == module_id)
+    if chapter_id:
+        query = query.filter(SyllabusChapter.id == chapter_id)
+    lessons = query.order_by(SyllabusTerm.grade.asc(), SyllabusModule.module_order.asc(), SyllabusChapter.chapter_order.asc(), Lesson.lesson_order.asc()).all()
+
+    subjects = get_subjects_for_grade(grade, active_only=True) if grade else []
+    rows = "".join(
+        f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
+        for lesson, chapter, module, term, _ in lessons
+    )
+    subject_options = "".join([f"<option value='{s.id}' {'selected' if subject_id == s.id else ''}>{escape(s.subject_name_en)}</option>" for s in subjects])
+    return f"""
+    <h1>Admin Lesson Builder</h1>
+    <p><a href='/admin-dashboard'>Back</a> | <a href='/admin/lesson-builder/new'>Add Lesson</a></p>
+    <form method='get'>
+      <label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label>
+      <label>Subject <select name='subject_id'><option value=''>All</option>{subject_options}</select></label>
+      <button type='submit'>Filter</button>
+    </form>
+    <table border='1' cellpadding='6'>
+      <tr><th>Grade</th><th>Subject</th><th>Module</th><th>Chapter</th><th>Lesson Order</th><th>Lesson Title</th><th>Active</th><th>Actions</th></tr>
+      {rows or '<tr><td colspan=8>No lessons found</td></tr>'}
+    </table>
+    """
+
+
+@app.route("/admin/lesson-builder/new", methods=["GET", "POST"])
+def admin_lesson_builder_new():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+    if request.method == "POST":
+        chapter_id = int((request.form.get("chapter_id") or "0"))
+        lesson = Lesson(
+            chapter_id=chapter_id,
+            lesson_order=int((request.form.get("lesson_order") or "1")),
+            lesson_title_en=(request.form.get("lesson_title_en") or "").strip() or "Untitled Lesson",
+            lesson_title_si=(request.form.get("lesson_title_si") or "").strip() or "නම නොමැති පාඩම",
+            lesson_type=(request.form.get("lesson_type") or "standard").strip() or "standard",
+            thumbnail_url=(request.form.get("thumbnail_url") or "").strip() or None,
+            estimated_minutes=int((request.form.get("estimated_minutes") or "10")),
+            xp_reward=int((request.form.get("xp_reward") or "10")),
+            is_active=_parse_bool_form(request.form.get("is_active"), True),
+        )
+        db.session.add(lesson)
+        db.session.commit()
+        return redirect("/admin/lesson-builder")
+
+    return f"""
+    <h1>Add Lesson</h1>
+    <p><a href='/admin/lesson-builder'>Back to Lesson List</a></p>
+    <form method='post'>
+      <label>Grade <select name='grade' required>{grade_options_html('')}</select></label><br><br>
+      <label>Subject <select name='subject_id' required><option value=''>Select subject</option></select></label><br><br>
+      <label>Term <select name='term_id' required><option value=''>Select term</option></select></label><br><br>
+      <label>Module <select name='module_id' required><option value=''>Select module</option></select></label><br><br>
+      <label>Chapter <select name='chapter_id' required><option value=''>Select chapter</option></select></label><br><br>
+      <label>Lesson Order <input type='number' name='lesson_order' value='1' min='1' required></label><br><br>
+      <label>Lesson Title (EN) <input type='text' name='lesson_title_en' required></label><br><br>
+      <label>Lesson Title (SI) <input type='text' name='lesson_title_si' required></label><br><br>
+      <label>Lesson Type <input type='text' name='lesson_type' value='standard' required></label><br><br>
+      <label>Thumbnail URL <input type='url' name='thumbnail_url'></label><br><br>
+      <label>Estimated Minutes <input type='number' name='estimated_minutes' value='10' min='1'></label><br><br>
+      <label>XP Reward <input type='number' name='xp_reward' value='10' min='0'></label><br><br>
+      <label><input type='checkbox' name='is_active' value='1' checked> Is Active</label><br><br>
+      <button type='submit'>Save Lesson</button>
+    </form>
+    {admin_syllabus_form_dependency_script()}
+    """
+
+
+@app.route("/admin/lesson-builder/<int:lesson_id>/slides", methods=["GET"])
+def admin_lesson_builder_slides(lesson_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+    lesson = db.session.get(Lesson, lesson_id)
+    if not lesson:
+        return "<h2>Lesson not found</h2>", 404
+    chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+    slides = LessonSlide.query.filter_by(lesson_id=lesson.id).order_by(LessonSlide.slide_order.asc(), LessonSlide.id.asc()).all()
+    rows = "".join(
+        f"<tr><td>{s.slide_order}</td><td>{escape(s.slide_type)}</td><td>{escape(s.title_en or '')}</td><td>{'Yes' if s.is_active else 'No'}</td><td><a href='/admin/lesson-builder/slides/{s.id}/edit'>Edit</a> | <a href='/student/lesson/{lesson.id}'>Preview lesson</a></td></tr>"
+        for s in slides
+    )
+    return f"""<h1>Lesson Slides</h1><p><strong>Lesson:</strong> {escape(lesson.lesson_title_en)}</p><p><strong>Chapter:</strong> {escape(chapter.chapter_name_en if chapter else '-')}</p><p><a href='/admin/lesson-builder'>Back</a> | <a href='/admin/lesson-builder/{lesson.id}/slides/new'>Add Slide</a></p><table border='1' cellpadding='6'><tr><th>Slide order</th><th>Slide type</th><th>Slide title</th><th>Active</th><th>Actions</th></tr>{rows or '<tr><td colspan=5>No slides</td></tr>'}</table>"""
+
+
+@app.route("/admin/lesson-builder/<int:lesson_id>/slides/new", methods=["GET", "POST"])
+@app.route("/admin/lesson-builder/slides/<int:slide_id>/edit", methods=["GET", "POST"])
+def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int | None = None):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+    slide = db.session.get(LessonSlide, slide_id) if slide_id else None
+    lesson = db.session.get(Lesson, slide.lesson_id if slide else lesson_id)
+    if not lesson:
+        return "<h2>Lesson not found</h2>", 404
+    if request.method == "POST":
+        obj = slide or LessonSlide(lesson_id=lesson.id)
+        obj.slide_order = int((request.form.get("slide_order") or "1"))
+        obj.slide_type = (request.form.get("slide_type") or "explanation").strip() or "explanation"
+        obj.title_en = (request.form.get("title_en") or "").strip() or None
+        obj.title_si = (request.form.get("title_si") or "").strip() or None
+        obj.content_en = (request.form.get("content_en") or "").strip() or None
+        obj.content_si = (request.form.get("content_si") or "").strip() or None
+        obj.image_url = (request.form.get("image_url") or "").strip() or None
+        obj.video_url = (request.form.get("video_url") or "").strip() or None
+        obj.audio_url = (request.form.get("audio_url") or "").strip() or None
+        obj.activity_json = (request.form.get("activity_json") or "").strip() or None
+        obj.xp_reward = int((request.form.get("xp_reward") or "10"))
+        obj.is_required = _parse_bool_form(request.form.get("is_required"), True)
+        obj.is_active = _parse_bool_form(request.form.get("is_active"), True)
+        if not slide:
+            db.session.add(obj)
+        db.session.commit()
+        return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
+    options = ["intro_video", "explanation", "example", "activity", "quiz", "summary"]
+    selected_type = (slide.slide_type if slide else "explanation")
+    type_opts = "".join([f"<option value='{x}' {'selected' if x == selected_type else ''}>{x}</option>" for x in options])
+    return f"""
+    <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
+    <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
+    <form method='post'>
+      <label>Slide Order <input type='number' name='slide_order' value='{slide.slide_order if slide else 1}' min='1' required></label><br><br>
+      <label>Slide Type <select name='slide_type'>{type_opts}</select></label><br><br>
+      <label>Title EN <input type='text' name='title_en' value='{escape(slide.title_en) if slide and slide.title_en else ''}'></label><br><br>
+      <label>Title SI <input type='text' name='title_si' value='{escape(slide.title_si) if slide and slide.title_si else ''}'></label><br><br>
+      <label>Content EN <textarea name='content_en' rows='4' cols='70'>{escape(slide.content_en) if slide and slide.content_en else ''}</textarea></label><br><br>
+      <label>Content SI <textarea name='content_si' rows='4' cols='70'>{escape(slide.content_si) if slide and slide.content_si else ''}</textarea></label><br><br>
+      <label>Image URL <input type='url' name='image_url' value='{escape(slide.image_url) if slide and slide.image_url else ''}'></label><br><br>
+      <label>Video URL <input type='url' name='video_url' value='{escape(slide.video_url) if slide and slide.video_url else ''}'></label><br><br>
+      <label>Audio URL <input type='url' name='audio_url' value='{escape(slide.audio_url) if slide and slide.audio_url else ''}'></label><br><br>
+      <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json else ''}</textarea></label><br><br>
+      <label>XP Reward <input type='number' name='xp_reward' value='{slide.xp_reward if slide else 10}' min='0'></label><br><br>
+      <label><input type='checkbox' name='is_required' value='1' {'checked' if (slide.is_required if slide else True) else ''}> Is Required</label><br><br>
+      <label><input type='checkbox' name='is_active' value='1' {'checked' if (slide.is_active if slide else True) else ''}> Is Active</label><br><br>
+      <button type='submit'>{'Update Slide' if slide else 'Save Slide'}</button>
+    </form>
+    """
 
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
 def admin_edit_school(school_id: int):
