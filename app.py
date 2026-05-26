@@ -6164,6 +6164,9 @@ def student_subject_module_page(subject_id: int, module_id: int):
     streak_days = max(0, int(getattr(student, "current_streak", 0) or 0))
     total_study_time = int(getattr(student, "total_study_time", 0) or 0)
     mastery_level = "Advanced" if progress_pct >= 80 else ("Growing" if progress_pct >= 50 else "Starter")
+    module_number = getattr(module, "module_order", None) or module.id
+    module_name_si = getattr(module, "module_name_si", "") or ""
+    module_name_en = getattr(module, "module_name_en", "") or ""
     module_thumb_raw = (
         getattr(module, "image_si_url", None)
         if student.medium == "Sinhala"
@@ -6216,7 +6219,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
         <div class='module-hero'>
           <div class='hero-grid'>
             <div class='hero-media'><img src='{module_thumb}' alt='Module image'></div>
-            <div class='hero-title'><h1>{escape(subject_name)} • {escape(grade_label)} {'ශ්‍රේණිය' if is_si else 'Grade'}</h1><h2>{'මොඩියුලය' if is_si else 'Module'} {module.order_index or module.id}</h2><p>{escape(module.module_name_si or module_name)}</p><em>{escape(module.module_name_en or module_name)}</em>
+            <div class='hero-title'><h1>{escape(subject_name)} • {escape(grade_label)} {'ශ්‍රේණිය' if is_si else 'Grade'}</h1><h2>{'මොඩියුලය' if is_si else 'Module'} {module_number}</h2>{f"<p>{escape(module_name_si)}</p><em>{escape(module_name_en)}</em>" if is_si else f"<p>{escape(module_name_en)}</p><em>{escape(module_name_si)}</em>"}
               <div class='hero-stats'><div class='hero-stat'><strong>{progress_pct}%</strong>{'සම්පූර්ණ ප්‍රගතිය' if is_si else 'Overall progress'}</div><div class='hero-stat'><strong>{completed_count}/{total_count}</strong>{'අවසන් පාඩම්' if is_si else 'Completed lessons'}</div><div class='hero-stat'><strong>~{eta_hours}h</strong>{'ඇස්තමේන්තු කාලය' if is_si else 'Estimated time'}</div><div class='hero-stat'><strong>{streak_days} {'දින' if is_si else 'days'}</strong>{'නිරන්තර ඉගෙනීම' if is_si else 'Learning streak'}</div><div class='hero-stat'><strong>{mastery_level}</strong>{'දක්ෂතා මට්ටම' if is_si else 'Mastery level'}</div><div class='hero-stat'><strong>{total_completed_items}/{total_required_items or 1}</strong>{'අන්තර්ගත අවසන්' if is_si else 'Content complete'}</div></div>
               <div class='module-progress' style='margin-top:12px'><span style='width:{progress_pct}%'></span></div>
             </div>
