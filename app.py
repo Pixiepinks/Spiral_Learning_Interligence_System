@@ -6183,13 +6183,13 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .module-hub-layout{{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:20px}}
     .module-hero,.module-chapter-card,.module-side-card,.chapter-section{{background:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 20px 40px rgba(15,23,42,.08);backdrop-filter:blur(14px);transition:transform .28s ease,box-shadow .28s ease}}
     .module-hero:hover,.module-chapter-card:hover,.module-side-card:hover{{transform:translateY(-4px);box-shadow:0 26px 48px rgba(37,99,235,.16)}}
-    .module-hero{{padding:22px;background:linear-gradient(130deg,#eef4ff,#f3ebff 54%,#eafdf6)}}
-    .hero-grid{{display:grid;grid-template-columns:170px 1fr auto;gap:18px;align-items:center}}
+    .module-hero{{padding:20px;background:linear-gradient(130deg,#eef4ff,#f3ebff 54%,#eafdf6)}}
+    .hero-grid{{display:grid;grid-template-columns:170px 1fr auto;gap:16px;align-items:center}}
     .hero-media img{{width:160px;height:160px;object-fit:cover;border-radius:20px;box-shadow:0 12px 25px rgba(59,130,246,.2)}}
-    .hero-title h1{{margin:0;font-size:13px;font-weight:600;letter-spacing:.03em;color:#475569}}
-    .hero-title h2{{margin:8px 0 4px;font-size:40px;line-height:1.05;font-weight:800;color:#0f172a}}
-    .hero-title p{{margin:0 0 4px;color:#1e293b;font-size:26px;font-weight:600;line-height:1.25}}
-    .hero-title em{{display:block;font-style:normal;font-size:16px;color:#64748b;font-weight:500;line-height:1.4}}
+    .hero-title h1{{margin:0;font-size:clamp(13px,1.2vw,15px);font-weight:600;letter-spacing:.03em;color:#475569}}
+    .hero-title h2{{margin:6px 0 4px;font-size:clamp(2rem,3vw,2.625rem);line-height:1.1;font-weight:800;color:#0f172a}}
+    .hero-title p{{margin:0 0 4px;color:#1e293b;font-size:clamp(1.3rem,2vw,1.75rem);font-weight:700;line-height:1.2}}
+    .hero-title em{{display:block;font-style:normal;font-size:16px;color:#64748b;font-weight:500;line-height:1.35;margin-top:4px}}
     .hero-stats{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}}
     .hero-stat{{border-radius:16px;background:rgba(255,255,255,.72);padding:10px 12px;font-size:13px;color:#475569}} .hero-stat strong{{display:block;color:#0f172a;font-size:16px}}
     .module-progress{{height:10px;border-radius:999px;background:#dbeafe;overflow:hidden}} .module-progress span{{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#4f46e5);transition:width .7s ease}}
@@ -6212,7 +6212,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .radial-inner{{width:118px;height:118px;border-radius:50%;display:grid;place-items:center;background:white;font-weight:800;font-size:33px;color:#1e3a8a}}
     .legend{{display:grid;gap:6px;font-size:13px;color:#475569}} .legend div{{display:flex;justify-content:space-between}}
     @media(max-width:1180px){{.hero-grid{{grid-template-columns:140px 1fr}}.hero-cta{{grid-column:1/-1;flex-direction:row}}.module-hub-layout{{grid-template-columns:1fr}}.module-right{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}}}
-    @media(max-width:860px){{.chapter-row{{grid-template-columns:1fr;gap:10px}}.module-right{{grid-template-columns:1fr}}.hero-grid{{grid-template-columns:1fr}}.hero-media img{{width:120px;height:120px}}.hero-title h2{{font-size:28px}}.hero-title p{{font-size:22px}}.hero-title em{{font-size:19px}}}}
+    @media(max-width:860px){{.chapter-row{{grid-template-columns:1fr;gap:10px}}.module-right{{grid-template-columns:1fr}}.hero-grid{{grid-template-columns:1fr}}.hero-media img{{width:120px;height:120px}}.hero-title h2{{font-size:clamp(1.9rem,8vw,2.3rem)}}.hero-title p{{font-size:clamp(1.2rem,6vw,1.5rem)}}.hero-title em{{font-size:15px}}}}
     </style>
     <section class='module-hub-layout'>
       <div>
