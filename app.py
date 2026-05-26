@@ -6187,8 +6187,8 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .hero-grid{{display:grid;grid-template-columns:170px 1fr auto;gap:16px;align-items:center}}
     .hero-media img{{width:160px;height:160px;object-fit:cover;border-radius:20px;box-shadow:0 12px 25px rgba(59,130,246,.2)}}
     .hero-title h1{{margin:0;font-size:clamp(13px,1.2vw,15px);font-weight:600;letter-spacing:.03em;color:#475569}}
-    .hero-title h2{{margin:6px 0 4px;font-size:clamp(2rem,3vw,2.625rem);line-height:1.1;font-weight:800;color:#0f172a}}
-    .hero-title p{{margin:0 0 4px;color:#1e293b;font-size:clamp(1.3rem,2vw,1.75rem);font-weight:700;line-height:1.2}}
+    .hero-title h2{{margin:6px 0 4px;font-size:clamp(2rem,3vw,2.625rem);line-height:1.1;font-weight:600;color:#0f172a}}
+    .hero-title p{{margin:0 0 4px;color:#1e293b;font-size:clamp(1.3rem,2vw,1.75rem);font-weight:600;line-height:1.2}}
     .hero-title em{{display:block;font-style:normal;font-size:16px;color:#64748b;font-weight:500;line-height:1.35;margin-top:4px}}
     .hero-stats{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}}
     .hero-stat{{border-radius:16px;background:rgba(255,255,255,.72);padding:10px 12px;font-size:13px;color:#475569}} .hero-stat strong{{display:block;color:#0f172a;font-size:16px}}
