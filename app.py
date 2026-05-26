@@ -6183,7 +6183,10 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .module-hero{{padding:22px;background:linear-gradient(130deg,#eef4ff,#f3ebff 54%,#eafdf6)}}
     .hero-grid{{display:grid;grid-template-columns:170px 1fr auto;gap:18px;align-items:center}}
     .hero-media img{{width:160px;height:160px;object-fit:cover;border-radius:20px;box-shadow:0 12px 25px rgba(59,130,246,.2)}}
-    .hero-title h1{{margin:0;font-size:18px}} .hero-title h2{{margin:4px 0;font-size:34px;line-height:1.1}} .hero-title p{{margin:0;color:#334155;font-size:27px;font-weight:700}} .hero-title em{{display:block;font-style:normal;font-size:24px;color:#1e3a8a}}
+    .hero-title h1{{margin:0;font-size:13px;font-weight:600;letter-spacing:.03em;color:#475569}}
+    .hero-title h2{{margin:8px 0 4px;font-size:40px;line-height:1.05;font-weight:800;color:#0f172a}}
+    .hero-title p{{margin:0 0 4px;color:#1e293b;font-size:26px;font-weight:600;line-height:1.25}}
+    .hero-title em{{display:block;font-style:normal;font-size:16px;color:#64748b;font-weight:500;line-height:1.4}}
     .hero-stats{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}}
     .hero-stat{{border-radius:16px;background:rgba(255,255,255,.72);padding:10px 12px;font-size:13px;color:#475569}} .hero-stat strong{{display:block;color:#0f172a;font-size:16px}}
     .module-progress{{height:10px;border-radius:999px;background:#dbeafe;overflow:hidden}} .module-progress span{{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#4f46e5);transition:width .7s ease}}
@@ -6213,7 +6216,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
         <div class='module-hero'>
           <div class='hero-grid'>
             <div class='hero-media'><img src='{module_thumb}' alt='Module image'></div>
-            <div class='hero-title'><h1>{escape(subject_name)}</h1><h2>{escape(module_name)}</h2><p>{escape(module.module_name_si or module_name)}</p><em>{escape(module.module_name_en or module_name)}</em>
+            <div class='hero-title'><h1>{escape(subject_name)} • {escape(grade_label)} {'ශ්‍රේණිය' if is_si else 'Grade'}</h1><h2>{'මොඩියුලය' if is_si else 'Module'} {module.order_index or module.id}</h2><p>{escape(module.module_name_si or module_name)}</p><em>{escape(module.module_name_en or module_name)}</em>
               <div class='hero-stats'><div class='hero-stat'><strong>{progress_pct}%</strong>{'සම්පූර්ණ ප්‍රගතිය' if is_si else 'Overall progress'}</div><div class='hero-stat'><strong>{completed_count}/{total_count}</strong>{'අවසන් පාඩම්' if is_si else 'Completed lessons'}</div><div class='hero-stat'><strong>~{eta_hours}h</strong>{'ඇස්තමේන්තු කාලය' if is_si else 'Estimated time'}</div><div class='hero-stat'><strong>{streak_days} {'දින' if is_si else 'days'}</strong>{'නිරන්තර ඉගෙනීම' if is_si else 'Learning streak'}</div><div class='hero-stat'><strong>{mastery_level}</strong>{'දක්ෂතා මට්ටම' if is_si else 'Mastery level'}</div><div class='hero-stat'><strong>{total_completed_items}/{total_required_items or 1}</strong>{'අන්තර්ගත අවසන්' if is_si else 'Content complete'}</div></div>
               <div class='module-progress' style='margin-top:12px'><span style='width:{progress_pct}%'></span></div>
             </div>
