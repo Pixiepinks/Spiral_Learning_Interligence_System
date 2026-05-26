@@ -6769,6 +6769,92 @@ def student_video_interaction_answer():
     db.session.commit()
     return jsonify({"ok": True, "is_correct": bool(is_correct)})
 
+
+@app.route("/student/lesson/<int:lesson_id>", methods=["GET"])
+def student_lesson_page(lesson_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_lesson_engine_tables()
+
+    student = db.session.get(Student, student_id)
+    lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
+    if not lesson:
+        return "<h2>Lesson not found.</h2>", 404
+    chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+    if not chapter:
+        return "<h2>Chapter not found for lesson.</h2>", 404
+    module = db.session.get(SyllabusModule, chapter.module_id)
+    if not module:
+        return "<h2>Module not found for chapter.</h2>", 404
+    term = db.session.get(SyllabusTerm, module.term_id)
+
+    slides = LessonSlide.query.filter_by(lesson_id=lesson.id, is_active=True).order_by(LessonSlide.slide_order.asc(), LessonSlide.id.asc()).all()
+    if not slides:
+        return "<h2>No slides found for this lesson.</h2>", 404
+
+    progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=lesson.id).first()
+    if not progress:
+        progress = StudentLessonProgress(student_id=student.id, lesson_id=lesson.id, current_slide_order=slides[0].slide_order, completion_percent=0, is_completed=False, last_opened_at=datetime.utcnow())
+        db.session.add(progress)
+    else:
+        progress.last_opened_at = datetime.utcnow()
+    db.session.commit()
+
+    is_si = student.medium == "Sinhala"
+    lesson_title = lesson.lesson_title_si if is_si else lesson.lesson_title_en
+    chapter_name = chapter.chapter_name_si if is_si else chapter.chapter_name_en
+    module_name = module.module_name_si if is_si else module.module_name_en
+    term_name = (term.term_name_si if is_si else term.term_name_en) if term else ""
+    subject_name = term.subject if term else ""
+    context_label = " • ".join([x for x in [subject_name, term_name, module_name] if x])
+
+    slide_payload = [{"slide_order":s.slide_order, "slide_type":s.slide_type, "title":(s.title_si if is_si else s.title_en) or "", "content":(s.content_si if is_si else s.content_en) or "", "image_url":s.image_url or "", "video_url":s.video_url or ""} for s in slides]
+
+    inner_html = f"""
+    <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08)}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}</style>
+    <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='nextSlideBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section>
+    <script>
+      const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)}));
+      function normalizeYouTube(url) {{ if (!url) return ""; const v = String(url).trim(); return v.includes("youtube.com/embed/") ? v : (v.includes("watch?v=") ? v.replace("watch?v=", "embed/") : v); }}
+      async function saveProgress() {{ const current = slides[currentIndex]; const completion = Math.round(((currentIndex + 1) / slides.length) * 100); const isCompleted = currentIndex >= slides.length - 1; await fetch(`/student/lesson/${{lessonId}}/progress`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{current_slide_order:current.slide_order,completion_percent:completion,is_completed:isCompleted}})}}); }}
+      function renderSlide() {{ const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; if (current.slide_type === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<span class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}"></span>`).join(""); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("nextSlideBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
+      document.getElementById("nextSlideBtn").addEventListener("click", async ()=>{{ await saveProgress(); if (currentIndex < slides.length - 1) currentIndex++; renderSlide(); }});
+      renderSlide();
+    </script>"""
+    return render_student_dashboard_shell(inner_html, active_nav="my_subjects")
+
+
+@app.route("/student/lesson/<int:lesson_id>/progress", methods=["POST"])
+def student_lesson_progress_update(lesson_id: int):
+    student = student_session_required()
+    ensure_lesson_engine_tables()
+    lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
+    if not lesson:
+        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    current_slide_order = int(payload.get("current_slide_order") or 1)
+    completion_percent = max(0, min(100, float(payload.get("completion_percent") or 0)))
+    is_completed = bool(payload.get("is_completed"))
+
+    progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=lesson.id).first()
+    if not progress:
+        progress = StudentLessonProgress(student_id=student.id, lesson_id=lesson.id)
+        db.session.add(progress)
+
+    progress.current_slide_order = current_slide_order
+    progress.completion_percent = completion_percent
+    progress.is_completed = is_completed
+    progress.last_opened_at = datetime.utcnow()
+    progress.completed_at = datetime.utcnow() if is_completed else None
+    if is_completed:
+        progress.completion_percent = 100
+
+    db.session.commit()
+    return jsonify({"ok": True, "completion_percent": progress.completion_percent, "is_completed": progress.is_completed})
+
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
 def admin_edit_school(school_id: int):
     admin_redirect = admin_session_required()
