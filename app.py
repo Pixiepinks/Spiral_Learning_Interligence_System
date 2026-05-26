@@ -1150,6 +1150,60 @@ class SyllabusChapter(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+
+
+class Lesson(db.Model):
+    __tablename__ = "lesson"
+
+    id = db.Column(db.Integer, primary_key=True)
+    chapter_id = db.Column(db.Integer, nullable=False)
+    lesson_order = db.Column(db.Integer, nullable=False)
+    lesson_title_en = db.Column(db.String(200), nullable=False)
+    lesson_title_si = db.Column(db.String(200), nullable=False)
+    lesson_type = db.Column(db.String(50), nullable=False, default="standard")
+    thumbnail_url = db.Column(db.Text, nullable=True)
+    estimated_minutes = db.Column(db.Integer, nullable=False, default=10)
+    xp_reward = db.Column(db.Integer, nullable=False, default=10)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class LessonSlide(db.Model):
+    __tablename__ = "lesson_slide"
+
+    id = db.Column(db.Integer, primary_key=True)
+    lesson_id = db.Column(db.Integer, nullable=False)
+    slide_order = db.Column(db.Integer, nullable=False)
+    slide_type = db.Column(db.String(50), nullable=False, default="explanation")
+    title_en = db.Column(db.String(200), nullable=True)
+    title_si = db.Column(db.String(200), nullable=True)
+    content_en = db.Column(db.Text, nullable=True)
+    content_si = db.Column(db.Text, nullable=True)
+    image_url = db.Column(db.Text, nullable=True)
+    video_url = db.Column(db.Text, nullable=True)
+    audio_url = db.Column(db.Text, nullable=True)
+    activity_json = db.Column(db.Text, nullable=True)
+    xp_reward = db.Column(db.Integer, nullable=False, default=10)
+    is_required = db.Column(db.Boolean, nullable=False, default=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentLessonProgress(db.Model):
+    __tablename__ = "student_lesson_progress"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    lesson_id = db.Column(db.Integer, nullable=False)
+    current_slide_order = db.Column(db.Integer, nullable=False, default=1)
+    completion_percent = db.Column(db.Float, nullable=False, default=0)
+    is_completed = db.Column(db.Boolean, nullable=False, default=False)
+    last_opened_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class ChapterLearningContent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chapter_id = db.Column(db.Integer, nullable=False)
@@ -3259,6 +3313,75 @@ def ensure_chapter_learning_tables() -> None:
     db.session.commit()
 
 
+
+
+def ensure_lesson_engine_tables() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS lesson (
+                id SERIAL PRIMARY KEY,
+                chapter_id INTEGER NOT NULL,
+                lesson_order INTEGER NOT NULL,
+                lesson_title_en VARCHAR(200) NOT NULL,
+                lesson_title_si VARCHAR(200) NOT NULL,
+                lesson_type VARCHAR(50) NOT NULL DEFAULT 'standard',
+                thumbnail_url TEXT,
+                estimated_minutes INTEGER NOT NULL DEFAULT 10,
+                xp_reward INTEGER NOT NULL DEFAULT 10,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_slide (
+                id SERIAL PRIMARY KEY,
+                lesson_id INTEGER NOT NULL,
+                slide_order INTEGER NOT NULL,
+                slide_type VARCHAR(50) NOT NULL DEFAULT 'explanation',
+                title_en VARCHAR(200),
+                title_si VARCHAR(200),
+                content_en TEXT,
+                content_si TEXT,
+                image_url TEXT,
+                video_url TEXT,
+                audio_url TEXT,
+                activity_json TEXT,
+                xp_reward INTEGER NOT NULL DEFAULT 10,
+                is_required BOOLEAN NOT NULL DEFAULT TRUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_lesson_progress (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                lesson_id INTEGER NOT NULL,
+                current_slide_order INTEGER NOT NULL DEFAULT 1,
+                completion_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
+                is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+                last_opened_at TIMESTAMP NULL,
+                completed_at TIMESTAMP NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_chapter_order ON lesson (chapter_id, lesson_order)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_lesson_order ON lesson_slide (lesson_id, slide_order)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_lesson_progress_lookup ON student_lesson_progress (student_id, lesson_id)"))
+    db.session.commit()
+
 def _ordered_chapters_for_student(student: Student):
     return (
         db.session.query(SyllabusChapter, SyllabusModule, SyllabusTerm)
@@ -3316,6 +3439,7 @@ def admin_chapter_content(chapter_id: int):
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin_login"))
     ensure_chapter_learning_tables()
+    ensure_lesson_engine_tables()
     chapter = db.session.get(SyllabusChapter, chapter_id)
     if not chapter:
         return "<h2>Chapter not found</h2>", 404
@@ -6279,6 +6403,7 @@ def student_chapter_page(chapter_id: int):
     if not student_id:
         return redirect(url_for("login"))
     ensure_chapter_learning_tables()
+    ensure_lesson_engine_tables()
     student = db.session.get(Student, student_id)
     progress = StudentChapterProgress.query.filter_by(student_id=student.id, chapter_id=chapter_id).first()
     if not progress or progress.status == "locked":
@@ -7882,6 +8007,17 @@ def update_video_interaction_db():
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Video interaction DB update failed: {exc}"}), 500
+
+
+
+@app.route("/update-lesson-engine-db", methods=["GET"])
+def update_lesson_engine_db():
+    try:
+        ensure_lesson_engine_tables()
+        return jsonify({"success": True, "message": "Lesson engine tables ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Lesson engine DB update failed: {exc}"}), 500
 
 @app.route("/update-chapter-learning-db", methods=["GET"])
 def update_chapter_learning_db():
