@@ -6937,15 +6937,37 @@ def admin_lesson_builder_new():
         db.session.commit()
         return redirect("/admin/lesson-builder")
 
+    active_subjects = SubjectMaster.query.filter_by(is_active=True).order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
+    all_terms = SyllabusTerm.query.order_by(SyllabusTerm.grade.asc(), SyllabusTerm.term_number.asc(), SyllabusTerm.id.asc()).all()
+    all_modules = SyllabusModule.query.order_by(SyllabusModule.term_id.asc(), SyllabusModule.module_order.asc(), SyllabusModule.id.asc()).all()
+    all_chapters = SyllabusChapter.query.filter_by(is_active=True).order_by(SyllabusChapter.module_id.asc(), SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).all()
+
+    subject_options = "".join(
+        f"<option value='{s.id}' data-grade='{escape(s.grade or '')}' data-keys='{escape('|'.join([k.lower() for k in [s.subject_code, s.subject_name_en, s.subject_name_si] if k]))}'>{escape(s.subject_name_en)} ({escape(s.subject_code or '-')})</option>"
+        for s in active_subjects
+    )
+    term_options = "".join(
+        f"<option value='{t.id}' data-grade='{escape(t.grade or '')}' data-subject='{escape((t.subject or '').lower())}'>Term {t.term_number} - {escape(t.term_name_en)}</option>"
+        for t in all_terms
+    )
+    module_options = "".join(
+        f"<option value='{m.id}' data-term-id='{m.term_id}'>M{m.module_order} - {escape(m.module_name_en)}</option>"
+        for m in all_modules
+    )
+    chapter_options = "".join(
+        f"<option value='{c.id}' data-module-id='{c.module_id}'>C{c.chapter_order} - {escape(c.chapter_name_en)}</option>"
+        for c in all_chapters
+    )
+
     return f"""
     <h1>Add Lesson</h1>
     <p><a href='/admin/lesson-builder'>Back to Lesson List</a></p>
     <form method='post'>
-      <label>Grade <select name='grade' required>{grade_options_html('')}</select></label><br><br>
-      <label>Subject <select name='subject_id' required><option value=''>Select subject</option></select></label><br><br>
-      <label>Term <select name='term_id' required><option value=''>Select term</option></select></label><br><br>
-      <label>Module <select name='module_id' required><option value=''>Select module</option></select></label><br><br>
-      <label>Chapter <select name='chapter_id' required><option value=''>Select chapter</option></select></label><br><br>
+      <label>Grade <select name='grade' id='lesson-grade' required><option value=''>Select grade</option>{grade_options_html('')}</select></label><br><br>
+      <label>Subject <select name='subject_id' id='lesson-subject' required><option value=''>Select subject</option>{subject_options}</select></label><br><br>
+      <label>Term <select name='term_id' id='lesson-term' required><option value=''>Select term</option>{term_options}</select></label><br><br>
+      <label>Module <select name='module_id' id='lesson-module' required><option value=''>Select module</option>{module_options}</select></label><br><br>
+      <label>Chapter <select name='chapter_id' id='lesson-chapter' required><option value=''>Select chapter</option>{chapter_options}</select></label><br><br>
       <label>Lesson Order <input type='number' name='lesson_order' value='1' min='1' required></label><br><br>
       <label>Lesson Title (EN) <input type='text' name='lesson_title_en' required></label><br><br>
       <label>Lesson Title (SI) <input type='text' name='lesson_title_si' required></label><br><br>
@@ -6956,7 +6978,70 @@ def admin_lesson_builder_new():
       <label><input type='checkbox' name='is_active' value='1' checked> Is Active</label><br><br>
       <button type='submit'>Save Lesson</button>
     </form>
-    {admin_syllabus_form_dependency_script()}
+    <script>
+      (function () {{
+        const gradeEl = document.getElementById('lesson-grade');
+        const subjectEl = document.getElementById('lesson-subject');
+        const termEl = document.getElementById('lesson-term');
+        const moduleEl = document.getElementById('lesson-module');
+        const chapterEl = document.getElementById('lesson-chapter');
+        if (!gradeEl || !subjectEl || !termEl || !moduleEl || !chapterEl) return;
+
+        const optionsFor = (el) => Array.from(el.querySelectorAll('option')).filter(opt => opt.value);
+        const subjectOptions = optionsFor(subjectEl);
+        const termOptions = optionsFor(termEl);
+        const moduleOptions = optionsFor(moduleEl);
+        const chapterOptions = optionsFor(chapterEl);
+
+        const showOptions = (el, options, predicate, placeholder) => {{
+          const current = el.value;
+          el.innerHTML = `<option value="">${{placeholder}}</option>`;
+          let keepCurrent = false;
+          options.forEach(opt => {{
+            if (!predicate(opt)) return;
+            el.appendChild(opt);
+            if (opt.value === current) keepCurrent = true;
+          }});
+          if (!keepCurrent) el.value = '';
+        }};
+
+        const filterSubjects = () => {{
+          const grade = (gradeEl.value || '').trim();
+          showOptions(subjectEl, subjectOptions, (opt) => !grade || opt.dataset.grade === grade, 'Select subject');
+        }};
+
+        const filterTerms = () => {{
+          const grade = (gradeEl.value || '').trim();
+          const selectedSubject = subjectEl.options[subjectEl.selectedIndex];
+          const keys = ((selectedSubject?.dataset?.keys) || '').split('|').filter(Boolean);
+          showOptions(termEl, termOptions, (opt) => {{
+            if (grade && opt.dataset.grade !== grade) return false;
+            if (keys.length === 0) return true;
+            return keys.includes((opt.dataset.subject || '').toLowerCase());
+          }}, 'Select term');
+        }};
+
+        const filterModules = () => {{
+          const termId = termEl.value;
+          showOptions(moduleEl, moduleOptions, (opt) => !termId || opt.dataset.termId === termId, 'Select module');
+        }};
+
+        const filterChapters = () => {{
+          const moduleId = moduleEl.value;
+          showOptions(chapterEl, chapterOptions, (opt) => !moduleId || opt.dataset.moduleId === moduleId, 'Select chapter');
+        }};
+
+        gradeEl.addEventListener('change', () => {{ filterSubjects(); filterTerms(); filterModules(); filterChapters(); }});
+        subjectEl.addEventListener('change', () => {{ filterTerms(); filterModules(); filterChapters(); }});
+        termEl.addEventListener('change', () => {{ filterModules(); filterChapters(); }});
+        moduleEl.addEventListener('change', filterChapters);
+
+        filterSubjects();
+        filterTerms();
+        filterModules();
+        filterChapters();
+      }})();
+    </script>
     """
 
 
