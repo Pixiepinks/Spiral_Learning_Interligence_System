@@ -6254,10 +6254,20 @@ def student_subject_module_page(subject_id: int, module_id: int):
         chapter_xp_reward = int(getattr(ch, "xp_reward", None) or 10)
         total_estimated_minutes += chapter_estimated_minutes
         locked = status_key == "locked"
+        first_lesson = (
+            Lesson.query
+            .filter_by(chapter_id=ch.id, is_active=True)
+            .order_by(Lesson.lesson_order.asc())
+            .first()
+        )
         chapter_btn = (
             f"<button class='chapter-cta locked' type='button' aria-label='Locked'>🔒</button>"
             if locked else
-            f"<a class='chapter-cta' href='/student/chapter/{ch.id}'>{'ඉදිරියට යන්න' if status_key == 'in-progress' else ('නැවත බලන්න' if status_key == 'completed' else ('Continue' if status_key == 'in-progress' else 'Start'))}</a>"
+            (
+                f"<a class='chapter-cta' href='{url_for('student_lesson_page', lesson_id=first_lesson.id)}'>{'ඉදිරියට යන්න' if status_key == 'in-progress' else ('නැවත බලන්න' if status_key == 'completed' else ('Continue' if status_key == 'in-progress' else 'Start'))}</a>"
+                if first_lesson else
+                "<button class='chapter-cta' type='button' disabled>Coming Soon</button>"
+            )
         )
         chapter_cards.append(f"""
         <article class='module-chapter-card {"locked-card" if locked else ""}'>
