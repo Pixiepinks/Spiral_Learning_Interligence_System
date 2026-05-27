@@ -7519,7 +7519,9 @@ def student_lesson_page(lesson_id: int):
 @app.route("/student/lesson/<int:lesson_id>/finish", methods=["POST"])
 def student_lesson_finish(lesson_id: int):
     try:
-        student = student_session_required()
+        student = get_current_student_for_json()
+        if not student:
+            return jsonify({"success": False, "error": "Student session expired"}), 401
         ensure_lesson_engine_tables()
         print("FINISH LESSON:", lesson_id, "student:", student.id)
         lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
@@ -7577,11 +7579,13 @@ def student_lesson_finish(lesson_id: int):
 
 @app.route("/student/lesson/<int:lesson_id>/progress", methods=["POST"])
 def student_lesson_progress_update(lesson_id: int):
-    student = student_session_required()
+    student = get_current_student_for_json()
+    if not student:
+        return jsonify({"success": False, "error": "Student session expired"}), 401
     ensure_lesson_engine_tables()
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
-        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+        return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
 
     payload = request.get_json(silent=True) or {}
     current_slide_order = int(payload.get("current_slide_order") or 1)
@@ -7620,11 +7624,13 @@ def student_lesson_progress_update(lesson_id: int):
 
 @app.route("/student/lesson/<int:lesson_id>/answer", methods=["POST"])
 def student_lesson_answer_submit(lesson_id: int):
-    student = student_session_required()
+    student = get_current_student_for_json()
+    if not student:
+        return jsonify({"success": False, "error": "Student session expired"}), 401
     ensure_lesson_engine_tables()
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
-        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+        return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
     payload = request.get_json(silent=True) or {}
     slide_id = int(payload.get("slide_id") or 0)
     selected_answer = (payload.get("selected_answer") or "").strip()
@@ -7632,7 +7638,7 @@ def student_lesson_answer_submit(lesson_id: int):
     activity_json = payload.get("activity_json")
     time_spent_seconds = max(0, int(payload.get("time_spent_seconds") or 0))
     if not slide_id or not selected_answer:
-        return jsonify({"ok": False, "error": "Invalid answer payload"}), 400
+        return jsonify({"success": False, "ok": False, "error": "Invalid answer payload"}), 400
     db.session.add(StudentLessonAnswer(lesson_id=lesson.id, slide_id=slide_id, student_id=student.id, selected_answer=selected_answer, is_correct=is_correct, answered_at=datetime.utcnow()))
     mastery = update_student_skill_mastery(student.id, lesson.id, slide_id, is_correct, activity_json)
     wrong_attempts_on_slide = StudentLessonAnswer.query.filter_by(student_id=student.id, lesson_id=lesson.id, slide_id=slide_id, is_correct=False).count()
@@ -7671,16 +7677,18 @@ def student_lesson_answer_submit(lesson_id: int):
 
 @app.route("/student/lesson/<int:lesson_id>/ai-assist", methods=["POST"])
 def student_lesson_ai_assist(lesson_id: int):
-    student = student_session_required()
+    student = get_current_student_for_json()
+    if not student:
+        return jsonify({"success": False, "error": "Student session expired"}), 401
     ensure_lesson_engine_tables()
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
-        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+        return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
     payload = request.get_json(silent=True) or {}
     slide_id = int(payload.get("slide_id") or 0)
     assistance_type = str(payload.get("assistance_type") or "hint").strip().lower() or "hint"
     if not slide_id:
-        return jsonify({"ok": False, "error": "Missing slide_id"}), 400
+        return jsonify({"success": False, "ok": False, "error": "Missing slide_id"}), 400
     db.session.add(StudentAiAssistanceLog(student_id=student.id, lesson_id=lesson.id, slide_id=slide_id, assistance_type=assistance_type, triggered_reason="manual_request", created_at=datetime.utcnow()))
     db.session.commit()
     content_map = {
@@ -7691,6 +7699,14 @@ def student_lesson_ai_assist(lesson_id: int):
     }
     return jsonify({"ok": True, "text": content_map.get(assistance_type, content_map["hint"])})
 
+
+
+
+def get_current_student_for_json():
+    student_id = session.get("student_id")
+    if not student_id:
+        return None
+    return db.session.get(Student, student_id)
 
 def _parse_bool_form(value: str | None, default: bool = False) -> bool:
     if value is None:
