@@ -3775,6 +3775,16 @@ def ensure_lesson_engine_tables() -> None:
             """
         )
     )
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_en TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_si TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS image_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS video_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS audio_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS activity_json TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 10"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS is_required BOOLEAN NOT NULL DEFAULT TRUE"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"))
     db.session.execute(
         db.text(
             """
