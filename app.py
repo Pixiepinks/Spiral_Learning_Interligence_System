@@ -1505,6 +1505,25 @@ class StudentTopicProgress(db.Model):
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class StudentRevisionQueue(db.Model):
+    __tablename__ = "student_revision_queue"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, index=True)
+    subject_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=True)
+    lesson_id = db.Column(db.Integer, nullable=True)
+    skill_code = db.Column(db.String(120), nullable=False)
+    revision_reason = db.Column(db.String(120), nullable=False)
+    priority_score = db.Column(db.Float, nullable=False, default=0)
+    due_date = db.Column(db.Date, nullable=False, index=True)
+    is_completed = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    interval_days = db.Column(db.Integer, nullable=False, default=1)
+    successful_revisions = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
 class ParentNotification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, nullable=False)
@@ -2814,6 +2833,11 @@ def student_dashboard():
 
     recommendations = get_student_recommendations(student.id)
     weak_topics_for_dashboard = get_student_weak_topics(student.id)
+    generate_student_revision_queue(student.id)
+    revision_due_items = StudentRevisionQueue.query.filter_by(student_id=student.id, is_completed=False).filter(StudentRevisionQueue.due_date <= date.today()).order_by(StudentRevisionQueue.priority_score.desc()).limit(50).all()
+    revision_due_count = len(revision_due_items)
+    revision_weak_topic = revision_due_items[0].skill_code if revision_due_items else (weak_topics_for_dashboard[0].get("topic_en") if weak_topics_for_dashboard else "None")
+    revision_estimated_minutes = revision_due_count * 8
     recommended_dynamic_questions = get_dynamic_practice_questions(student.id, limit=10)
     class_tests = ClassTest.query.filter_by(class_id=student.class_id).order_by(ClassTest.test_date.asc(), ClassTest.id.asc()).all() if student.class_id else []
     upcoming_tests = [item for item in class_tests if item.test_date >= date.today()]
@@ -2931,7 +2955,7 @@ def student_dashboard():
     <main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn header-action-btn' type='button' id='headerSearchBtn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn header-action-btn notification-btn' type='button' id='notificationBtn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17H5.5a1.5 1.5 0 0 1-1.2-2.4l1.1-1.4A6.7 6.7 0 0 0 6.8 9V8a5.2 5.2 0 1 1 10.4 0v1a6.7 6.7 0 0 0 1.4 4.2l1.1 1.4a1.5 1.5 0 0 1-1.2 2.4H15'></path><path d='M10 17a2 2 0 1 0 4 0'></path></svg><span class='notification-badge'>5</span></button><div class='notification-dropdown' id='notificationDropdown'><div>{'නව දැනුම්දීම් නොමැත' if language=='si' else 'No new notifications'}</div></div><button class='header-icon-btn header-action-btn' type='button' id='headerMessageBtn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M4 6h16v9a2 2 0 0 1-2 2H9l-5 4V8a2 2 0 0 1 2-2z'></path></svg></button><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img'></div><div class='student-menu'><button class='student-menu-btn student-mini-profile' type='button' id='studentMenuBtn' aria-haspopup='true' aria-expanded='false'><span class='header-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='header-avatar'>" if profile_image_url else avatar_initials}</span><span class='student-menu-copy'><strong>{escape(student.name)}</strong><small>{f"{escape(str(student.grade))} ශ්‍රේණියේ ශිෂ්‍යයා" if language=='si' else f"Grade {escape(str(student.grade))} Student"}</small></span><svg viewBox='0 0 24 24' class='menu-caret'><path d='m6 9 6 6 6-6'></path></svg></button><div class='student-dropdown' id='studentDropdown'><a href='/student/profile'>{'මගේ පැතිකඩ' if language=='si' else 'My Profile'}</a><a href='/student/account-settings'>{'ගිණුම් සැකසුම්' if language=='si' else 'Account Settings'}</a><button type='button' id='changePhotoMenuBtn'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button><a href='/logout'>{'ඉවත් වන්න' if language=='si' else 'Logout'}</a></div></div></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button type='button' id='changePhotoBtn' class='change-photo-link' onclick='window.openStudentPhotoModal && window.openStudentPhotoModal();'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div></div>
     <div id='photoUploadModal' class='photo-modal' aria-hidden='true'><div class='photo-modal-card'><button type='button' id='closePhotoModal' class='photo-modal-close' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();' aria-label='Close'>×</button><h3>{'පැතිකඩ ඡායාරූපය යාවත්කාලීන කරන්න' if language=='si' else 'Update Profile Photo'}</h3><p class='photo-modal-help'>{'ඔබේ පැතිකඩට හොඳින් ගැළපෙන පැහැදිලි ඡායාරූපයක් තෝරන්න.' if language=='si' else 'Choose a clear, friendly photo that fits your learning profile.'}</p><form id='photoForm' method='post' action='/student/profile-photo' enctype='multipart/form-data'><label for='profilePhotoInput' class='upload-picker'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8'><circle cx='12' cy='8' r='4'></circle><path d='M5 20c.4-3.2 3.1-5.5 7-5.5s6.6 2.3 7 5.5'></path></svg><strong>Choose a profile photo</strong><span>පැතිකඩ ඡායාරූපයක් තෝරන්න</span><small>JPG, PNG, WEBP up to 2MB</small></label><input id='profilePhotoInput' name='profile_photo' type='file' accept='image/jpeg,image/png,image/webp'><div id='filePreviewWrap' class='image-preview'><img id='filePreview' alt='Profile photo preview'></div><input type='hidden' id='cameraImageData' name='camera_image_data'><video id='cameraStream' autoplay playsinline></video><canvas id='cameraCanvas' style='display:none'></canvas><img id='cameraPreview' alt='Preview'><div class='photo-modal-actions'><button type='submit' class='photo-btn primary'>{'සුරකින්න' if language=='si' else 'Save Photo'}</button><button type='button' id='startCameraBtn' class='photo-btn secondary'>{'කැමරාව භාවිතා කරන්න' if language=='si' else 'Use Camera'}</button><button type='button' id='captureBtn' class='photo-btn secondary'>{'ඡායාරූපය ලබාගන්න' if language=='si' else 'Capture'}</button><button type='button' class='photo-btn ghost' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();'>{'අවලංගු කරන්න' if language=='si' else 'Cancel'}</button></div></form></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
-    <div class='dashboard-content-inner'><section class='dashboard-main-grid'><div class='dashboard-left-column'><section class='grid'><div class='card kpi-card kpi-blue'><div class='kpi-title'>{text['xp']}</div><div class='kpi-value'>{student.xp}</div><div class='kpi-subtitle'>{'Keep growing!' if language=='en' else 'ඉදිරියටම යමු!'}</div><div class='kpi-icon'>⭐</div></div><div class='card kpi-card kpi-gold'><div class='kpi-title'>{text['level']}</div><div class='kpi-value'>{student.level}</div><div class='kpi-subtitle'>{'Rise to new heights!' if language=='en' else 'ඉහළ මට්ටම් කරා යමු!'}</div><div class='kpi-icon'>🏆</div></div><div class='card kpi-card kpi-pink'><div class='kpi-title'>{text['current_streak']}</div><div class='kpi-value'>{student.current_streak or 0}</div><div class='kpi-subtitle'>{'Stay consistent daily!' if language=='en' else 'දිනපතා අඛණ්ඩව ඉගෙනගන්න!'}</div><div class='kpi-icon'>🔥</div></div><div class='card kpi-card kpi-green'><div class='kpi-title'>{text['latest_result']}</div><div class='kpi-value'>{latest_result.score if latest_result else 0}%</div><div class='kpi-subtitle'>{'You are improving!' if language=='en' else 'ඔබ ප්‍රගතිය කරමින්!'}</div><div class='kpi-icon'>🎯</div></div><div class='card kpi-card kpi-orange'><div class='kpi-title'>{text['progress_to_next_level']}</div><div class='kpi-value'>{student.xp % 100}%</div><div class='kpi-subtitle'>{'Next milestone ahead!' if language=='en' else 'ඊළඟ ඉලක්කය ඉදිරියේ!'}</div><div class='kpi-icon'>📈</div></div></section>
+    <div class='dashboard-content-inner'><section class='dashboard-main-grid'><div class='dashboard-left-column'><section class='grid'><div class='card kpi-card kpi-blue'><div class='kpi-title'>{text['xp']}</div><div class='kpi-value'>{student.xp}</div><div class='kpi-subtitle'>{'Keep growing!' if language=='en' else 'ඉදිරියටම යමු!'}</div><div class='kpi-icon'>⭐</div></div><div class='card kpi-card kpi-gold'><div class='kpi-title'>{text['level']}</div><div class='kpi-value'>{student.level}</div><div class='kpi-subtitle'>{'Rise to new heights!' if language=='en' else 'ඉහළ මට්ටම් කරා යමු!'}</div><div class='kpi-icon'>🏆</div></div><div class='card kpi-card kpi-pink'><div class='kpi-title'>{text['current_streak']}</div><div class='kpi-value'>{student.current_streak or 0}</div><div class='kpi-subtitle'>{'Stay consistent daily!' if language=='en' else 'දිනපතා අඛණ්ඩව ඉගෙනගන්න!'}</div><div class='kpi-icon'>🔥</div></div><div class='card kpi-card kpi-green'><div class='kpi-title'>{text['latest_result']}</div><div class='kpi-value'>{latest_result.score if latest_result else 0}%</div><div class='kpi-subtitle'>{'You are improving!' if language=='en' else 'ඔබ ප්‍රගතිය කරමින්!'}</div><div class='kpi-icon'>🎯</div></div><div class='card kpi-card kpi-orange'><div class='kpi-title'>{text['progress_to_next_level']}</div><div class='kpi-value'>{student.xp % 100}%</div><div class='kpi-subtitle'>{'Next milestone ahead!' if language=='en' else 'ඊළඟ ඉලක්කය ඉදිරියේ!'}</div><div class='kpi-icon'>📈</div></div><div class='card kpi-card kpi-blue'><div class='kpi-title'>{'Revision Needed' if language=='en' else 'නැවත අධ්‍යයනය අවශ්‍යයි'}</div><div class='kpi-value'>{revision_due_count}</div><div class='kpi-subtitle'>{escape(str(revision_weak_topic))} • ~{revision_estimated_minutes} min</div><div class='kpi-icon'>🧠</div></div></section>
     <section class='continue-learning-section'><div class='continue-learning-header'><div class='continue-learning-title-wrap'><h3 class='continue-learning-title'>{'ඉදිරියට ඉගෙන ගන්න' if language=='si' else 'Continue Learning'}</h3><p class='continue-learning-subtitle'>{'ඔබ නතර කළ තැනින් නැවත ආරම්භ කරන්න' if language=='si' else 'Pick up where you left off'}</p></div><button type='button' class='continue-learning-view-all'>{'සියල්ල බලන්න' if language=='si' else 'View All'}</button></div><div class='continue-learning-grid'>{continue_html}</div></section><section class='student-insights-row'><div class='insight-card subjects-overview-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>විෂය සාරාංශය</h3><p class='insight-card-subtitle'>මෙම වාරයේ ක්‍රියාකාරීත්වය</p></div></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#1d4ed8'>⚛</span><span class='subject-name'>Physics</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:85%;background:#22c55e'></span></span><span class='subject-percent'>85%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#2563eb'>∑</span><span class='subject-name'>Mathematics</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:78%;background:#34d399'></span></span><span class='subject-percent'>78%</span></div><div class='subject-row'><span class='subject-icon' style='background:#fee2e2;color:#dc2626'>🧪</span><span class='subject-name'>Chemistry</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:72%;background:#f97316'></span></span><span class='subject-percent'>72%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dcfce7;color:#16a34a'>🧬</span><span class='subject-name'>Biology</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:82%;background:#22c55e'></span></span><span class='subject-percent'>82%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ffedd5;color:#ea580c'>A</span><span class='subject-name'>English</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:74%;background:#fb923c'></span></span><span class='subject-percent'>74%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ede9fe;color:#7c3aed'>⌨</span><span class='subject-name'>ICT</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:80%;background:#3b82f6'></span></span><span class='subject-percent'>80%</span></div><a class='subject-report-link' href='/student/results'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='insight-card learning-analytics-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>ඉගෙනුම් විශ්ලේෂණය</h3><p class='insight-card-subtitle'>ඔබේ ඉගෙනුම් ක්‍රියාකාරකම්</p></div><span class='analytics-pill'>මෙම සතිය</span></div><div class='analytics-chart-wrap'><svg class='analytics-chart' viewBox='0 0 520 230' role='img' aria-label='Learning analytics chart'><defs><linearGradient id='analyticsAreaGradient' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#60a5fa' stop-opacity='.36'></stop><stop offset='100%' stop-color='#60a5fa' stop-opacity='.06'></stop></linearGradient></defs><line class='grid-line' x1='44' y1='26' x2='492' y2='26'></line><line class='grid-line' x1='44' y1='69' x2='492' y2='69'></line><line class='grid-line' x1='44' y1='112' x2='492' y2='112'></line><line class='grid-line' x1='44' y1='155' x2='492' y2='155'></line><line class='grid-line' x1='44' y1='198' x2='492' y2='198'></line><text class='axis-label' x='18' y='202'>0h</text><text class='axis-label' x='18' y='159'>2h</text><text class='axis-label' x='18' y='116'>4h</text><text class='axis-label' x='18' y='73'>6h</text><text class='axis-label' x='18' y='30'>8h</text><path class='area-fill' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126 L492 198 L44 198 Z'></path><path class='line-path' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126'></path><line class='focus-line' x1='374' y1='50' x2='374' y2='198'></line><text class='focus-text' x='354' y='42'>6h 35m</text><circle class='point' cx='74' cy='145' r='3.8'></circle><circle class='point' cx='104' cy='126' r='3.8'></circle><circle class='point' cx='134' cy='129' r='3.8'></circle><circle class='point' cx='164' cy='122' r='3.8'></circle><circle class='point' cx='194' cy='96' r='3.8'></circle><circle class='point' cx='224' cy='102' r='3.8'></circle><circle class='point' cx='254' cy='126' r='3.8'></circle><circle class='point' cx='284' cy='132' r='3.8'></circle><circle class='point' cx='314' cy='116' r='3.8'></circle><circle class='point' cx='344' cy='82' r='3.8'></circle><circle class='point' cx='374' cy='72' r='5.2'></circle><circle class='point' cx='404' cy='83' r='3.8'></circle><circle class='point' cx='434' cy='102' r='3.8'></circle><circle class='point' cx='464' cy='98' r='3.8'></circle><circle class='point' cx='492' cy='126' r='3.8'></circle><text class='axis-label' x='64' y='216'>Mon</text><text class='axis-label' x='138' y='216'>Tue</text><text class='axis-label' x='210' y='216'>Wed</text><text class='axis-label' x='282' y='216'>Thu</text><text class='axis-label' x='360' y='216'>Fri</text><text class='axis-label' x='430' y='216'>Sat</text><text class='axis-label' x='486' y='216' text-anchor='end'>Sun</text></svg></div><div class='learning-stat-grid'><div class='learning-stat-chip'><span class='learning-stat-icon'>🕒</span><span class='learning-stat-copy'><small>Study Time</small><strong>26h 45m</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>📖</span><span class='learning-stat-copy'><small>Lessons Completed</small><strong>28</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>✅</span><span class='learning-stat-copy'><small>Quizzes Taken</small><strong>15</strong></span></div></div></div></section><div class='card'><h3>{text['topic_trend']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['last_score']}</th><th>{text['previous_score']}</th><th>{text['trend']}</th></tr></thead><tbody>{''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4'>No topic trend data available.</td></tr>"}</tbody></table></div><div class='card' style='margin-top:10px'><h3>{text['result_history']}</h3><table><thead><tr><th>{text['date']}</th><th>{text['score']}</th><th>{text['level']}</th><th>{text['correct_answers']}</th><th>{text['medium']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='5'>No results found.</td></tr>"}</tbody></table></div></div><aside class='dashboard-right-column'><div class='schedule-card today-schedule-card'><div class='schedule-card-header'><div><h3 class='schedule-card-title'>{'අද දින කාලසටහන' if language=='si' else "Today's Schedule"}</h3><p class='schedule-card-subtitle'>{datetime.now().strftime('%A, %d %b %Y')}</p></div><a class='schedule-view-link' href='/student/tests'>{'දිනදර්ශනය බලන්න' if language=='si' else 'View Calendar'}</a></div><ul class='schedule-list'><li class='schedule-item'><span class='schedule-dot' style='background:#2563eb'></span><div class='schedule-time'>08:00 AM</div><div class='schedule-icon schedule-icon-weekly'>📝</div><div><p class='schedule-content-title'>{'Weekly Test' if language=='en' else 'සතිපතා පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'Mathematics' if language=='en' else 'ගණිතය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#8b5cf6'></span><div class='schedule-time'>09:30 AM</div><div class='schedule-icon schedule-icon-recorded'>🎬</div><div><p class='schedule-content-title'>{'Recorded Lesson' if language=='en' else 'පටිගත පාඩම'}</p><p class='schedule-content-subtitle'>{'Science' if language=='en' else 'විද්‍යාව'}</p></div><button class='schedule-action' type='button'>{'Watch' if language=='en' else 'නරඹන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#10b981'></span><div class='schedule-time'>11:00 AM</div><div class='schedule-icon schedule-icon-live'>📡</div><div><p class='schedule-content-title'>{'Live Class' if language=='en' else 'සජීවී පන්තිය'}</p><p class='schedule-content-subtitle'>{'English' if language=='en' else 'ඉංග්‍රීසි'}</p></div><button class='schedule-action' type='button'>{'Join' if language=='en' else 'එකතු වන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#f59e0b'></span><div class='schedule-time'>02:00 PM</div><div class='schedule-icon schedule-icon-chapter'>📘</div><div><p class='schedule-content-title'>{'Chapter Test' if language=='en' else 'අධ්‍යාය පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'ICT' if language=='en' else 'තොරතුරු තාක්ෂණය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#ef4444'></span><div class='schedule-time'>04:00 PM</div><div class='schedule-icon schedule-icon-activity'>🎯</div><div><p class='schedule-content-title'>{'Activity' if language=='en' else 'ක්‍රියාකාරකම'}</p><p class='schedule-content-subtitle'>{'Sinhala' if language=='en' else 'සිංහල'}</p></div><button class='schedule-action' type='button'>{'Open' if language=='en' else 'විවෘත'}</button></li></ul></div><div class='progress-summary-card'><div class='progress-summary-header'><h3>ප්‍රගති සාරාංශය</h3><span class='progress-term-pill'>මෙම වාරය</span></div><div class='progress-donut-wrap'><div class='progress-donut'><div class='progress-donut-center'><strong>78%</strong><span>Overall</span></div></div><div class='progress-legend'><div class='progress-legend-row'><span class='progress-dot' style='background:#56c983'></span><span>Completed</span><strong>78%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#3b82f6'></span><span>In Progress</span><strong>15%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#d9dee7'></span><span>Not Started</span><strong>7%</strong></div></div></div><a class='progress-detail-link' href='/student/learning-path'>විස්තරාත්මක ප්‍රගතිය බලන්න</a></div>{recommended_practice_card}<div class='practice-summary-card'><div class='practice-summary-header'><div><h3>අවසන් අභ්‍යාස සාරාංශය</h3><p>ඔබේ අලුත්ම පුහුණු ක්‍රියාකාරකම්</p></div><span class='practice-summary-pill'>අලුත්ම 5</span></div><div class='practice-summary-list'>{practice_summary_rows if practice_summary_rows else "<div class='practice-summary-empty'>තවම අභ්‍යාස උත්සාහ නොමැත.</div>"}</div><a class='practice-summary-link' href='/student/learning-path'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='card'><h3>{text['topic_performance']}</h3><table><thead><tr><th>Topic</th><th>Correct/Total</th><th>%</th><th>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4'>No topic performance available.</td></tr>"}</tbody></table></div></aside></section></div></main></div>
     <script>
 (function () {{
@@ -3444,6 +3468,89 @@ def get_student_next_recommendation(student_id: int) -> dict[str, object]:
     return {}
 
 
+def ensure_revision_queue_tables() -> None:
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_revision_queue (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL,
+            subject_id INTEGER NULL,
+            module_id INTEGER NULL,
+            chapter_id INTEGER NULL,
+            lesson_id INTEGER NULL,
+            skill_code VARCHAR(120) NOT NULL,
+            revision_reason VARCHAR(120) NOT NULL,
+            priority_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+            due_date DATE NOT NULL,
+            is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+            interval_days INTEGER NOT NULL DEFAULT 1,
+            successful_revisions INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_revision_queue_student_due ON student_revision_queue(student_id, due_date)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_revision_queue_student_open ON student_revision_queue(student_id, is_completed, priority_score DESC)"))
+    db.session.commit()
+
+
+REVISION_SUCCESS_INTERVALS = [1, 3, 7, 14, 30]
+
+
+def _next_revision_interval(successful_revisions: int, is_correct: bool) -> tuple[int, int]:
+    if is_correct:
+        new_success_count = max(0, int(successful_revisions or 0)) + 1
+        index = min(len(REVISION_SUCCESS_INTERVALS) - 1, new_success_count - 1)
+        return REVISION_SUCCESS_INTERVALS[index], new_success_count
+    return 1, 0
+
+
+def generate_student_revision_queue(student_id: int) -> int:
+    ensure_revision_queue_tables()
+    now = datetime.utcnow()
+    stale_cutoff = now - timedelta(days=7)
+    mastery_rows = StudentSkillMastery.query.filter_by(student_id=student_id).all()
+    queued_count = 0
+    for mastery in mastery_rows:
+        reasons = []
+        priority = 0.0
+        score = float(mastery.mastery_score or 0)
+        if score < 60:
+            reasons.append('low_mastery')
+            priority += min(40, 60 - score)
+        if not mastery.last_answered_at or mastery.last_answered_at <= stale_cutoff:
+            reasons.append('inactive_7_days')
+            priority += 20
+        wrong_streak = StudentQuestionAttempt.query.join(Question, Question.id == StudentQuestionAttempt.question_id).filter(
+            StudentQuestionAttempt.student_id == student_id,
+            StudentQuestionAttempt.is_correct.is_(False),
+            Question.topic_en == mastery.skill_code,
+        ).order_by(StudentQuestionAttempt.created_at.desc()).limit(3).count()
+        if wrong_streak >= 2:
+            reasons.append('repeated_wrong_answers')
+            priority += 25
+        perf = StudentTopicProgress.query.filter_by(student_id=student_id, topic_en=mastery.skill_code).first()
+        if perf and float(perf.latest_score or 0) < 70:
+            reasons.append('low_quiz_accuracy')
+            priority += 20
+        if not reasons:
+            continue
+        existing = StudentRevisionQueue.query.filter_by(student_id=student_id, skill_code=mastery.skill_code, is_completed=False).first()
+        due = date.today()
+        if existing:
+            existing.revision_reason = ','.join(sorted(set(reasons)))
+            existing.priority_score = max(float(existing.priority_score or 0), priority)
+            existing.due_date = min(existing.due_date, due)
+            existing.subject_id = mastery.subject_id
+            existing.module_id = mastery.module_id
+            existing.chapter_id = mastery.chapter_id
+            existing.lesson_id = mastery.lesson_id
+        else:
+            db.session.add(StudentRevisionQueue(student_id=student_id, subject_id=mastery.subject_id, module_id=mastery.module_id, chapter_id=mastery.chapter_id, lesson_id=mastery.lesson_id, skill_code=mastery.skill_code, revision_reason=','.join(sorted(set(reasons))), priority_score=priority, due_date=due, is_completed=False, interval_days=1, successful_revisions=0))
+        queued_count += 1
+    db.session.commit()
+    return queued_count
+
+
 def ensure_chapter_learning_tables() -> None:
     db.session.execute(
         db.text(
@@ -3792,6 +3899,7 @@ def admin_chapter_content(chapter_id: int):
         return redirect(url_for("admin_login"))
     ensure_chapter_learning_tables()
     ensure_lesson_engine_tables()
+    ensure_revision_queue_tables()
     chapter = db.session.get(SyllabusChapter, chapter_id)
     if not chapter:
         return "<h2>Chapter not found</h2>", 404
@@ -10568,6 +10676,41 @@ def update_family_registration_db() -> tuple:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Family registration DB update failed: {exc}"}), 500
+
+
+@app.route("/student/revision-session", methods=["GET"])
+def student_revision_session():
+    if "student_id" not in session:
+        return redirect(url_for("student_login"))
+    ensure_revision_queue_tables()
+    student_id = int(session["student_id"])
+    generate_student_revision_queue(student_id)
+    queued = StudentRevisionQueue.query.filter_by(student_id=student_id, is_completed=False).filter(StudentRevisionQueue.due_date <= date.today()).order_by(StudentRevisionQueue.priority_score.desc(), StudentRevisionQueue.due_date.asc()).all()
+    if not queued:
+        return "<h2>No revision items due right now.</h2><p><a href='/student-dashboard'>Back to Dashboard</a></p>"
+    rows = []
+    for item in queued[:20]:
+        mastery = StudentSkillMastery.query.filter_by(student_id=student_id, skill_code=item.skill_code).first()
+        score = float(mastery.mastery_score or 0) if mastery else 0.0
+        is_correct = score >= 70
+        interval_days, success_count = _next_revision_interval(item.successful_revisions, is_correct)
+        if is_correct:
+            item.successful_revisions = success_count
+            item.interval_days = interval_days
+            item.due_date = date.today() + timedelta(days=interval_days)
+            item.priority_score = max(0.0, float(item.priority_score or 0) - 10)
+            if item.priority_score <= 0:
+                item.is_completed = True
+        else:
+            item.successful_revisions = 0
+            item.interval_days = interval_days
+            item.due_date = date.today() + timedelta(days=1)
+            item.priority_score = min(100.0, float(item.priority_score or 0) + 20)
+        if mastery:
+            mastery.status_en, mastery.status_si = mastery_status_labels(float(mastery.mastery_score or 0))
+        rows.append(f"<tr><td>{escape(item.skill_code)}</td><td>{escape(item.revision_reason)}</td><td>{int(item.priority_score)}</td><td>{item.due_date}</td></tr>")
+    db.session.commit()
+    return f"<!doctype html><html><body><h1>Revision Session</h1><p>Weakest skills prioritized first.</p><table border='1' cellpadding='6'><tr><th>Skill</th><th>Reason</th><th>Priority</th><th>Next Due</th></tr>{''.join(rows)}</table><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
 
 
 with app.app_context():
