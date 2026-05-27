@@ -7896,7 +7896,7 @@ def admin_lesson_builder_new():
     """
 
 
-@app.route("/admin/lesson-builder/<int:lesson_id>/slides", methods=["GET"])
+@app.route("/admin/lesson-builder/<int:lesson_id>/slides", methods=["GET"], endpoint="admin_lesson_slides")
 def admin_lesson_builder_slides(lesson_id: int):
     admin_redirect = admin_session_required()
     if admin_redirect:
@@ -7908,7 +7908,7 @@ def admin_lesson_builder_slides(lesson_id: int):
     chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
     slides = LessonSlide.query.filter_by(lesson_id=lesson.id).order_by(LessonSlide.slide_order.asc(), LessonSlide.id.asc()).all()
     rows = "".join(
-        f"<tr><td>{s.slide_order}</td><td>{escape(s.slide_type)}</td><td>{escape(s.title_en or '')}</td><td>{'Yes' if s.is_active else 'No'}</td><td><a href='/admin/lesson-builder/slides/{s.id}/edit'>Edit</a> | <a href='/student/lesson/{lesson.id}'>Preview lesson</a></td></tr>"
+        f"<tr><td>{s.slide_order}</td><td>{escape(s.slide_type)}</td><td>{escape(s.title_en or '')}</td><td>{'Yes' if s.is_active else 'No'}</td><td><a href='/admin/lesson-builder/slides/{s.id}/edit'>Edit</a> | <a href='/admin/lesson-slide/{s.id}/delete' onclick=\"return confirm('Delete this slide?')\" style='color:#dc2626;font-weight:700;'>Delete</a> | <a href='/student/lesson/{lesson.id}'>Preview lesson</a></td></tr>"
         for s in slides
     )
     return f"""<h1>Lesson Slides</h1><p><strong>Lesson:</strong> {escape(lesson.lesson_title_en)}</p><p><strong>Chapter:</strong> {escape(chapter.chapter_name_en if chapter else '-')}</p><p><a href='/admin/lesson-builder'>Back</a> | <a href='/admin/lesson-builder/{lesson.id}/slides/new'>Add Slide</a></p><table border='1' cellpadding='6'><tr><th>Slide order</th><th>Slide type</th><th>Slide title</th><th>Active</th><th>Actions</th></tr>{rows or '<tr><td colspan=5>No slides</td></tr>'}</table>"""
@@ -7967,6 +7967,31 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       <button type='submit'>{'Update Slide' if slide else 'Save Slide'}</button>
     </form>
     """
+
+@app.route("/admin/lesson-slide/<int:slide_id>/delete", methods=["GET"])
+def admin_delete_lesson_slide(slide_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+    slide = db.session.get(LessonSlide, slide_id)
+    if not slide:
+        return "<h2>Slide not found</h2>", 404
+
+    lesson_id = slide.lesson_id
+    db.session.delete(slide)
+    db.session.commit()
+
+    remaining_slides = LessonSlide.query.filter_by(
+        lesson_id=lesson_id
+    ).order_by(LessonSlide.slide_order.asc()).all()
+
+    for index, remaining_slide in enumerate(remaining_slides, start=1):
+        remaining_slide.slide_order = index
+
+    db.session.commit()
+
+    return redirect(url_for("admin_lesson_slides", lesson_id=lesson_id))
 
 @app.route("/admin/edit-school/<int:school_id>", methods=["GET", "POST"])
 def admin_edit_school(school_id: int):
