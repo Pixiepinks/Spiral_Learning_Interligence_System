@@ -1217,6 +1217,29 @@ class StudentLessonAnswer(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 
+class StudentSkillMastery(db.Model):
+    __tablename__ = "student_skill_mastery"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False)
+    subject_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=False)
+    lesson_id = db.Column(db.Integer, nullable=False)
+    skill_code = db.Column(db.String(120), nullable=False)
+    skill_name_en = db.Column(db.String(255), nullable=False)
+    skill_name_si = db.Column(db.String(255), nullable=False)
+    mastery_score = db.Column(db.Float, nullable=False, default=0)
+    total_attempts = db.Column(db.Integer, nullable=False, default=0)
+    correct_attempts = db.Column(db.Integer, nullable=False, default=0)
+    wrong_attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_answered_at = db.Column(db.DateTime, nullable=True)
+    status_en = db.Column(db.String(50), nullable=False, default="Weak")
+    status_si = db.Column(db.String(50), nullable=False, default="දුර්වලයි")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class ChapterLearningContent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chapter_id = db.Column(db.Integer, nullable=False)
@@ -3410,7 +3433,45 @@ def ensure_lesson_engine_tables() -> None:
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_lesson_order ON lesson_slide (lesson_id, slide_order)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_lesson_progress_lookup ON student_lesson_progress (student_id, lesson_id)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_lesson_answer_lookup ON student_lesson_answer (student_id, lesson_id, slide_id)"))
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_skill_mastery (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                subject_id INTEGER NULL,
+                module_id INTEGER NULL,
+                chapter_id INTEGER NOT NULL,
+                lesson_id INTEGER NOT NULL,
+                skill_code VARCHAR(120) NOT NULL,
+                skill_name_en VARCHAR(255) NOT NULL,
+                skill_name_si VARCHAR(255) NOT NULL,
+                mastery_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+                total_attempts INTEGER NOT NULL DEFAULT 0,
+                correct_attempts INTEGER NOT NULL DEFAULT 0,
+                wrong_attempts INTEGER NOT NULL DEFAULT 0,
+                last_answered_at TIMESTAMP NULL,
+                status_en VARCHAR(50) NOT NULL DEFAULT 'Weak',
+                status_si VARCHAR(50) NOT NULL DEFAULT 'දුර්වලයි',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_skill_mastery_lookup ON student_skill_mastery (student_id, lesson_id, skill_code)"))
     db.session.commit()
+
+
+def mastery_status_labels(score: float) -> tuple[str, str]:
+    clamped = max(0.0, min(100.0, float(score)))
+    if clamped <= 30:
+        return "Weak", "දුර්වලයි"
+    if clamped <= 60:
+        return "Developing", "වර්ධනය වෙමින්"
+    if clamped <= 85:
+        return "Good", "හොඳයි"
+    return "Mastered", "ප්‍රගුණයි"
 
 def _ordered_chapters_for_student(student: Student):
     return (
@@ -6811,6 +6872,74 @@ def student_video_interaction_answer():
     return jsonify({"ok": True, "is_correct": bool(is_correct)})
 
 
+def recalculate_student_chapter_progress(student_id: int, chapter_id: int) -> None:
+    lesson_rows = Lesson.query.filter_by(chapter_id=chapter_id, is_active=True).all()
+    if not lesson_rows:
+        return
+    lesson_ids = [row.id for row in lesson_rows]
+    completed_count = StudentLessonProgress.query.filter(
+        StudentLessonProgress.student_id == student_id,
+        StudentLessonProgress.lesson_id.in_(lesson_ids),
+        StudentLessonProgress.is_completed.is_(True),
+    ).count()
+    status = "completed" if completed_count >= len(lesson_ids) else ("in_progress" if completed_count > 0 else "locked")
+    chapter_progress = StudentChapterProgress.query.filter_by(student_id=student_id, chapter_id=chapter_id).first()
+    if not chapter_progress:
+        chapter_progress = StudentChapterProgress(student_id=student_id, chapter_id=chapter_id)
+        db.session.add(chapter_progress)
+    chapter_progress.status = status
+    chapter_progress.completed_at = datetime.utcnow() if status == "completed" else None
+
+
+def update_student_skill_mastery(student_id: int, lesson_id: int, slide_id: int, is_correct: bool, activity_json) -> StudentSkillMastery | None:
+    lesson = db.session.get(Lesson, lesson_id)
+    if not lesson:
+        return None
+    chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+    module = db.session.get(SyllabusModule, chapter.module_id) if chapter else None
+    term = db.session.get(SyllabusTerm, module.term_id) if module else None
+    student = db.session.get(Student, student_id)
+    subject_id = None
+    if student and term:
+        subject = SubjectMaster.query.filter_by(grade=normalize_grade(student.grade), subject_name_en=term.subject).first()
+        if subject:
+            subject_id = subject.id
+    parsed = activity_json if isinstance(activity_json, dict) else {}
+    skill_code = str(parsed.get("skill_code") or "").strip() or f"chapter_{lesson.chapter_id}_lesson_{lesson.id}"
+    skill_name_en = str(parsed.get("skill_name_en") or parsed.get("skill_name") or lesson.lesson_title_en or skill_code).strip()
+    skill_name_si = str(parsed.get("skill_name_si") or parsed.get("skill_name") or lesson.lesson_title_si or skill_code).strip()
+    now = datetime.utcnow()
+    mastery = StudentSkillMastery.query.filter_by(student_id=student_id, lesson_id=lesson_id, skill_code=skill_code).first()
+    if not mastery:
+        mastery = StudentSkillMastery(
+            student_id=student_id,
+            subject_id=subject_id,
+            module_id=module.id if module else None,
+            chapter_id=lesson.chapter_id,
+            lesson_id=lesson.id,
+            skill_code=skill_code,
+            skill_name_en=skill_name_en,
+            skill_name_si=skill_name_si,
+            mastery_score=0,
+        )
+        db.session.add(mastery)
+    mastery.subject_id = subject_id
+    mastery.module_id = module.id if module else None
+    mastery.chapter_id = lesson.chapter_id
+    mastery.skill_name_en = skill_name_en
+    mastery.skill_name_si = skill_name_si
+    mastery.total_attempts = int(mastery.total_attempts or 0) + 1
+    if is_correct:
+        mastery.correct_attempts = int(mastery.correct_attempts or 0) + 1
+        mastery.mastery_score = min(100.0, max(0.0, float(mastery.mastery_score or 0) + 10.0))
+    else:
+        mastery.wrong_attempts = int(mastery.wrong_attempts or 0) + 1
+        mastery.mastery_score = min(100.0, max(0.0, float(mastery.mastery_score or 0) - 5.0))
+    mastery.last_answered_at = now
+    mastery.status_en, mastery.status_si = mastery_status_labels(mastery.mastery_score)
+    return mastery
+
+
 @app.route("/student/lesson/<int:lesson_id>", methods=["GET"])
 def student_lesson_page(lesson_id: int):
     student_id = session.get("student_id")
@@ -6849,6 +6978,13 @@ def student_lesson_page(lesson_id: int):
     term_name = (term.term_name_si if is_si else term.term_name_en) if term else ""
     subject_name = term.subject if term else ""
     context_label = " • ".join([x for x in [subject_name, term_name, module_name] if x])
+    mastery_row = (
+        StudentSkillMastery.query.filter_by(student_id=student.id, lesson_id=lesson.id)
+        .order_by(StudentSkillMastery.updated_at.desc(), StudentSkillMastery.id.desc())
+        .first()
+    )
+    mastery_en = mastery_row.status_en if mastery_row else "Weak"
+    mastery_si = mastery_row.status_si if mastery_row else "දුර්වලයි"
 
     slide_payload = []
     for s in slides:
@@ -6864,14 +7000,14 @@ def student_lesson_page(lesson_id: int):
 
     inner_html = f"""
     <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08)}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-question{{margin:0 0 14px;color:#0f172a;font-size:1.2rem}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}}.activity-card{{background:#fff;border:2px solid #e2e8f0;border-radius:16px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;transition:all .2s ease;box-shadow:0 3px 12px rgba(2,6,23,.05)}}.activity-card:hover{{transform:translateY(-3px);box-shadow:0 10px 22px rgba(59,130,246,.16)}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#16a34a;background:#dcfce7}}.activity-card.wrong{{border-color:#dc2626;background:#fee2e2}}.activity-card.missing{{border-color:#d97706;background:#fef3c7}}.activity-emoji{{font-size:2rem}}.activity-thumb{{width:58px;height:58px;object-fit:contain;border-radius:12px}}.activity-name{{font-weight:700;color:#1e293b;text-align:center}}.activity-actions{{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}}.activity-check-btn{{border:none;border-radius:12px;background:linear-gradient(90deg,#2563eb,#14b8a6);color:white;padding:10px 16px;font-weight:700;cursor:pointer}}.activity-input{{width:min(520px,100%);padding:12px 14px;border-radius:12px;border:2px solid #bfdbfe;background:#fff;color:#0f172a;font-size:1rem;outline:none;transition:border-color .2s ease,box-shadow .2s ease}}.activity-input:focus{{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.15)}}.activity-input.correct{{border-color:#16a34a;background:#f0fdf4}}.activity-input.wrong{{border-color:#dc2626;background:#fef2f2}}.activity-result{{font-weight:800;padding:8px 12px;border-radius:10px}}.activity-result.success{{color:#166534;background:#dcfce7}}.activity-result.fail{{color:#991b1b;background:#fee2e2}}@media (max-width:640px){{.slide-stage{{padding:14px}}.activity-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}</style>
-    <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='nextSlideBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section>
+    <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='nextSlideBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set();
       function normalizeYouTube(url) {{ if (!url) return ""; const v = String(url).trim(); return v.includes("youtube.com/embed/") ? v : (v.includes("watch?v=") ? v.replace("watch?v=", "embed/") : v); }}
       async function saveProgress() {{ const current = slides[currentIndex]; const completion = Math.round(((currentIndex + 1) / slides.length) * 100); const isCompleted = currentIndex >= slides.length - 1; await fetch(`/student/lesson/${{lessonId}}/progress`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{current_slide_order:current.slide_order,completion_percent:completion,is_completed:isCompleted}})}}); }}
       function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || "").trim().toLowerCase(); const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (activityType === "tap_correct_picture") {{ const items = Array.isArray(activityData.items) ? activityData.items : []; if (!items.length) return ""; const cards = items.map((item, idx)=>{{ const name = isSinhala ? (item.name_si || item.name_en || item.name || `Item ${{idx + 1}}`) : (item.name_en || item.name_si || item.name || `Item ${{idx + 1}}`); const visual = item.image_url ? `<img src="${{item.image_url}}" alt="${{name}}" class="activity-thumb">` : `<span class="activity-emoji">${{item.emoji || "🧩"}}</span>`; return `<button type="button" class="activity-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" data-item-name="${{String(name).replaceAll('"', '&quot;')}}">${{visual}}<span class="activity-name">${{name}}</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{cards}}</div><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkAnswerBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (activityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{Boolean(option.correct)}}" data-option-label="${{label.replaceAll('"', '&quot;')}}"><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (activityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function wireTapCorrectPictureInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".activity-card"); const resultBox = mediaWrap.querySelector("#activityResult"); const checkBtn = mediaWrap.querySelector("#checkAnswerBtn"); const current = slides[currentIndex]; const nextBtn = document.getElementById("nextSlideBtn"); const toggleNextState = () => {{ const hasWrong = [...cards].some((card) => card.classList.contains("selected") && card.dataset.correct !== "true"); const missingCorrect = [...cards].some((card) => !card.classList.contains("selected") && card.dataset.correct === "true"); if (nextBtn) nextBtn.disabled = hasWrong || missingCorrect; return !hasWrong && !missingCorrect; }}; cards.forEach((card) => {{ card.addEventListener("click", () => {{ card.classList.toggle("selected"); card.classList.remove("correct", "wrong", "missing"); if (card.classList.contains("selected")) card.classList.add("selected"); if (resultBox) resultBox.style.display = "none"; toggleNextState(); }}); }}); toggleNextState(); if (!checkBtn) return; checkBtn.addEventListener("click", async () => {{ const selectedNames = []; let allGood = true; cards.forEach((card) => {{ const selected = card.classList.contains("selected"); const isCorrect = card.dataset.correct === "true"; const itemName = card.dataset.itemName || ""; card.classList.remove("correct", "wrong", "missing"); if (selected && isCorrect) {{ card.classList.add("correct"); if (itemName) selectedNames.push(itemName); }} if (selected && !isCorrect) {{ card.classList.add("wrong"); allGood = false; if (itemName) selectedNames.push(itemName); }} if (!selected && isCorrect) {{ card.classList.add("missing"); allGood = false; }} }}); const selectedJson = JSON.stringify(selectedNames); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{allGood ? "success" : "fail"}}`; resultBox.textContent = allGood ? (isSinhala ? "ශබාශ! නිවැරදි පිළිතුර 🎉" : "Great job! Correct 🎉") : (isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); }} await recordLessonAnswer(current.id, selectedJson, allGood); if (allGood) solvedQuizSlides.add(current.id); else solvedQuizSlides.delete(current.id); toggleNextState(); }}); }}
-      async function recordLessonAnswer(slideId, selectedAnswer, isCorrect) {{ await fetch(`/student/lesson/${{lessonId}}/answer`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slideId,selected_answer:selectedAnswer,is_correct:isCorrect}})}}); }}
+      async function recordLessonAnswer(slideId, selectedAnswer, isCorrect) {{ const activity = slides[currentIndex]?.activity || null; const response = await fetch(`/student/lesson/${{lessonId}}/answer`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slideId,selected_answer:selectedAnswer,is_correct:isCorrect,activity_json:activity}})}}); const data = await response.json().catch(()=>null); if (data && data.ok && data.mastery_status) {{ const badge = document.getElementById("masteryBadge"); if (badge) badge.textContent = isSinhala ? (data.mastery_status_si || data.mastery_status) : data.mastery_status; }} }}
       function normalizeEnglishAnswer(value) {{ return String(value || "").trim().toLowerCase(); }}
       function normalizeSinhalaAnswer(value) {{ return String(value || "").trim(); }}
       function wireFillBlankInteraction(mediaWrap) {{ const input = mediaWrap.querySelector("#fillBlankAnswerInput"); const checkBtn = mediaWrap.querySelector("#checkFillBlankBtn"); const tryAgainBtn = mediaWrap.querySelector("#tryAgainBtn"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const nextBtn = document.getElementById("nextSlideBtn"); const current = slides[currentIndex]; if (!input || !checkBtn) return; const acceptable = Array.isArray(current.activity?.acceptable_answers) ? current.activity.acceptable_answers : []; const primaryAnswers = [current.activity?.answer_en, current.activity?.answer_si].filter((item)=>typeof item === "string" && item.trim()); const allAnswers = [...acceptable, ...primaryAnswers].filter((item)=>typeof item === "string" && item.trim()); const normalized = new Set(allAnswers.map((item)=>isSinhala ? normalizeSinhalaAnswer(item) : normalizeEnglishAnswer(item))); const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); const resetState = () => {{ input.classList.remove("correct", "wrong"); if (resultBox) resultBox.style.display = "none"; if (explainEl) explainEl.style.display = "none"; checkBtn.style.display = "inline-block"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}; checkBtn.addEventListener("click", async () => {{ const rawValue = String(input.value || ""); const trimmed = rawValue.trim(); const normalizedStudent = isSinhala ? normalizeSinhalaAnswer(trimmed) : normalizeEnglishAnswer(trimmed); const isCorrect = trimmed.length > 0 && normalized.has(normalizedStudent); input.classList.remove("correct", "wrong"); input.classList.add(isCorrect ? "correct" : "wrong"); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි. නැවත උත්සාහ කරන්න." : "Not quite. Try again."); }} if (isCorrect) {{ solvedQuizSlides.add(current.id); checkBtn.style.display = "none"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = false; if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} }} else {{ solvedQuizSlides.delete(current.id); if (tryAgainBtn) tryAgainBtn.style.display = "inline-block"; if (nextBtn) nextBtn.disabled = true; }} await recordLessonAnswer(current.id, trimmed, isCorrect); }}); if (tryAgainBtn) tryAgainBtn.addEventListener("click", resetState); if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}
@@ -6910,6 +7046,7 @@ def student_lesson_progress_update(lesson_id: int):
     if is_completed:
         progress.completion_percent = 100
 
+    recalculate_student_chapter_progress(student.id, lesson.chapter_id)
     db.session.commit()
     return jsonify({"ok": True, "completion_percent": progress.completion_percent, "is_completed": progress.is_completed})
 
@@ -6925,13 +7062,16 @@ def student_lesson_answer_submit(lesson_id: int):
     slide_id = int(payload.get("slide_id") or 0)
     selected_answer = (payload.get("selected_answer") or "").strip()
     is_correct = bool(payload.get("is_correct"))
+    activity_json = payload.get("activity_json")
     if not slide_id or not selected_answer:
         return jsonify({"ok": False, "error": "Invalid answer payload"}), 400
     db.session.add(StudentLessonAnswer(lesson_id=lesson.id, slide_id=slide_id, student_id=student.id, selected_answer=selected_answer, is_correct=is_correct, answered_at=datetime.utcnow()))
+    mastery = update_student_skill_mastery(student.id, lesson.id, slide_id, is_correct, activity_json)
     if is_correct:
         student.xp = int(student.xp or 0) + 10
+    recalculate_student_chapter_progress(student.id, lesson.chapter_id)
     db.session.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "mastery_status": mastery.status_en if mastery else None, "mastery_status_si": mastery.status_si if mastery else None})
 
 
 def _parse_bool_form(value: str | None, default: bool = False) -> bool:
