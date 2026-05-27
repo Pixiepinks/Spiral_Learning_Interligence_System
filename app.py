@@ -2828,6 +2828,7 @@ def student_dashboard():
         for rec in recommendations
     )
 
+    next_rec = get_student_next_recommendation(student.id)
     continue_cards = []
     default_module_cover = "/static/images/default-module-cover.jpg"
     progress_seed = [22, 35, 48, 57, 63, 71, 84, 90]
@@ -2860,6 +2861,22 @@ def student_dashboard():
         continue_label = "ඉදිරියට" if language == "si" else "Continue"
         continue_cards.append(
             f"<article class='continue-module-card'><img src='{escape(module_image)}' alt='{escape(module_name)}' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(module_name)}</h4><p class='continue-module-subject'>{escape(subject_name)}</p><div class='continue-module-progress-row'><span>{progress_value}%</span><button type='button' class='continue-module-play' aria-label='{escape(continue_label)}'>▶</button></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{progress_value}%;'></span></div></div></article>"
+        )
+    rec_type_label = {
+        "continue_lesson": "Continue" if language == "en" else "ඉදිරියට",
+        "revision": "Revision" if language == "en" else "නැවත අධ්‍යයනය",
+        "practice": "Practice" if language == "en" else "පුහුණුව",
+        "challenge": "Challenge" if language == "en" else "අභියෝගය",
+        "next_chapter": "Next Chapter" if language == "en" else "ඊළඟ පරිච්ඡේදය",
+    }
+    if next_rec:
+        rec_progress = int(next_rec.get("progress_percent") or 0)
+        rec_title = next_rec.get("recommended_lesson_si") if language == "si" else next_rec.get("recommended_lesson_en")
+        rec_reason = next_rec.get("reason_si") if language == "si" else next_rec.get("reason_en")
+        rec_type = str(next_rec.get("type") or "continue_lesson")
+        continue_cards.insert(
+            0,
+            f"<article class='continue-module-card' style='border:2px solid #93c5fd;'><img src='/static/images/default-module-cover.jpg' alt='Recommended' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(str(rec_title or ''))}</h4><p class='continue-module-subject'>{escape(rec_type_label.get(rec_type, rec_type))} • {escape(str(next_rec.get('mastery_status') or ''))}</p><p class='continue-module-subject'>Reason: {escape(str(rec_reason or ''))}</p><p class='continue-module-subject'>~{int(next_rec.get('estimated_time') or 10)} min</p><div class='continue-module-progress-row'><span>{rec_progress}%</span><a href='{escape(str(next_rec.get('next_url') or '#'))}' class='continue-module-play' aria-label='Continue' style='display:inline-flex;align-items:center;justify-content:center;text-decoration:none;'>▶</a></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{rec_progress}%;'></span></div></div></article>",
         )
     continue_empty = "මෙම ශ්‍රේණියට මොඩියුල නොමැත." if language == "si" else "No modules available for your grade."
     continue_html = "".join(continue_cards) or f"<div class='card' style='padding:16px;'>{continue_empty}</div>"
@@ -3181,6 +3198,123 @@ def get_student_recommendations(student_id: int) -> list[dict[str, str]]:
             }
         )
     return recommendations
+
+
+def get_student_next_recommendation(student_id: int) -> dict[str, object]:
+    student = db.session.get(Student, student_id)
+    if not student:
+        return {}
+
+    def lesson_payload(lesson: Lesson, rec_type: str, reason_en: str, reason_si: str, progress: float = 0, slide_order: int = 1, mastery: str = "Unknown"):
+        chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+        return {
+            "type": rec_type,
+            "lesson_id": lesson.id,
+            "chapter_id": lesson.chapter_id,
+            "recommended_lesson": lesson.lesson_title_si if student.medium == "Sinhala" else lesson.lesson_title_en,
+            "recommended_lesson_en": lesson.lesson_title_en,
+            "recommended_lesson_si": lesson.lesson_title_si,
+            "reason_en": reason_en,
+            "reason_si": reason_si,
+            "progress_percent": int(progress or 0),
+            "mastery_status": mastery,
+            "estimated_time": int(lesson.estimated_minutes or 10),
+            "slide_order": int(slide_order or 1),
+            "next_url": url_for("student_lesson_page", lesson_id=lesson.id),
+            "chapter_name_en": chapter.chapter_name_en if chapter else "",
+            "chapter_name_si": chapter.chapter_name_si if chapter else "",
+        }
+
+    unfinished = (
+        StudentLessonProgress.query.filter_by(student_id=student_id, is_completed=False)
+        .order_by(StudentLessonProgress.updated_at.desc(), StudentLessonProgress.id.desc())
+        .first()
+    )
+    if unfinished:
+        lesson = db.session.get(Lesson, unfinished.lesson_id)
+        if lesson and lesson.is_active:
+            return lesson_payload(
+                lesson,
+                "continue_lesson",
+                f"You stopped at slide {unfinished.current_slide_order}.",
+                f"ඔබ {unfinished.current_slide_order} වන ස්ලයිඩ් එකේ නතර වුණා.",
+                unfinished.completion_percent,
+                unfinished.current_slide_order,
+                "In Progress",
+            )
+
+    weak_mastery = (
+        StudentSkillMastery.query.filter(
+            StudentSkillMastery.student_id == student_id,
+            StudentSkillMastery.mastery_score < 40,
+        )
+        .order_by(StudentSkillMastery.mastery_score.asc(), StudentSkillMastery.updated_at.desc())
+        .first()
+    )
+    if weak_mastery:
+        lesson = db.session.get(Lesson, weak_mastery.lesson_id)
+        if lesson and lesson.is_active:
+            return lesson_payload(
+                lesson,
+                "revision",
+                "Weak mastery detected (<40). Review this lesson.",
+                "දුර්වල දක්ෂතා මට්ටම (<40) හඳුනාගත් නිසා මේ පාඩම නැවත බලන්න.",
+                weak_mastery.mastery_score,
+                1,
+                weak_mastery.status_en or "Weak",
+            )
+
+    repeated_wrong = (
+        db.session.query(StudentLessonAnswer.lesson_id, db.func.count(StudentLessonAnswer.id).label("wrong_count"))
+        .filter(StudentLessonAnswer.student_id == student_id, StudentLessonAnswer.is_correct.is_(False))
+        .group_by(StudentLessonAnswer.lesson_id)
+        .having(db.func.count(StudentLessonAnswer.id) >= 3)
+        .order_by(db.desc("wrong_count"))
+        .first()
+    )
+    if repeated_wrong:
+        lesson = db.session.get(Lesson, repeated_wrong.lesson_id)
+        if lesson and lesson.is_active:
+            return lesson_payload(
+                lesson,
+                "practice",
+                "Repeated wrong answers found. Start easier practice + explanation/video support.",
+                "නැවත නැවත වැරදි පිළිතුරු ඇති නිසා පහසු අභ්‍යාස + විස්තර/වීඩියෝ සහාය ලබාදේ.",
+                0,
+                1,
+                "Needs Practice",
+            )
+
+    latest_completed = (
+        StudentLessonProgress.query.filter_by(student_id=student_id, is_completed=True)
+        .order_by(StudentLessonProgress.completed_at.desc(), StudentLessonProgress.id.desc())
+        .first()
+    )
+    if latest_completed:
+        completed_lesson = db.session.get(Lesson, latest_completed.lesson_id)
+        if completed_lesson:
+            next_lesson = (
+                Lesson.query.filter(
+                    Lesson.chapter_id == completed_lesson.chapter_id,
+                    Lesson.is_active.is_(True),
+                    Lesson.lesson_order > completed_lesson.lesson_order,
+                )
+                .order_by(Lesson.lesson_order.asc())
+                .first()
+            )
+            if next_lesson:
+                return lesson_payload(next_lesson, "continue_lesson", "Next lesson in this chapter is ready.", "මෙම පරිච්ඡේදයේ ඊළඟ පාඩම සූදානම්.", 0, 1, "Ready")
+
+    unlocked_next = (
+        StudentChapterProgress.query.filter_by(student_id=student_id, status="unlocked")
+        .order_by(StudentChapterProgress.created_at.asc(), StudentChapterProgress.id.asc())
+        .first()
+    )
+    if unlocked_next:
+        next_lesson = Lesson.query.filter_by(chapter_id=unlocked_next.chapter_id, is_active=True).order_by(Lesson.lesson_order.asc()).first()
+        if next_lesson:
+            return lesson_payload(next_lesson, "next_chapter", "Strong mastery detected. Next chapter unlocked.", "ශක්තිමත් දක්ෂතා හඳුනාගෙන ඇත. ඊළඟ පරිච්ඡේදය විවෘත කර ඇත.", 0, 1, "Strong")
+    return {}
 
 
 def ensure_chapter_learning_tables() -> None:
@@ -6310,6 +6444,8 @@ def student_subject_module_page(subject_id: int, module_id: int):
     total_required_items = 0
     total_completed_items = 0
     total_estimated_minutes = int(getattr(module, "estimated_minutes", None) or 45)
+    module_recommendation = get_student_next_recommendation(student.id)
+    recommended_chapter_id = int(module_recommendation.get("chapter_id") or 0) if module_recommendation else 0
     for idx, ch in enumerate(chapters):
         content_rows = ChapterLearningContent.query.filter_by(chapter_id=ch.id, is_active=True).all()
         ctype_counts = {"video": 0, "note": 0, "activity": 0, "practice": 0, "test": 0}
@@ -6360,15 +6496,16 @@ def student_subject_module_page(subject_id: int, module_id: int):
                 "<button class='chapter-cta' type='button' disabled>Coming Soon</button>"
             )
         )
+        is_recommended = recommended_chapter_id and ch.id == recommended_chapter_id
         chapter_cards.append(f"""
-        <article class='module-chapter-card {"locked-card" if locked else ""}'>
+        <article class='module-chapter-card {"locked-card" if locked else ""} {"recommended-chapter" if is_recommended else ""}'>
           <div class='chapter-row'>
             <div class='chapter-leading'>
               <div class='chapter-order'>{ch.chapter_order or idx+1}</div>
               <div class='chapter-icon'>{chapter_icon}</div>
             </div>
             <div class='chapter-main'>
-              <small>{'පරිච්ඡේදය' if is_si else 'Chapter'} {ch.chapter_order or idx+1}</small>
+              <small>{'පරිච්ඡේදය' if is_si else 'Chapter'} {ch.chapter_order or idx+1} {("<span class='recommended-badge'>Recommended for You</span>" if is_recommended else "")}</small>
               <h3>{escape(ch_name)}</h3>
               <p>{escape(chapter_subtitle)}</p>
               <div class='content-metrics'><span>🎬 {ctype_counts['video']}</span><span>📝 {ctype_counts['note']}</span><span>🧩 {ctype_counts['activity']}</span><span>🎯 {ctype_counts['practice']}</span><span>❓ {ctype_counts['test']}</span><span>⏱️ {chapter_estimated_minutes}m</span><span>⭐ {chapter_xp_reward} XP</span></div>
@@ -6433,6 +6570,8 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .chapter-cta{{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;text-decoration:none;font-weight:700;white-space:nowrap}}
     .chapter-cta.locked{{background:#cbd5e1;color:#64748b;cursor:not-allowed;border:0}}
     .locked-card{{opacity:.62}}
+    .recommended-chapter{{box-shadow:0 0 0 2px #fde047,0 16px 35px rgba(250,204,21,.35)}}
+    .recommended-badge{{display:inline-flex;margin-left:8px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#fef08a,#facc15);font-size:10px;font-weight:800;color:#713f12}}
     .module-right{{display:flex;flex-direction:column;gap:14px}} .module-side-card{{padding:16px}}
     .radial{{width:160px;height:160px;margin:4px auto 10px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#22c55e 0 {completed_for_chart*100//max(1,total_count)}%,#3b82f6 {completed_for_chart*100//max(1,total_count)}% {(completed_for_chart+in_progress_for_chart)*100//max(1,total_count)}%,#e2e8f0 0 100%)}}
     .radial-inner{{width:118px;height:118px;border-radius:50%;display:grid;place-items:center;background:white;font-weight:800;font-size:33px;color:#1e3a8a}}
