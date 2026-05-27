@@ -6714,7 +6714,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
     .chapter-cta.locked{{background:#cbd5e1;color:#64748b;cursor:not-allowed;border:0}}
     .locked-card{{opacity:.62}}
     .recommended-chapter{{box-shadow:0 0 0 2px #fde047,0 16px 35px rgba(250,204,21,.35)}}
-    .recommended-badge{{display:inline-flex;margin-left:8px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#fef08a,#facc15);font-size:10px;font-weight:800;color:#713f12}}.chapter-health{display:inline-flex;margin-left:6px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800}.chapter-health.needs-practice{background:#fef3c7;color:#92400e}.chapter-health.mastered{background:#dcfce7;color:#166534}
+    .recommended-badge{{display:inline-flex;margin-left:8px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#fef08a,#facc15);font-size:10px;font-weight:800;color:#713f12}}.chapter-health{{display:inline-flex;margin-left:6px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800}}.chapter-health.needs-practice{{background:#fef3c7;color:#92400e}}.chapter-health.mastered{{background:#dcfce7;color:#166534}}
     .module-right{{display:flex;flex-direction:column;gap:14px}} .module-side-card{{padding:16px}}
     .radial{{width:160px;height:160px;margin:4px auto 10px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#22c55e 0 {completed_for_chart*100//max(1,total_count)}%,#3b82f6 {completed_for_chart*100//max(1,total_count)}% {(completed_for_chart+in_progress_for_chart)*100//max(1,total_count)}%,#e2e8f0 0 100%)}}
     .radial-inner{{width:118px;height:118px;border-radius:50%;display:grid;place-items:center;background:white;font-weight:800;font-size:33px;color:#1e3a8a}}
