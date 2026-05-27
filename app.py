@@ -7475,7 +7475,40 @@ def student_lesson_page(lesson_id: int):
       function wireMcqInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".mcq-option"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const current = slides[currentIndex]; const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); let locked = false; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ if (locked) return; cards.forEach((item)=>item.classList.remove("selected-answer","correct-answer","wrong-answer")); card.classList.add("selected-answer"); locked = true; cards.forEach((item)=>item.disabled = true); const isCorrect = card.dataset.correct === "true"; card.classList.add(isCorrect ? "correct-answer" : "wrong-answer"); cards.forEach((item)=>{{ if (item.dataset.correct === "true") item.classList.add("correct-answer"); }}); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි." : "Not quite."); }} if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} await recordLessonAnswer(current.id, card.dataset.optionValue || card.dataset.optionLabel || "", isCorrect); maybeShowAiAssistant(); if (isCorrect) solvedQuizSlides.add(current.id); }}); }}); }}
       function maybeShowAiAssistant() {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload || !payload.show) return; card.style.display = "block"; const panel = document.getElementById("aiHelperPanel"); if (panel) panel.textContent = payload.message || "Let's break this down step by step."; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; if (current.slide_type === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType; const requiresCorrect = String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "tap_correct_picture" || normalizedType2 === "fill_blank"); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
-      document.getElementById("finishLessonBtn").addEventListener("click", async ()=>{{ if (currentIndex < slides.length - 1) {{ await saveProgress(); currentIndex++; renderSlide(); return; }} const res = await fetch("/student/lesson/" + lessonId + "/finish", {{method:"POST",headers:{{"Content-Type":"application/json"}}}}); const data = await res.json().catch(()=>null); if (data && data.success && data.redirect_url) {{ window.location.href = data.redirect_url; }} }});
+      const finishBtn = document.getElementById("finishLessonBtn");
+      finishBtn.addEventListener("click", async () => {{
+        if (currentIndex < slides.length - 1) {{
+          await saveProgress(false);
+          currentIndex++;
+          renderSlide();
+          return;
+        }}
+
+        finishBtn.disabled = true;
+        finishBtn.textContent = isSinhala ? "සම්පූර්ණ කරමින්..." : "Finishing...";
+
+        try {{
+          const res = await fetch("/student/lesson/" + lessonId + "/finish", {{
+            method: "POST",
+            headers: {{"Content-Type": "application/json"}}
+          }});
+
+          const data = await res.json();
+
+          if (!res.ok || !data.success) {{
+            throw new Error(data.error || "Finish failed");
+          }}
+
+          if (data.redirect_url) {{
+            window.location.href = data.redirect_url;
+          }}
+        }} catch (err) {{
+          console.error("Finish lesson failed:", err);
+          alert(isSinhala ? "පාඩම අවසන් කිරීමේ දෝෂයක් ඇත." : "Could not finish lesson.");
+          finishBtn.disabled = false;
+          finishBtn.textContent = "Finish";
+        }}
+      }});
       document.querySelectorAll(".ai-helper-btn").forEach((btn)=>btn.addEventListener("click", async ()=>{{ const t=btn.dataset.aiAction||"hint"; const slide = slides[currentIndex]; const res=await fetch("/student/lesson/" + lessonId + "/ai-assist",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slide?.id,assistance_type:t}})}}); const data=await res.json().catch(()=>null); const panel=document.getElementById("aiHelperPanel"); if(panel) panel.textContent=(data&&data.text)?data.text:"Let's keep trying together."; }}));
       renderSlide();
     </script>"""
@@ -7484,48 +7517,61 @@ def student_lesson_page(lesson_id: int):
 
 @app.route("/student/lesson/<int:lesson_id>/finish", methods=["POST"])
 def student_lesson_finish(lesson_id: int):
-    student = student_session_required()
-    ensure_lesson_engine_tables()
-    lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
-    if not lesson:
-        return jsonify({"success": False, "error": "Lesson not found"}), 404
+    try:
+        student = student_session_required()
+        ensure_lesson_engine_tables()
+        print("FINISH LESSON:", lesson_id, "student:", student.id)
+        lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
+        if not lesson:
+            return jsonify({"success": False, "error": "Lesson not found"}), 404
 
-    progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=lesson.id).first()
-    if not progress:
-        first_slide = (
-            LessonSlide.query.filter_by(lesson_id=lesson.id, is_active=True)
-            .order_by(LessonSlide.slide_order.asc(), LessonSlide.id.asc())
+        progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=lesson.id).first()
+        if not progress:
+            first_slide = (
+                LessonSlide.query.filter_by(lesson_id=lesson.id, is_active=True)
+                .order_by(LessonSlide.slide_order.asc(), LessonSlide.id.asc())
+                .first()
+            )
+            progress = StudentLessonProgress(
+                student_id=student.id,
+                lesson_id=lesson.id,
+                current_slide_order=first_slide.slide_order if first_slide else 1,
+            )
+            db.session.add(progress)
+
+        progress.completion_percent = 100
+        progress.is_completed = True
+        progress.completed_at = datetime.utcnow()
+        progress.last_opened_at = datetime.utcnow()
+
+        recalculate_student_chapter_progress(student.id, lesson.chapter_id)
+
+        next_lesson = (
+            Lesson.query.filter(
+                Lesson.chapter_id == lesson.chapter_id,
+                Lesson.is_active.is_(True),
+                Lesson.lesson_order > lesson.lesson_order,
+            )
+            .order_by(Lesson.lesson_order.asc(), Lesson.id.asc())
             .first()
         )
-        progress = StudentLessonProgress(
-            student_id=student.id,
-            lesson_id=lesson.id,
-            current_slide_order=first_slide.slide_order if first_slide else 1,
-        )
-        db.session.add(progress)
-
-    progress.completion_percent = 100
-    progress.is_completed = True
-    progress.completed_at = datetime.utcnow()
-    progress.last_opened_at = datetime.utcnow()
-
-    recalculate_student_chapter_progress(student.id, lesson.chapter_id)
-
-    next_lesson = find_next_lesson(lesson)
-    if next_lesson:
-        redirect_url = "/student/lesson/" + str(next_lesson.id)
-    else:
-        chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
-        module = db.session.get(SyllabusModule, chapter.module_id) if chapter else None
-        term = db.session.get(SyllabusTerm, module.term_id) if module else None
-        subject = SubjectMaster.query.filter_by(subject_name_en=term.subject).first() if term else None
-        if module and subject:
-            redirect_url = "/student/subject/" + str(subject.id) + "/module/" + str(module.id)
+        if next_lesson:
+            redirect_url = "/student/lesson/" + str(next_lesson.id)
         else:
-            redirect_url = "/student/my-subjects"
+            chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+            module = db.session.get(SyllabusModule, chapter.module_id) if chapter else None
+            term = db.session.get(SyllabusTerm, module.term_id) if module else None
+            subject = SubjectMaster.query.filter_by(subject_name_en=term.subject).first() if term else None
+            if module and subject:
+                redirect_url = "/student/subject/" + str(subject.id) + "/module/" + str(module.id)
+            else:
+                redirect_url = "/student/my-subjects"
 
-    db.session.commit()
-    return jsonify({"success": True, "redirect_url": redirect_url})
+        db.session.commit()
+        return jsonify({"success": True, "redirect_url": redirect_url})
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 @app.route("/student/lesson/<int:lesson_id>/progress", methods=["POST"])
