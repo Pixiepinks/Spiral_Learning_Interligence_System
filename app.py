@@ -591,13 +591,16 @@ def upload_lesson_image_to_supabase(lesson_id: int, slide_ref: int | str, file_s
     return public_url, None
 
 
-def parse_image_grid_activity(activity_json: str | None) -> list[dict]:
+def parse_image_grid_activity(activity_json: str | dict | None) -> list[dict]:
     if not activity_json:
         return []
-    try:
-        payload = json.loads(activity_json)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return []
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
     if not isinstance(payload, dict) or payload.get("type") != "image_grid":
         return []
     images = payload.get("images")
@@ -618,7 +621,7 @@ def parse_image_grid_activity(activity_json: str | None) -> list[dict]:
     return normalized
 
 
-def build_image_grid_activity_json(images: list[dict]) -> str | None:
+def build_image_grid_activity_json(images: list[dict]) -> str:
     normalized = []
     for image in images:
         url = str(image.get("url") or "").strip()
@@ -629,8 +632,6 @@ def build_image_grid_activity_json(images: list[dict]) -> str | None:
             "caption_en": str(image.get("caption_en") or "").strip(),
             "caption_si": str(image.get("caption_si") or "").strip(),
         })
-    if not normalized:
-        return None
     return json.dumps({"type": "image_grid", "images": normalized}, ensure_ascii=False)
 
 
@@ -7595,8 +7596,8 @@ def student_lesson_page(lesson_id: int):
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
       function normalizeYouTube(url) {{ if (!url) return ""; const v = String(url).trim(); return v.includes("youtube.com/embed/") ? v : (v.includes("watch?v=") ? v.replace("watch?v=", "embed/") : v); }}
       async function saveProgress(forceComplete=false) {{ const current = slides[currentIndex]; const completion = forceComplete ? 100 : Math.round(((currentIndex + 1) / slides.length) * 100); const isCompleted = forceComplete || currentIndex >= slides.length - 1; const res = await fetch(`/student/lesson/${{lessonId}}/progress`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{current_slide_order:current.slide_order,completion_percent:completion,is_completed:isCompleted}})}}); return await res.json().catch(()=>null); }}
-      function parseActivityJson(rawJson) {{ if (!rawJson || typeof rawJson !== "string") return null; try {{ const parsed = JSON.parse(rawJson); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null; }} catch (err) {{ console.warn("Could not parse slide.activity_json", err); return null; }} }}
-      function getImageGridImages(slide) {{ const parsedActivity = parseActivityJson(slide?.activity_json || "") || (slide?.activity && typeof slide.activity === "object" ? slide.activity : null); const images = Array.isArray(parsedActivity?.images) ? parsedActivity.images : []; console.log("[student_lesson] slide.content_type", slide?.content_type || slide?.slide_type || ""); console.log("[student_lesson] slide.activity_json", slide?.activity_json || ""); console.log("[student_lesson] parsed image_grid images count", images.filter((item)=>item && item.url).length); return images; }}
+      function parseActivityJson(rawJson) {{ if (!rawJson) return null; if (typeof rawJson === "object" && !Array.isArray(rawJson)) return rawJson; if (typeof rawJson !== "string") return null; try {{ const parsed = JSON.parse(rawJson); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null; }} catch (err) {{ console.warn("Could not parse slide.activity_json", err); return null; }} }}
+      function getImageGridImages(slide) {{ const parsedActivity = parseActivityJson(slide?.activity_json) || (slide?.activity && typeof slide.activity === "object" ? slide.activity : null); const images = Array.isArray(parsedActivity?.images) ? parsedActivity.images : []; console.log("[student_lesson] slide.content_type", slide?.content_type || slide?.slide_type || ""); console.log("[student_lesson] slide.activity_json", slide?.activity_json || ""); console.log("[student_lesson] parsed image_grid images count", images.filter((item)=>item && item.url).length); return images; }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
       function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "tap_correct_picture") {{ const items = Array.isArray(activityData.items) ? activityData.items : []; if (!items.length) return ""; const cards = items.map((item, idx)=>{{ const name = isSinhala ? (item.name_si || item.name_en || item.name || `Item ${{idx + 1}}`) : (item.name_en || item.name_si || item.name || `Item ${{idx + 1}}`); const visual = item.image_url ? `<img src="${{item.image_url}}" alt="${{name}}" class="activity-thumb">` : `<span class="activity-emoji">${{item.emoji || "🧩"}}</span>`; return `<button type="button" class="activity-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" data-item-name="${{String(name).replaceAll('"', '&quot;')}}">${{visual}}<span class="activity-name">${{name}}</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{cards}}</div><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkAnswerBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function enableFinishLessonButton() {{ const finishBtn = document.getElementById("finishLessonBtn"); if (finishBtn) {{ finishBtn.disabled = false; finishBtn.classList.remove("disabled"); }} }}
@@ -8111,6 +8112,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         if not slide:
             db.session.add(obj)
         db.session.commit()
+        print("Saved activity_json:", obj.activity_json)
         return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
     options = ["intro_video", "explanation", "example", "activity", "quiz", "summary", "image_grid"]
     selected_type = (slide.slide_type if slide else "explanation")
@@ -8141,7 +8143,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       <label>Image URL <input type='url' name='image_url' value='{escape(slide.image_url) if slide and slide.image_url else ''}'></label><br><br>
       <label>Video URL <input type='url' name='video_url' value='{escape(slide.video_url) if slide and slide.video_url else ''}'></label><br><br>
       <label>Audio URL <input type='url' name='audio_url' value='{escape(slide.audio_url) if slide and slide.audio_url else ''}'></label><br><br>
-      <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json and selected_type != 'image_grid' else ''}</textarea></label>
+      <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json else ''}</textarea></label>
       <p style='max-width:760px;color:#475569;'>For <strong>image_grid</strong>, uploaded image URLs and captions are saved automatically in this JSON field as <code>{{"type":"image_grid","images":[...]}}</code>.</p>
       <fieldset style='border:1px solid #cbd5e1;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;'>
         <legend><strong>Image Grid Gallery</strong></legend>
