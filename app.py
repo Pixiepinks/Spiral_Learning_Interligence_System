@@ -8067,52 +8067,123 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         obj.title_si = (request.form.get("title_si") or "").strip() or None
         obj.content_en = (request.form.get("content_en") or "").strip() or None
         obj.content_si = (request.form.get("content_si") or "").strip() or None
-        obj.image_url = (request.form.get("image_url") or "").strip() or None
         obj.video_url = (request.form.get("video_url") or "").strip() or None
         obj.audio_url = (request.form.get("audio_url") or "").strip() or None
         obj.xp_reward = int((request.form.get("xp_reward") or "10"))
         obj.is_required = _parse_bool_form(request.form.get("is_required"), True)
         obj.is_active = _parse_bool_form(request.form.get("is_active"), True)
 
-        if selected_slide_type == "image_grid":
+        old_activity_json = obj.activity_json
+        submitted_activity_json = (request.form.get("activity_json") or "").strip()
+        upload_files = request.files.getlist("image_grid_images")
+        has_image_grid_uploads = any(upload and upload.filename for upload in upload_files)
+        has_image_grid_fields = any(
+            key in request.form
+            for key in (
+                "image_grid_existing_url",
+                "image_grid_existing_caption_en",
+                "image_grid_existing_caption_si",
+                "image_grid_remove",
+                "image_grid_caption_en",
+                "image_grid_caption_si",
+            )
+        )
+        old_activity_payload = None
+        if old_activity_json:
+            try:
+                parsed_old_activity = json.loads(old_activity_json)
+                if isinstance(parsed_old_activity, dict):
+                    old_activity_payload = parsed_old_activity
+            except (TypeError, ValueError, json.JSONDecodeError):
+                old_activity_payload = None
+        submitted_activity_payload = None
+        if submitted_activity_json:
+            try:
+                parsed_submitted_activity = json.loads(submitted_activity_json)
+                if isinstance(parsed_submitted_activity, dict):
+                    submitted_activity_payload = parsed_submitted_activity
+            except (TypeError, ValueError, json.JSONDecodeError):
+                submitted_activity_payload = None
+        is_image_grid_submission = (
+            selected_slide_type == "image_grid"
+            or has_image_grid_uploads
+            or has_image_grid_fields
+            or (old_activity_payload or {}).get("type") == "image_grid"
+            or (submitted_activity_payload or {}).get("type") == "image_grid"
+        )
+
+        print("CONTENT TYPE:", getattr(obj, "content_type", obj.slide_type))
+        print("FILES:", request.files)
+        print("OLD ACTIVITY JSON:", old_activity_json)
+
+        if is_image_grid_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+
             image_items = []
             remove_existing = set(request.form.getlist("image_grid_remove"))
             existing_urls = request.form.getlist("image_grid_existing_url")
             existing_caption_en = request.form.getlist("image_grid_existing_caption_en")
             existing_caption_si = request.form.getlist("image_grid_existing_caption_si")
-            for idx, url in enumerate(existing_urls):
-                clean_url = (url or "").strip()
+            if existing_urls:
+                source_existing_images = [
+                    {
+                        "url": url,
+                        "caption_en": existing_caption_en[idx] if idx < len(existing_caption_en) else "",
+                        "caption_si": existing_caption_si[idx] if idx < len(existing_caption_si) else "",
+                    }
+                    for idx, url in enumerate(existing_urls)
+                ]
+            else:
+                source_existing_images = parse_image_grid_activity(old_activity_json)
+                if not source_existing_images:
+                    source_existing_images = parse_image_grid_activity(submitted_activity_json)
+
+            for image in source_existing_images:
+                clean_url = str(image.get("url") or "").strip()
                 if not clean_url or clean_url in remove_existing:
                     continue
                 image_items.append({
                     "url": clean_url,
-                    "caption_en": (existing_caption_en[idx] if idx < len(existing_caption_en) else "").strip(),
-                    "caption_si": (existing_caption_si[idx] if idx < len(existing_caption_si) else "").strip(),
+                    "caption_en": str(image.get("caption_en") or "").strip(),
+                    "caption_si": str(image.get("caption_si") or "").strip(),
                 })
 
+            uploaded_urls = []
             new_caption_en = request.form.getlist("image_grid_caption_en")
             new_caption_si = request.form.getlist("image_grid_caption_si")
-            upload_files = request.files.getlist("image_grid_images")
             for idx, upload in enumerate(upload_files):
                 if not upload or not upload.filename:
                     continue
                 public_url, upload_error = upload_lesson_image_to_supabase(lesson.id, obj.id or "new", upload)
                 if upload_error:
+                    db.session.rollback()
                     return f"<h2>Image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
                 if public_url:
+                    uploaded_urls.append(public_url)
                     image_items.append({
                         "url": public_url,
                         "caption_en": (new_caption_en[idx] if idx < len(new_caption_en) else "").strip(),
                         "caption_si": (new_caption_si[idx] if idx < len(new_caption_si) else "").strip(),
                     })
-            obj.activity_json = build_image_grid_activity_json(image_items)
+            new_activity_json = build_image_grid_activity_json(image_items)
+            print("UPLOADED URLS:", uploaded_urls)
+            print("NEW ACTIVITY JSON:", new_activity_json)
+            obj.activity_json = new_activity_json
         else:
-            obj.activity_json = (request.form.get("activity_json") or "").strip() or None
+            obj.image_url = (request.form.get("image_url") or "").strip() or None
+            uploaded_urls = []
+            new_activity_json = submitted_activity_json or None
+            print("UPLOADED URLS:", uploaded_urls)
+            print("NEW ACTIVITY JSON:", new_activity_json)
+            obj.activity_json = new_activity_json
 
-        if not slide:
+        if not slide and obj not in db.session:
             db.session.add(obj)
         db.session.commit()
-        print("Saved activity_json:", obj.activity_json)
+        print("SAVED ACTIVITY JSON:", obj.activity_json)
         return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
     options = ["intro_video", "explanation", "example", "activity", "quiz", "summary", "image_grid"]
     selected_type = (slide.slide_type if slide else "explanation")
