@@ -1,0 +1,44 @@
+{
+  "slide_type": "drag_drop_circle_size_match",
+  "title_si": "භාණ්ඩ ගැලපෙන වෘත්තයට ඇද දමන්න",
+  "instruction_si": "ඉහළ ඇති භාණ්ඩ, ඒවාට ගැලපෙන ප්‍රමාණයේ වෘත්ත වෙත ඇද දමන්න.",
+  "success_message_si": "ඔබ සියලුම භාණ්ඩ නිවැරදිව ගැලපුවා!",
+  "try_again_message_si": "නැවත උත්සාහ කරන්න.",
+  "items": [
+    {
+      "id": "coin",
+      "label": "කාසිය",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/coin.png",
+      "target_id": "small"
+    },
+    {
+      "id": "clock",
+      "label": "ඔරලෝසුව",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/wall-clock.png",
+      "target_id": "medium"
+    },
+    {
+      "id": "wheel",
+      "label": "රෝදය",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/vehicle-wheel.png",
+      "target_id": "large"
+    }
+  ],
+  "targets": [
+    {
+      "id": "small",
+      "label_si": "කුඩා",
+      "size_px": 120
+    },
+    {
+      "id": "medium",
+      "label_si": "මධ්‍යම",
+      "size_px": 170
+    },
+    {
+      "id": "large",
+      "label_si": "විශාල",
+      "size_px": 230
+    }
+  ]
+}
