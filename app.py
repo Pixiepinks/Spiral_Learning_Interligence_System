@@ -649,6 +649,88 @@ def upload_activity_image_to_supabase(lesson_id: int, slide_ref: int | str | Non
     return public_url, object_name, None
 
 
+
+def parse_drag_drop_circle_size_match_activity(activity_json: str | dict | None) -> dict:
+    if not activity_json:
+        return {}
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    if not isinstance(payload, dict):
+        return {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or payload.get("slide_type") or "").strip().lower()
+    if activity_type != "drag_drop_circle_size_match":
+        return {}
+    items = []
+    for index, item in enumerate(payload.get("items") or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or f"item_{index}").strip() or f"item_{index}"
+        label = str(item.get("label") or item.get("label_si") or item.get("name") or item.get("name_si") or f"Item {index}").strip()
+        target_id = str(item.get("target_id") or "").strip()
+        image_url = str(item.get("image_url") or "").strip()
+        normalized_item = dict(item)
+        normalized_item.update({"id": item_id, "label": label or f"Item {index}", "image_url": image_url, "target_id": target_id})
+        items.append(normalized_item)
+    targets = payload.get("targets") if isinstance(payload.get("targets"), list) else []
+    normalized_payload = dict(payload)
+    normalized_payload["items"] = items[:3]
+    normalized_payload["targets"] = targets[:3]
+    return normalized_payload
+
+
+def default_drag_drop_circle_size_match_payload(title_en: str | None = None, title_si: str | None = None, instruction_en: str | None = None, instruction_si: str | None = None) -> dict:
+    return {
+        "slide_type": "drag_drop_circle_size_match",
+        "title_en": (title_en or "Drag each item to the matching circle").strip(),
+        "title_si": (title_si or "භාණ්ඩ ගැලපෙන වෘත්තයට ඇද දමන්න").strip(),
+        "instruction_en": (instruction_en or "Drag each item to the circle with the matching size.").strip(),
+        "instruction_si": (instruction_si or "භාණ්ඩ, ඒවාට ගැලපෙන ප්‍රමාණයේ වෘත්ත වෙත ඇද දමන්න.").strip(),
+        "success_message_si": "ඔබ සියලුම භාණ්ඩ නිවැරදිව ගැලපුවා!",
+        "try_again_message_si": "නැවත උත්සාහ කරන්න.",
+        "items": [
+            {"id": "item_1", "label": "Item 1", "image_url": "", "target_id": "small"},
+            {"id": "item_2", "label": "Item 2", "image_url": "", "target_id": "medium"},
+            {"id": "item_3", "label": "Item 3", "image_url": "", "target_id": "large"},
+        ],
+        "targets": [
+            {"id": "small", "label_si": "කුඩා", "label": "Small", "size_px": 120},
+            {"id": "medium", "label_si": "මධ්‍යම", "label": "Medium", "size_px": 170},
+            {"id": "large", "label_si": "විශාල", "label": "Large", "size_px": 230},
+        ],
+    }
+
+
+def build_drag_drop_circle_size_match_activity_json(base_payload: dict | None, image_urls_by_index: dict[int, str]) -> str:
+    payload = dict(base_payload or default_drag_drop_circle_size_match_payload())
+    payload["slide_type"] = "drag_drop_circle_size_match"
+    items = list(payload.get("items") or [])
+    default_items = default_drag_drop_circle_size_match_payload().get("items", [])
+    while len(items) < 3:
+        items.append(dict(default_items[len(items)]))
+    normalized_items = []
+    for index in range(3):
+        source_item = items[index] if isinstance(items[index], dict) else {}
+        item = dict(source_item)
+        item.setdefault("id", f"item_{index + 1}")
+        item.setdefault("label", f"Item {index + 1}")
+        item.setdefault("target_id", ["small", "medium", "large"][index])
+        if index in image_urls_by_index:
+            item["image_url"] = image_urls_by_index[index]
+        else:
+            item["image_url"] = str(item.get("image_url") or "").strip()
+        normalized_items.append(item)
+    targets = payload.get("targets")
+    if not isinstance(targets, list) or not targets:
+        targets = default_drag_drop_circle_size_match_payload().get("targets", [])
+    payload["items"] = normalized_items
+    payload["targets"] = targets[:3]
+    return json.dumps(payload, ensure_ascii=False)
+
 def parse_tap_correct_picture_activity(activity_json: str | dict | None) -> dict:
     if not activity_json:
         return {}
@@ -8288,6 +8370,8 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                 "image_grid_caption_si",
             )
         )
+        drag_upload_files = [request.files.get(f"drag_item_{index}_image") for index in range(1, 4)]
+        has_drag_uploads = any(upload and upload.filename for upload in drag_upload_files)
         old_activity_payload = None
         if old_activity_json:
             try:
@@ -8305,6 +8389,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             except (TypeError, ValueError, json.JSONDecodeError):
                 submitted_activity_payload = None
         is_tap_correct_picture_submission = selected_slide_type == "tap_correct_picture" or (old_activity_payload or {}).get("activity_type") == "tap_correct_picture" or (old_activity_payload or {}).get("type") == "tap_correct_picture" or (submitted_activity_payload or {}).get("activity_type") == "tap_correct_picture" or (submitted_activity_payload or {}).get("type") == "tap_correct_picture"
+        is_drag_drop_circle_size_match_submission = (
+            selected_slide_type == "drag_drop_circle_size_match"
+            or has_drag_uploads
+            or (old_activity_payload or {}).get("activity_type") == "drag_drop_circle_size_match"
+            or (old_activity_payload or {}).get("type") == "drag_drop_circle_size_match"
+            or (old_activity_payload or {}).get("slide_type") == "drag_drop_circle_size_match"
+            or (submitted_activity_payload or {}).get("activity_type") == "drag_drop_circle_size_match"
+            or (submitted_activity_payload or {}).get("type") == "drag_drop_circle_size_match"
+            or (submitted_activity_payload or {}).get("slide_type") == "drag_drop_circle_size_match"
+        )
         is_image_grid_submission = (
             selected_slide_type == "image_grid"
             or has_image_grid_uploads
@@ -8317,7 +8411,43 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         print("FILES:", request.files)
         print("OLD ACTIVITY JSON:", old_activity_json)
 
-        if is_tap_correct_picture_submission:
+        if is_drag_drop_circle_size_match_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+
+            base_payload = parse_drag_drop_circle_size_match_activity(submitted_activity_json)
+            if not base_payload:
+                base_payload = parse_drag_drop_circle_size_match_activity(old_activity_json)
+            if not base_payload:
+                base_payload = default_drag_drop_circle_size_match_payload(obj.title_en, obj.title_si, obj.content_en, obj.content_si)
+
+            items = list(base_payload.get("items") or [])
+            default_items = default_drag_drop_circle_size_match_payload().get("items", [])
+            while len(items) < 3:
+                items.append(dict(default_items[len(items)]))
+            for index in range(3):
+                existing_url = (request.form.get(f"drag_existing_item_{index + 1}_image_url") or "").strip()
+                if existing_url:
+                    item = dict(items[index]) if isinstance(items[index], dict) else {}
+                    item["image_url"] = existing_url
+                    items[index] = item
+            base_payload["items"] = items[:3]
+
+            uploaded_image_urls = {}
+            for index, upload in enumerate(drag_upload_files):
+                if not upload or not upload.filename:
+                    continue
+                public_url, object_path, upload_error = upload_activity_image_to_supabase(lesson.id, obj.id or "temp", upload)
+                if upload_error:
+                    db.session.rollback()
+                    return f"<h2>Drag/drop item image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                if public_url:
+                    uploaded_image_urls[index] = public_url
+
+            obj.activity_json = build_drag_drop_circle_size_match_activity_json(base_payload, uploaded_image_urls)
+        elif is_tap_correct_picture_submission:
             obj.image_url = None
             if not slide:
                 db.session.add(obj)
@@ -8497,6 +8627,28 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
     tap_success_message_si = tap_activity.get("success_message_si") or legacy_tap_success_message
     tap_wrong_message_en = tap_activity.get("wrong_message_en") or legacy_tap_wrong_message
     tap_wrong_message_si = tap_activity.get("wrong_message_si") or legacy_tap_wrong_message
+    drag_activity = parse_drag_drop_circle_size_match_activity(slide.activity_json if slide else None)
+    drag_items = list(drag_activity.get("items") or []) if drag_activity else []
+    default_drag_items = default_drag_drop_circle_size_match_payload().get("items", [])
+    while len(drag_items) < 3:
+        drag_items.append(dict(default_drag_items[len(drag_items)]))
+    drag_upload_rows_html = "".join(
+        f"""
+        <div class='drag-circle-image-row'>
+          <div class='drag-circle-image-preview-wrap'>
+            {f"<img class='drag-circle-existing-preview' src='{escape(str(item.get('image_url') or ''))}' alt='Existing item {index} image'>" if str(item.get('image_url') or '').strip() else "<div class='drag-circle-empty-preview'>No image</div>"}
+            <img class='drag-circle-new-preview' alt='New item {index} preview' style='display:none;'>
+          </div>
+          <div>
+            <strong>Item {index}</strong>
+            <p style='margin:.25rem 0;color:#64748b;'>Current label: {escape(str(item.get('label') or item.get('label_si') or item.get('name') or f'Item {index}'))}</p>
+            <input type='hidden' name='drag_existing_item_{index}_image_url' value='{escape(str(item.get('image_url') or ''))}'>
+            <label>Upload Item {index} Image <input type='file' name='drag_item_{index}_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp' data-drag-preview-row='{index}'></label>
+          </div>
+        </div>
+        """
+        for index, item in enumerate(drag_items[:3], start=1)
+    )
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
     <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
@@ -8539,6 +8691,35 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         </script>
         <p style='color:#64748b;'>Tip: captions are matched to selected files in order. Choose all gallery images together to add them in one save.</p>
       </fieldset>
+      <fieldset id='dragCircleSizeMatchBuilder' style='border:1px solid #bfdbfe;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#eff6ff;'>
+        <legend><strong>Drag & Drop Circle Size Match Images</strong></legend>
+        <p>Upload PNG, JPG, JPEG, or WebP files. Each image must be 1MB or less and uploads to Supabase Storage bucket <code>lesson-images</code>. Public URLs are generated automatically and saved into each item's <code>image_url</code> in Activity JSON.</p>
+        <style>.drag-circle-image-row{{display:grid;grid-template-columns:112px 1fr;gap:14px;align-items:center;margin:10px 0;padding:12px;border:1px solid #dbeafe;border-radius:14px;background:#fff}}.drag-circle-image-preview-wrap{{width:96px;min-height:96px;display:grid;place-items:center}}.drag-circle-existing-preview,.drag-circle-new-preview{{width:92px;height:92px;object-fit:cover;border-radius:999px;box-shadow:0 8px 18px rgba(15,23,42,.14);background:#fff}}.drag-circle-empty-preview{{width:92px;height:92px;border:2px dashed #93c5fd;border-radius:999px;display:grid;place-items:center;text-align:center;color:#1d4ed8;font-size:12px;background:#dbeafe}}@media(max-width:760px){{.drag-circle-image-row{{grid-template-columns:1fr}}}}</style>
+        {drag_upload_rows_html}
+        <p style='color:#1d4ed8;'>When editing a slide, existing uploaded images are shown above. Choose a new file only for the item image you want to replace.</p>
+      </fieldset>
+      <script>
+        (function() {{
+          const typeSelect = document.getElementById('slideTypeSelect');
+          const builder = document.getElementById('dragCircleSizeMatchBuilder');
+          function toggleBuilder() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'drag_drop_circle_size_match' ? 'block' : 'none'; }}
+          document.querySelectorAll('#dragCircleSizeMatchBuilder input[type=file]').forEach(function(input) {{
+            input.addEventListener('change', function() {{
+              const row = input.closest('.drag-circle-image-row');
+              if (!row) return;
+              const preview = row.querySelector('.drag-circle-new-preview');
+              const existing = row.querySelector('.drag-circle-existing-preview,.drag-circle-empty-preview');
+              const file = input.files && input.files[0];
+              if (!preview || !file) {{ if (preview) {{ preview.style.display = 'none'; preview.removeAttribute('src'); }} if (existing) existing.style.display = ''; return; }}
+              preview.src = URL.createObjectURL(file);
+              preview.style.display = 'block';
+              if (existing) existing.style.display = 'none';
+            }});
+          }});
+          typeSelect?.addEventListener('change', toggleBuilder);
+          toggleBuilder();
+        }})();
+      </script>
       <fieldset id='tapCorrectPictureBuilder' style='border:1px solid #bbf7d0;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#f0fdf4;'>
         <legend><strong>Tap Correct Picture Activity</strong></legend>
         <p>Upload PNG, JPG, JPEG, or WebP files. Each image must be 1MB or less and uploads to Supabase Storage bucket <code>lesson-images</code>.</p>
