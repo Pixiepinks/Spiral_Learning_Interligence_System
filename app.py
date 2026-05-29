@@ -8436,9 +8436,29 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         db.session.commit()
         print("SAVED ACTIVITY JSON:", obj.activity_json)
         return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
-    options = ["intro_video", "explanation", "example", "activity", "quiz", "summary", "image_grid", "tap_correct_picture"]
+    slide_type_options = [
+        ("intro_video", "Intro Video", "හැඳින්වීමේ වීඩියෝව"),
+        ("explanation", "Explanation", "පැහැදිලි කිරීම"),
+        ("example", "Example", "උදාහරණය"),
+        ("activity", "Activity", "ක්‍රියාකාරකම"),
+        ("quiz", "Quiz", "ප්‍රශ්නාවලිය"),
+        ("summary", "Summary", "සාරාංශය"),
+        ("image_grid", "Image Grid", "රූප ජාලය"),
+        ("tap_correct_picture", "Tap Correct Picture", "නිවැරදි පින්තූරය තෝරන්න"),
+        (
+            "drag_drop_circle_size_match",
+            "Drag & Drop Circle Size Match",
+            "භාණ්ඩ ප්‍රමාණය අනුව වෘත්තයට ගැලපීම",
+        ),
+    ]
     selected_type = (slide.slide_type if slide else "explanation")
-    type_opts = "".join([f"<option value='{x}' {'selected' if x == selected_type else ''}>{x}</option>" for x in options])
+    type_opts = "".join(
+        (
+            f"<option value='{escape(value)}' {'selected' if value == selected_type else ''}>"
+            f"{escape(label)} / {escape(label_si)}</option>"
+        )
+        for value, label, label_si in slide_type_options
+    )
     existing_grid_images = parse_image_grid_activity(slide.activity_json if slide else None)
     existing_grid_html = "".join(
         f"""
