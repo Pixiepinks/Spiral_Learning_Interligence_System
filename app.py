@@ -664,34 +664,71 @@ def parse_tap_correct_picture_activity(activity_json: str | dict | None) -> dict
     activity_type = str(payload.get("activity_type") or payload.get("type") or "").strip().lower()
     if activity_type != "tap_correct_picture":
         return {}
+
+    legacy_title = str(payload.get("title") or "").strip()
+    legacy_instruction = str(payload.get("instruction") or "").strip()
+    legacy_success_message = str(payload.get("success_message") or "").strip()
+    legacy_wrong_message = str(payload.get("wrong_message") or "").strip()
     items = []
+    seen_urls = set()
     for item in payload.get("items") or []:
         if not isinstance(item, dict):
             continue
         image_url = str(item.get("image_url") or "").strip()
-        if not image_url:
+        if not image_url or image_url in seen_urls:
             continue
+        seen_urls.add(image_url)
         items.append({"image_url": image_url, "correct": bool(item.get("correct"))})
     return {
         "activity_type": "tap_correct_picture",
-        "title": str(payload.get("title") or "").strip(),
-        "instruction": str(payload.get("instruction") or "").strip(),
+        "title_en": str(payload.get("title_en") or "").strip(),
+        "title_si": str(payload.get("title_si") or "").strip(),
+        "instruction_en": str(payload.get("instruction_en") or "").strip(),
+        "instruction_si": str(payload.get("instruction_si") or "").strip(),
+        "success_message_en": str(payload.get("success_message_en") or "").strip(),
+        "success_message_si": str(payload.get("success_message_si") or "").strip(),
+        "wrong_message_en": str(payload.get("wrong_message_en") or "").strip(),
+        "wrong_message_si": str(payload.get("wrong_message_si") or "").strip(),
+        "title": legacy_title,
+        "instruction": legacy_instruction,
+        "success_message": legacy_success_message,
+        "wrong_message": legacy_wrong_message,
         "allow_multiple": True,
         "items": items,
-        "success_message": str(payload.get("success_message") or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත.").strip(),
-        "wrong_message": str(payload.get("wrong_message") or "නැවත උත්සාහ කරන්න.").strip(),
     }
 
 
-def build_tap_correct_picture_activity_json(title: str, instruction: str, items: list[dict], success_message: str | None = None, wrong_message: str | None = None) -> str:
+def build_tap_correct_picture_activity_json(
+    title_en: str,
+    title_si: str,
+    instruction_en: str,
+    instruction_si: str,
+    items: list[dict],
+    success_message_en: str | None = None,
+    success_message_si: str | None = None,
+    wrong_message_en: str | None = None,
+    wrong_message_si: str | None = None,
+) -> str:
+    cleaned_items = []
+    seen_urls = set()
+    for item in items:
+        image_url = str(item.get("image_url") or "").strip()
+        if not image_url or image_url in seen_urls:
+            continue
+        seen_urls.add(image_url)
+        cleaned_items.append({"image_url": image_url, "correct": bool(item.get("correct"))})
     payload = {
         "activity_type": "tap_correct_picture",
-        "title": (title or "").strip(),
-        "instruction": (instruction or "").strip(),
+        "title_en": (title_en or "").strip(),
+        "title_si": (title_si or "").strip(),
+        "instruction_en": (instruction_en or "").strip(),
+        "instruction_si": (instruction_si or "").strip(),
+        "success_message_en": (success_message_en or "").strip(),
+        "success_message_si": (success_message_si or "").strip(),
+        "wrong_message_en": (wrong_message_en or "").strip(),
+        "wrong_message_si": (wrong_message_si or "").strip(),
         "allow_multiple": True,
-        "items": [{"image_url": str(item.get("image_url") or "").strip(), "correct": bool(item.get("correct"))} for item in items if str(item.get("image_url") or "").strip()],
-        "success_message": (success_message or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත.").strip(),
-        "wrong_message": (wrong_message or "නැවත උත්සාහ කරන්න.").strip(),
+        "items": cleaned_items,
     }
     return json.dumps(payload, ensure_ascii=False)
 
@@ -7736,10 +7773,16 @@ def student_lesson_page(lesson_id: int):
           }})[ch] || ch;
         }});
       }}
+      function localizedActivityText(activityData, fieldBase, fallbackValue = "") {{
+        if (!activityData || typeof activityData !== "object") return fallbackValue || "";
+        const primary = isSinhala ? `${{fieldBase}}_si` : `${{fieldBase}}_en`;
+        const secondary = isSinhala ? `${{fieldBase}}_en` : `${{fieldBase}}_si`;
+        return activityData[primary] || activityData[secondary] || activityData[fieldBase] || fallbackValue || "";
+      }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "tap_correct_picture") {{ const items = Array.isArray(activityData.items) ? activityData.items : []; if (!items.length) return ""; const title = activityData.title || activityData.question_si || activityData.question_en || questionTitle; const instruction = activityData.instruction || ""; const cards = items.map((item, idx)=>{{ const alt = item.alt || item.name_si || item.name_en || item.name || `${{isSinhala ? "රූපය" : "Picture"}} ${{idx + 1}}`; if (!item.image_url) return ""; return `<button type="button" class="tap-picture-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" aria-label="${{escapeHtml(alt)}}"><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(alt)}}" loading="lazy"><span class="tap-picture-check">✓</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="tap-picture-grid">${{cards}}</div><div class="activity-actions"><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
+      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "tap_correct_picture") {{ const seenImageUrls = new Set(); const items = (Array.isArray(activityData.items) ? activityData.items : []).filter((item)=>{{ const imageUrl = String(item?.image_url || "").trim(); if (!imageUrl || seenImageUrls.has(imageUrl)) return false; seenImageUrls.add(imageUrl); return true; }}); if (!items.length) return ""; const title = localizedActivityText(activityData, "title", activityData.question_si || activityData.question_en || questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const cards = items.map((item, idx)=>{{ const alt = item.alt || item.name_si || item.name_en || item.name || `${{isSinhala ? "රූපය" : "Picture"}} ${{idx + 1}}`; return `<button type="button" class="tap-picture-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" aria-label="${{escapeHtml(alt)}}"><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(alt)}}" loading="lazy"><span class="tap-picture-check">✓</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="tap-picture-grid">${{cards}}</div><div class="activity-actions"><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function enableFinishLessonButton() {{ const finishBtn = document.getElementById("finishLessonBtn"); if (finishBtn) {{ finishBtn.disabled = false; finishBtn.classList.remove("disabled"); }} }}
-      function wireTapCorrectPictureInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".tap-picture-card"); const resultBox = mediaWrap.querySelector("#activityResult"); const current = slides[currentIndex]; const nextBtn = document.getElementById("finishLessonBtn"); const successMessage = current.activity?.success_message || (isSinhala ? "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත." : "Great job! You selected the correct pictures."); const wrongMessage = current.activity?.wrong_message || (isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); function selectedCorrectNames() {{ return [...cards].filter(card => card.classList.contains("selected-correct")).map(card => card.dataset.itemIndex || ""); }} function isComplete() {{ return [...cards].every(card => card.dataset.correct !== "true" || card.classList.contains("selected-correct")); }} function showResult(ok, text) {{ if (!resultBox) return; resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{ok ? "success" : "fail"}}`; resultBox.textContent = text; }} async function completeIfReady() {{ if (!isComplete()) return; solvedQuizSlides.add(current.id); enableFinishLessonButton(); showResult(true, successMessage); await recordLessonAnswer(current.id, JSON.stringify(selectedCorrectNames()), true); }} if (nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled = true; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ const isCorrect = card.dataset.correct === "true"; if (isCorrect) {{ card.classList.add("selected-correct"); card.disabled = true; await completeIfReady(); }} else {{ card.classList.add("selected-wrong"); showResult(false, wrongMessage); solvedQuizSlides.delete(current.id); if (nextBtn) nextBtn.disabled = true; await recordLessonAnswer(current.id, `wrong:${{card.dataset.itemIndex || ""}}`, false); maybeShowAiAssistant(true); window.setTimeout(() => {{ card.classList.remove("selected-wrong"); if (resultBox && resultBox.classList.contains("fail")) resultBox.style.display = "none"; }}, 1000); }} }}); }}); }}
+      function wireTapCorrectPictureInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".tap-picture-card"); const resultBox = mediaWrap.querySelector("#activityResult"); const current = slides[currentIndex]; const nextBtn = document.getElementById("finishLessonBtn"); const successMessage = localizedActivityText(current.activity, "success_message", isSinhala ? "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත." : "Great job! You selected the correct pictures."); const wrongMessage = localizedActivityText(current.activity, "wrong_message", isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); function selectedCorrectNames() {{ return [...cards].filter(card => card.classList.contains("selected-correct")).map(card => card.dataset.itemIndex || ""); }} function isComplete() {{ return [...cards].every(card => card.dataset.correct !== "true" || card.classList.contains("selected-correct")); }} function showResult(ok, text) {{ if (!resultBox) return; resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{ok ? "success" : "fail"}}`; resultBox.textContent = text; }} async function completeIfReady() {{ if (!isComplete()) return; solvedQuizSlides.add(current.id); enableFinishLessonButton(); showResult(true, successMessage); await recordLessonAnswer(current.id, JSON.stringify(selectedCorrectNames()), true); }} if (nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled = true; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ const isCorrect = card.dataset.correct === "true"; if (isCorrect) {{ card.classList.add("selected-correct"); card.disabled = true; await completeIfReady(); }} else {{ card.classList.add("selected-wrong"); showResult(false, wrongMessage); solvedQuizSlides.delete(current.id); if (nextBtn) nextBtn.disabled = true; await recordLessonAnswer(current.id, `wrong:${{card.dataset.itemIndex || ""}}`, false); maybeShowAiAssistant(true); window.setTimeout(() => {{ card.classList.remove("selected-wrong"); if (resultBox && resultBox.classList.contains("fail")) resultBox.style.display = "none"; }}, 1000); }} }}); }}); }}
             async function recordLessonAnswer(slideId, selectedAnswer, isCorrect) {{ const activity = slides[currentIndex]?.activity || null; const response = await fetch(`/student/lesson/${{lessonId}}/answer`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slideId,selected_answer:selectedAnswer,is_correct:isCorrect,activity_json:activity,time_spent_seconds: Math.max(1, Math.round((Date.now()-slideStartedAt)/1000))}})}}); const data = await response.json().catch(()=>null); window.lastAiAssistPayload = data && data.ai_assist ? data.ai_assist : null; if (data && data.ok && data.mastery_status) {{ const badge = document.getElementById("masteryBadge"); if (badge) badge.textContent = isSinhala ? (data.mastery_status_si || data.mastery_status) : data.mastery_status; }} }}
       function normalizeEnglishAnswer(value) {{ return String(value || "").trim().toLowerCase(); }}
       function normalizeSinhalaAnswer(value) {{ return String(value || "").trim(); }}
@@ -8313,11 +8356,15 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                 return f"<h2>Could not save tap-correct-picture slide</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
 
             obj.activity_json = build_tap_correct_picture_activity_json(
-                request.form.get("tap_title") or obj.title_si or obj.title_en or "",
-                request.form.get("tap_instruction") or obj.content_si or obj.content_en or "",
+                request.form.get("tap_title_en") or obj.title_en or "",
+                request.form.get("tap_title_si") or obj.title_si or "",
+                request.form.get("tap_instruction_en") or obj.content_en or "",
+                request.form.get("tap_instruction_si") or obj.content_si or "",
                 tap_items,
-                request.form.get("tap_success_message"),
-                request.form.get("tap_wrong_message"),
+                request.form.get("tap_success_message_en"),
+                request.form.get("tap_success_message_si"),
+                request.form.get("tap_wrong_message_en"),
+                request.form.get("tap_wrong_message_si"),
             )
         elif is_image_grid_submission:
             obj.image_url = None
@@ -8417,10 +8464,18 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for item in tap_items
     )
-    tap_title = tap_activity.get("title") or (slide.title_si if slide and slide.title_si else (slide.title_en if slide and slide.title_en else ""))
-    tap_instruction = tap_activity.get("instruction") or (slide.content_si if slide and slide.content_si else (slide.content_en if slide and slide.content_en else ""))
-    tap_success_message = tap_activity.get("success_message") or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත."
-    tap_wrong_message = tap_activity.get("wrong_message") or "නැවත උත්සාහ කරන්න."
+    legacy_tap_title = tap_activity.get("title") or ""
+    legacy_tap_instruction = tap_activity.get("instruction") or ""
+    legacy_tap_success_message = tap_activity.get("success_message") or ""
+    legacy_tap_wrong_message = tap_activity.get("wrong_message") or ""
+    tap_title_en = tap_activity.get("title_en") or (slide.title_en if slide and slide.title_en else legacy_tap_title)
+    tap_title_si = tap_activity.get("title_si") or (slide.title_si if slide and slide.title_si else legacy_tap_title)
+    tap_instruction_en = tap_activity.get("instruction_en") or (slide.content_en if slide and slide.content_en else legacy_tap_instruction)
+    tap_instruction_si = tap_activity.get("instruction_si") or (slide.content_si if slide and slide.content_si else legacy_tap_instruction)
+    tap_success_message_en = tap_activity.get("success_message_en") or legacy_tap_success_message
+    tap_success_message_si = tap_activity.get("success_message_si") or legacy_tap_success_message
+    tap_wrong_message_en = tap_activity.get("wrong_message_en") or legacy_tap_wrong_message
+    tap_wrong_message_si = tap_activity.get("wrong_message_si") or legacy_tap_wrong_message
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
     <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
@@ -8467,10 +8522,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         <legend><strong>Tap Correct Picture Activity</strong></legend>
         <p>Upload PNG, JPG, JPEG, or WebP files. Each image must be 1MB or less and uploads to Supabase Storage bucket <code>lesson-images</code>.</p>
         <style>.tap-picture-admin-row,.tap-picture-new-row{{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;margin:10px 0;padding:12px;border:1px solid #dcfce7;border-radius:14px;background:#fff}}.tap-picture-admin-row img,.tap-picture-preview{{width:84px;height:84px;object-fit:cover;border-radius:14px;box-shadow:0 8px 18px rgba(15,23,42,.12)}}.tap-picture-new-row{{grid-template-columns:96px 1.4fr 1fr auto}}.tap-correct-label{{font-weight:700;color:#166534}}.tap-remove-row{{border:none;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:800;padding:8px 10px;cursor:pointer}}@media(max-width:760px){{.tap-picture-admin-row,.tap-picture-new-row{{grid-template-columns:1fr}}}}</style>
-        <label>Title <input type='text' name='tap_title' value='{escape(tap_title)}' style='width:100%;max-width:720px;'></label><br><br>
-        <label>Instruction <textarea name='tap_instruction' rows='3' cols='80'>{escape(tap_instruction)}</textarea></label><br><br>
-        <label>Success message <input type='text' name='tap_success_message' value='{escape(tap_success_message)}' style='width:100%;max-width:720px;'></label><br><br>
-        <label>Wrong message <input type='text' name='tap_wrong_message' value='{escape(tap_wrong_message)}' style='width:100%;max-width:720px;'></label>
+        <div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;'>
+          <label>Title EN <input type='text' name='tap_title_en' value='{escape(tap_title_en)}' style='width:100%;'></label>
+          <label>Title SI <input type='text' name='tap_title_si' value='{escape(tap_title_si)}' style='width:100%;'></label>
+          <label>Instruction EN <textarea name='tap_instruction_en' rows='3' style='width:100%;'>{escape(tap_instruction_en)}</textarea></label>
+          <label>Instruction SI <textarea name='tap_instruction_si' rows='3' style='width:100%;'>{escape(tap_instruction_si)}</textarea></label>
+          <label>Success message EN <input type='text' name='tap_success_message_en' value='{escape(tap_success_message_en)}' style='width:100%;'></label>
+          <label>Success message SI <input type='text' name='tap_success_message_si' value='{escape(tap_success_message_si)}' style='width:100%;'></label>
+          <label>Wrong message EN <input type='text' name='tap_wrong_message_en' value='{escape(tap_wrong_message_en)}' style='width:100%;'></label>
+          <label>Wrong message SI <input type='text' name='tap_wrong_message_si' value='{escape(tap_wrong_message_si)}' style='width:100%;'></label>
+        </div>
         <h4>Existing Images</h4>
         {tap_existing_html or '<p>No tap-correct-picture images saved yet.</p>'}
         <h4>Upload New Images</h4>
