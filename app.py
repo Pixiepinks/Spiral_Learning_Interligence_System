@@ -525,8 +525,9 @@ def student_initials(name: str | None) -> str:
     return f"{parts[0][0]}{parts[1][0]}".upper()
 
 
-LESSON_IMAGE_BUCKET = "lesson-images"
+LESSON_IMAGE_BUCKET = (os.environ.get("SUPABASE_BUCKET") or "lesson-images").strip() or "lesson-images"
 MAX_LESSON_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
+MAX_ACTIVITY_IMAGE_UPLOAD_SIZE = 1 * 1024 * 1024
 IMAGE_CONTENT_TYPE_BY_EXT = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -567,7 +568,7 @@ def upload_lesson_image_to_supabase(lesson_id: int, slide_ref: int | str, file_s
     object_filename = secure_filename(
         f"{uuid.uuid4().hex}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{ext}"
     )
-    object_name = f"lesson_{lesson_id}/slide_{safe_slide_ref}/{object_filename}"
+    object_name = f"lesson-{lesson_id}/slide-{safe_slide_ref}/{object_filename}"
 
     image_bytes = file_storage.read()
     file_storage.stream.seek(0)
@@ -590,6 +591,117 @@ def upload_lesson_image_to_supabase(lesson_id: int, slide_ref: int | str, file_s
     public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{LESSON_IMAGE_BUCKET}/{object_name}"
     return public_url, None
 
+
+
+def upload_activity_image_to_supabase(lesson_id: int, slide_ref: int | str | None, file_storage) -> tuple[str | None, str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None, "Missing image file."
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, None, "Invalid image filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in IMAGE_CONTENT_TYPE_BY_EXT:
+        return None, None, "Invalid file type. Upload png, jpg, jpeg, or webp images only."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_ACTIVITY_IMAGE_UPLOAD_SIZE:
+        return None, None, "Activity images must be 1MB or less."
+
+    uploaded_content_type = (file_storage.mimetype or "").lower()
+    allowed_mimes = set(IMAGE_CONTENT_TYPE_BY_EXT.values())
+    if uploaded_content_type and uploaded_content_type not in allowed_mimes:
+        return None, None, "Invalid image MIME type. Upload PNG, JPG, JPEG, or WebP images only."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    bucket_name = (os.environ.get("SUPABASE_BUCKET") or LESSON_IMAGE_BUCKET or "lesson-images").strip() or "lesson-images"
+    if not supabase_url or not supabase_key:
+        return None, None, "Supabase storage is not configured."
+
+    safe_slide_ref = secure_filename(str(slide_ref or "temp")) or "temp"
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    object_filename = secure_filename(f"{timestamp}-{uuid.uuid4().hex[:10]}-{original_name}")
+    object_name = f"lesson-{lesson_id}/slide-{safe_slide_ref}/{object_filename}"
+
+    image_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{bucket_name}/{object_name}"
+    req = Request(
+        upload_url,
+        data=image_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": IMAGE_CONTENT_TYPE_BY_EXT[ext],
+            "x-upsert": "false",
+        },
+    )
+    try:
+        urlopen(req, timeout=30).read()
+    except (HTTPError, URLError, TimeoutError) as exc:
+        return None, object_name, f"Failed to upload activity image: {exc}"
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket_name}/{object_name}"
+    return public_url, object_name, None
+
+
+def parse_tap_correct_picture_activity(activity_json: str | dict | None) -> dict:
+    if not activity_json:
+        return {}
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    if not isinstance(payload, dict):
+        return {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or "").strip().lower()
+    if activity_type != "tap_correct_picture":
+        return {}
+    items = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        image_url = str(item.get("image_url") or "").strip()
+        if not image_url:
+            continue
+        items.append({"image_url": image_url, "correct": bool(item.get("correct"))})
+    return {
+        "activity_type": "tap_correct_picture",
+        "title": str(payload.get("title") or "").strip(),
+        "instruction": str(payload.get("instruction") or "").strip(),
+        "allow_multiple": True,
+        "items": items,
+        "success_message": str(payload.get("success_message") or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත.").strip(),
+        "wrong_message": str(payload.get("wrong_message") or "නැවත උත්සාහ කරන්න.").strip(),
+    }
+
+
+def build_tap_correct_picture_activity_json(title: str, instruction: str, items: list[dict], success_message: str | None = None, wrong_message: str | None = None) -> str:
+    payload = {
+        "activity_type": "tap_correct_picture",
+        "title": (title or "").strip(),
+        "instruction": (instruction or "").strip(),
+        "allow_multiple": True,
+        "items": [{"image_url": str(item.get("image_url") or "").strip(), "correct": bool(item.get("correct"))} for item in items if str(item.get("image_url") or "").strip()],
+        "success_message": (success_message or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත.").strip(),
+        "wrong_message": (wrong_message or "නැවත උත්සාහ කරන්න.").strip(),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def validate_tap_correct_picture_items(items: list[dict]) -> str | None:
+    if len(items) < 2:
+        return "Tap-correct-picture requires at least 2 images."
+    if not any(bool(item.get("correct")) for item in items):
+        return "Tap-correct-picture requires at least 1 correct image."
+    return None
 
 def parse_image_grid_activity(activity_json: str | dict | None) -> list[dict]:
     if not activity_json:
@@ -7590,7 +7702,7 @@ def student_lesson_page(lesson_id: int):
         })
 
     inner_html = f"""
-    <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08);position:relative}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}</style>
+    <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08);position:relative}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.tap-picture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:18px}}.tap-picture-card{{position:relative;min-height:180px;padding:12px;border-radius:22px;border:3px solid transparent;background:rgba(255,255,255,.82);box-shadow:0 14px 32px rgba(15,23,42,.12);cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;overflow:hidden}}.tap-picture-card:hover{{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.tap-picture-card img{{width:100%;height:170px;object-fit:cover;border-radius:16px;display:block}}.tap-picture-card.selected-correct{{border-color:#22c55e;background:#ecfdf5}}.tap-picture-card.selected-wrong{{border-color:#ef4444;background:#fef2f2;animation:tapShake .28s linear}}.tap-picture-check{{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:999px;background:#22c55e;color:#fff;display:none;align-items:center;justify-content:center;font-weight:900;box-shadow:0 8px 20px rgba(34,197,94,.35)}}.tap-picture-card.selected-correct .tap-picture-check{{display:flex}}@keyframes tapShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-5px)}}75%{{transform:translateX(5px)}}}}@media(max-width:900px){{.tap-picture-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}@media(max-width:560px){{.tap-picture-grid{{grid-template-columns:1fr}}.tap-picture-card img{{height:210px}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}</style>
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
@@ -7625,15 +7737,15 @@ def student_lesson_page(lesson_id: int):
         }});
       }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "tap_correct_picture") {{ const items = Array.isArray(activityData.items) ? activityData.items : []; if (!items.length) return ""; const cards = items.map((item, idx)=>{{ const name = isSinhala ? (item.name_si || item.name_en || item.name || `Item ${{idx + 1}}`) : (item.name_en || item.name_si || item.name || `Item ${{idx + 1}}`); const visual = item.image_url ? `<img src="${{item.image_url}}" alt="${{name}}" class="activity-thumb">` : `<span class="activity-emoji">${{item.emoji || "🧩"}}</span>`; return `<button type="button" class="activity-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" data-item-name="${{String(name).replaceAll('"', '&quot;')}}">${{visual}}<span class="activity-name">${{name}}</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{cards}}</div><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkAnswerBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
+      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "tap_correct_picture") {{ const items = Array.isArray(activityData.items) ? activityData.items : []; if (!items.length) return ""; const title = activityData.title || activityData.question_si || activityData.question_en || questionTitle; const instruction = activityData.instruction || ""; const cards = items.map((item, idx)=>{{ const alt = item.alt || item.name_si || item.name_en || item.name || `${{isSinhala ? "රූපය" : "Picture"}} ${{idx + 1}}`; if (!item.image_url) return ""; return `<button type="button" class="tap-picture-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" aria-label="${{escapeHtml(alt)}}"><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(alt)}}" loading="lazy"><span class="tap-picture-check">✓</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="tap-picture-grid">${{cards}}</div><div class="activity-actions"><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function enableFinishLessonButton() {{ const finishBtn = document.getElementById("finishLessonBtn"); if (finishBtn) {{ finishBtn.disabled = false; finishBtn.classList.remove("disabled"); }} }}
-      function wireTapCorrectPictureInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".activity-card"); const resultBox = mediaWrap.querySelector("#activityResult"); const checkBtn = mediaWrap.querySelector("#checkAnswerBtn"); const current = slides[currentIndex]; const nextBtn = document.getElementById("finishLessonBtn"); const toggleNextState = () => {{ const hasWrong = [...cards].some((card) => card.classList.contains("selected") && card.dataset.correct !== "true"); const missingCorrect = [...cards].some((card) => !card.classList.contains("selected") && card.dataset.correct === "true"); if (nextBtn) nextBtn.disabled = hasWrong || missingCorrect; return !hasWrong && !missingCorrect; }}; cards.forEach((card) => {{ card.addEventListener("click", () => {{ card.classList.toggle("selected"); card.classList.remove("correct", "wrong", "missing"); if (card.classList.contains("selected")) card.classList.add("selected"); if (resultBox) resultBox.style.display = "none"; toggleNextState(); }}); }}); toggleNextState(); if (!checkBtn) return; checkBtn.addEventListener("click", async () => {{ const selectedNames = []; let allGood = true; cards.forEach((card) => {{ const selected = card.classList.contains("selected"); const isCorrect = card.dataset.correct === "true"; const itemName = card.dataset.itemName || ""; card.classList.remove("correct", "wrong", "missing"); if (selected && isCorrect) {{ card.classList.add("correct"); if (itemName) selectedNames.push(itemName); }} if (selected && !isCorrect) {{ card.classList.add("wrong"); allGood = false; if (itemName) selectedNames.push(itemName); }} if (!selected && isCorrect) {{ card.classList.add("missing"); allGood = false; }} }}); const selectedJson = JSON.stringify(selectedNames); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{allGood ? "success" : "fail"}}`; resultBox.textContent = allGood ? (isSinhala ? "ශබාශ! නිවැරදි පිළිතුර 🎉" : "Great job! Correct 🎉") : (isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); }} await recordLessonAnswer(current.id, selectedJson, allGood); maybeShowAiAssistant(!allGood); if (allGood) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); }} else solvedQuizSlides.delete(current.id); toggleNextState(); }}); }}
-      async function recordLessonAnswer(slideId, selectedAnswer, isCorrect) {{ const activity = slides[currentIndex]?.activity || null; const response = await fetch(`/student/lesson/${{lessonId}}/answer`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slideId,selected_answer:selectedAnswer,is_correct:isCorrect,activity_json:activity,time_spent_seconds: Math.max(1, Math.round((Date.now()-slideStartedAt)/1000))}})}}); const data = await response.json().catch(()=>null); window.lastAiAssistPayload = data && data.ai_assist ? data.ai_assist : null; if (data && data.ok && data.mastery_status) {{ const badge = document.getElementById("masteryBadge"); if (badge) badge.textContent = isSinhala ? (data.mastery_status_si || data.mastery_status) : data.mastery_status; }} }}
+      function wireTapCorrectPictureInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".tap-picture-card"); const resultBox = mediaWrap.querySelector("#activityResult"); const current = slides[currentIndex]; const nextBtn = document.getElementById("finishLessonBtn"); const successMessage = current.activity?.success_message || (isSinhala ? "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත." : "Great job! You selected the correct pictures."); const wrongMessage = current.activity?.wrong_message || (isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); function selectedCorrectNames() {{ return [...cards].filter(card => card.classList.contains("selected-correct")).map(card => card.dataset.itemIndex || ""); }} function isComplete() {{ return [...cards].every(card => card.dataset.correct !== "true" || card.classList.contains("selected-correct")); }} function showResult(ok, text) {{ if (!resultBox) return; resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{ok ? "success" : "fail"}}`; resultBox.textContent = text; }} async function completeIfReady() {{ if (!isComplete()) return; solvedQuizSlides.add(current.id); enableFinishLessonButton(); showResult(true, successMessage); await recordLessonAnswer(current.id, JSON.stringify(selectedCorrectNames()), true); }} if (nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled = true; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ const isCorrect = card.dataset.correct === "true"; if (isCorrect) {{ card.classList.add("selected-correct"); card.disabled = true; await completeIfReady(); }} else {{ card.classList.add("selected-wrong"); showResult(false, wrongMessage); solvedQuizSlides.delete(current.id); if (nextBtn) nextBtn.disabled = true; await recordLessonAnswer(current.id, `wrong:${{card.dataset.itemIndex || ""}}`, false); maybeShowAiAssistant(true); window.setTimeout(() => {{ card.classList.remove("selected-wrong"); if (resultBox && resultBox.classList.contains("fail")) resultBox.style.display = "none"; }}, 1000); }} }}); }}); }}
+            async function recordLessonAnswer(slideId, selectedAnswer, isCorrect) {{ const activity = slides[currentIndex]?.activity || null; const response = await fetch(`/student/lesson/${{lessonId}}/answer`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slideId,selected_answer:selectedAnswer,is_correct:isCorrect,activity_json:activity,time_spent_seconds: Math.max(1, Math.round((Date.now()-slideStartedAt)/1000))}})}}); const data = await response.json().catch(()=>null); window.lastAiAssistPayload = data && data.ai_assist ? data.ai_assist : null; if (data && data.ok && data.mastery_status) {{ const badge = document.getElementById("masteryBadge"); if (badge) badge.textContent = isSinhala ? (data.mastery_status_si || data.mastery_status) : data.mastery_status; }} }}
       function normalizeEnglishAnswer(value) {{ return String(value || "").trim().toLowerCase(); }}
       function normalizeSinhalaAnswer(value) {{ return String(value || "").trim(); }}
       function wireFillBlankInteraction(mediaWrap) {{ const input = mediaWrap.querySelector("#fillBlankAnswerInput"); const checkBtn = mediaWrap.querySelector("#checkFillBlankBtn"); const tryAgainBtn = mediaWrap.querySelector("#tryAgainBtn"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const nextBtn = document.getElementById("finishLessonBtn"); const current = slides[currentIndex]; if (!input || !checkBtn) return; const acceptable = Array.isArray(current.activity?.acceptable_answers) ? current.activity.acceptable_answers : []; const primaryAnswers = [current.activity?.answer_en, current.activity?.answer_si].filter((item)=>typeof item === "string" && item.trim()); const allAnswers = [...acceptable, ...primaryAnswers].filter((item)=>typeof item === "string" && item.trim()); const normalized = new Set(allAnswers.map((item)=>isSinhala ? normalizeSinhalaAnswer(item) : normalizeEnglishAnswer(item))); const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); const resetState = () => {{ input.classList.remove("correct", "wrong"); if (resultBox) resultBox.style.display = "none"; if (explainEl) explainEl.style.display = "none"; checkBtn.style.display = "inline-block"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}; checkBtn.addEventListener("click", async () => {{ const rawValue = String(input.value || ""); const trimmed = rawValue.trim(); const normalizedStudent = isSinhala ? normalizeSinhalaAnswer(trimmed) : normalizeEnglishAnswer(trimmed); const isCorrect = trimmed.length > 0 && normalized.has(normalizedStudent); input.classList.remove("correct", "wrong"); input.classList.add(isCorrect ? "correct" : "wrong"); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි. නැවත උත්සාහ කරන්න." : "Not quite. Try again."); }} if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); checkBtn.style.display = "none"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = false; if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} }} else {{ solvedQuizSlides.delete(current.id); if (tryAgainBtn) tryAgainBtn.style.display = "inline-block"; if (nextBtn) nextBtn.disabled = true; }} await recordLessonAnswer(current.id, trimmed, isCorrect); maybeShowAiAssistant(!isCorrect); }}); if (tryAgainBtn) tryAgainBtn.addEventListener("click", resetState); if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}
       function wireMcqInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".mcq-option"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const current = slides[currentIndex]; const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); let locked = false; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ if (locked) return; cards.forEach((item)=>item.classList.remove("selected-answer","correct-answer","wrong-answer")); card.classList.add("selected-answer"); locked = true; cards.forEach((item)=>item.disabled = true); const isCorrect = card.dataset.correct === "true"; card.classList.add(isCorrect ? "correct-answer" : "wrong-answer"); cards.forEach((item)=>{{ if (item.dataset.correct === "true") item.classList.add("correct-answer"); }}); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි." : "Not quite."); }} if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} await recordLessonAnswer(current.id, card.dataset.optionValue || card.dataset.optionLabel || "", isCorrect); maybeShowAiAssistant(!isCorrect); if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); }} }}); }}); }}
-      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType; const requiresCorrect = String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "tap_correct_picture" || normalizedType2 === "fill_blank"); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType; const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
@@ -8055,6 +8167,24 @@ def admin_lesson_builder_new():
     """
 
 
+
+@app.route("/admin/lesson-content/upload-activity-image", methods=["POST"])
+def admin_upload_activity_image():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return jsonify({"success": False, "error": "Admin session required."}), 401
+    lesson_id_raw = (request.form.get("lesson_id") or "").strip()
+    if not lesson_id_raw.isdigit():
+        return jsonify({"success": False, "error": "lesson_id is required."}), 400
+    lesson = db.session.get(Lesson, int(lesson_id_raw))
+    if not lesson:
+        return jsonify({"success": False, "error": "Lesson not found."}), 404
+    slide_id = (request.form.get("slide_id") or "temp").strip() or "temp"
+    public_url, path, upload_error = upload_activity_image_to_supabase(lesson.id, slide_id, request.files.get("image"))
+    if upload_error:
+        return jsonify({"success": False, "error": upload_error}), 400
+    return jsonify({"success": True, "image_url": public_url, "path": path})
+
 @app.route("/admin/lesson-builder/<int:lesson_id>/slides", methods=["GET"], endpoint="admin_lesson_slides")
 def admin_lesson_builder_slides(lesson_id: int):
     admin_redirect = admin_session_required()
@@ -8130,6 +8260,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                     submitted_activity_payload = parsed_submitted_activity
             except (TypeError, ValueError, json.JSONDecodeError):
                 submitted_activity_payload = None
+        is_tap_correct_picture_submission = selected_slide_type == "tap_correct_picture" or (old_activity_payload or {}).get("activity_type") == "tap_correct_picture" or (old_activity_payload or {}).get("type") == "tap_correct_picture" or (submitted_activity_payload or {}).get("activity_type") == "tap_correct_picture" or (submitted_activity_payload or {}).get("type") == "tap_correct_picture"
         is_image_grid_submission = (
             selected_slide_type == "image_grid"
             or has_image_grid_uploads
@@ -8142,7 +8273,53 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         print("FILES:", request.files)
         print("OLD ACTIVITY JSON:", old_activity_json)
 
-        if is_image_grid_submission:
+        if is_tap_correct_picture_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+
+            tap_items = []
+            existing_urls = request.form.getlist("tap_existing_image_url")
+            existing_correct_values = set(request.form.getlist("tap_existing_correct"))
+            remove_existing = set(request.form.getlist("tap_remove_existing"))
+            if existing_urls:
+                for idx, image_url in enumerate(existing_urls):
+                    clean_url = str(image_url or "").strip()
+                    if not clean_url or clean_url in remove_existing:
+                        continue
+                    tap_items.append({"image_url": clean_url, "correct": clean_url in existing_correct_values})
+            else:
+                for item in parse_tap_correct_picture_activity(old_activity_json or submitted_activity_json).get("items", []):
+                    clean_url = str(item.get("image_url") or "").strip()
+                    if clean_url:
+                        tap_items.append({"image_url": clean_url, "correct": bool(item.get("correct"))})
+
+            new_correct_values = set(request.form.getlist("tap_new_correct"))
+            upload_files = request.files.getlist("tap_images")
+            for idx, upload in enumerate(upload_files):
+                if not upload or not upload.filename:
+                    continue
+                public_url, object_path, upload_error = upload_activity_image_to_supabase(lesson.id, obj.id or "temp", upload)
+                if upload_error:
+                    db.session.rollback()
+                    return f"<h2>Activity image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                if public_url:
+                    tap_items.append({"image_url": public_url, "correct": str(idx) in new_correct_values})
+
+            validation_error = validate_tap_correct_picture_items(tap_items)
+            if validation_error:
+                db.session.rollback()
+                return f"<h2>Could not save tap-correct-picture slide</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+
+            obj.activity_json = build_tap_correct_picture_activity_json(
+                request.form.get("tap_title") or obj.title_si or obj.title_en or "",
+                request.form.get("tap_instruction") or obj.content_si or obj.content_en or "",
+                tap_items,
+                request.form.get("tap_success_message"),
+                request.form.get("tap_wrong_message"),
+            )
+        elif is_image_grid_submission:
             obj.image_url = None
             if not slide:
                 db.session.add(obj)
@@ -8211,7 +8388,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         db.session.commit()
         print("SAVED ACTIVITY JSON:", obj.activity_json)
         return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
-    options = ["intro_video", "explanation", "example", "activity", "quiz", "summary", "image_grid"]
+    options = ["intro_video", "explanation", "example", "activity", "quiz", "summary", "image_grid", "tap_correct_picture"]
     selected_type = (slide.slide_type if slide else "explanation")
     type_opts = "".join([f"<option value='{x}' {'selected' if x == selected_type else ''}>{x}</option>" for x in options])
     existing_grid_images = parse_image_grid_activity(slide.activity_json if slide else None)
@@ -8227,12 +8404,29 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for item in existing_grid_images
     )
+    tap_activity = parse_tap_correct_picture_activity(slide.activity_json if slide else None)
+    tap_items = tap_activity.get("items", []) if tap_activity else []
+    tap_existing_html = "".join(
+        f"""
+        <div class='tap-picture-admin-row'>
+          <img src='{escape(item['image_url'])}' alt='Existing tap-correct-picture item'>
+          <input type='hidden' name='tap_existing_image_url' value='{escape(item['image_url'])}'>
+          <label class='tap-correct-label'><input type='checkbox' name='tap_existing_correct' value='{escape(item['image_url'])}' {'checked' if item.get('correct') else ''}> Correct image</label>
+          <label class='remove-image'><input type='checkbox' name='tap_remove_existing' value='{escape(item['image_url'])}'> Remove</label>
+        </div>
+        """
+        for item in tap_items
+    )
+    tap_title = tap_activity.get("title") or (slide.title_si if slide and slide.title_si else (slide.title_en if slide and slide.title_en else ""))
+    tap_instruction = tap_activity.get("instruction") or (slide.content_si if slide and slide.content_si else (slide.content_en if slide and slide.content_en else ""))
+    tap_success_message = tap_activity.get("success_message") or "සුභ පැතුම්! ඔබ නිවැරදි පින්තූර තෝරා ඇත."
+    tap_wrong_message = tap_activity.get("wrong_message") or "නැවත උත්සාහ කරන්න."
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
     <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
     <form method='post' enctype='multipart/form-data'>
       <label>Slide Order <input type='number' name='slide_order' value='{slide.slide_order if slide else 1}' min='1' required></label><br><br>
-      <label>Slide Type <select name='slide_type'>{type_opts}</select></label><br><br>
+      <label>Slide Type <select id='slideTypeSelect' name='slide_type'>{type_opts}</select></label><br><br>
       <label>Title EN <input type='text' name='title_en' value='{escape(slide.title_en) if slide and slide.title_en else ''}'></label><br><br>
       <label>Title SI <input type='text' name='title_si' value='{escape(slide.title_si) if slide and slide.title_si else ''}'></label><br><br>
       <label>Content EN <textarea name='content_en' rows='4' cols='70'>{escape(slide.content_en) if slide and slide.content_en else ''}</textarea></label><br><br>
@@ -8269,6 +8463,53 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         </script>
         <p style='color:#64748b;'>Tip: captions are matched to selected files in order. Choose all gallery images together to add them in one save.</p>
       </fieldset>
+      <fieldset id='tapCorrectPictureBuilder' style='border:1px solid #bbf7d0;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#f0fdf4;'>
+        <legend><strong>Tap Correct Picture Activity</strong></legend>
+        <p>Upload PNG, JPG, JPEG, or WebP files. Each image must be 1MB or less and uploads to Supabase Storage bucket <code>lesson-images</code>.</p>
+        <style>.tap-picture-admin-row,.tap-picture-new-row{{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;margin:10px 0;padding:12px;border:1px solid #dcfce7;border-radius:14px;background:#fff}}.tap-picture-admin-row img,.tap-picture-preview{{width:84px;height:84px;object-fit:cover;border-radius:14px;box-shadow:0 8px 18px rgba(15,23,42,.12)}}.tap-picture-new-row{{grid-template-columns:96px 1.4fr 1fr auto}}.tap-correct-label{{font-weight:700;color:#166534}}.tap-remove-row{{border:none;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:800;padding:8px 10px;cursor:pointer}}@media(max-width:760px){{.tap-picture-admin-row,.tap-picture-new-row{{grid-template-columns:1fr}}}}</style>
+        <label>Title <input type='text' name='tap_title' value='{escape(tap_title)}' style='width:100%;max-width:720px;'></label><br><br>
+        <label>Instruction <textarea name='tap_instruction' rows='3' cols='80'>{escape(tap_instruction)}</textarea></label><br><br>
+        <label>Success message <input type='text' name='tap_success_message' value='{escape(tap_success_message)}' style='width:100%;max-width:720px;'></label><br><br>
+        <label>Wrong message <input type='text' name='tap_wrong_message' value='{escape(tap_wrong_message)}' style='width:100%;max-width:720px;'></label>
+        <h4>Existing Images</h4>
+        {tap_existing_html or '<p>No tap-correct-picture images saved yet.</p>'}
+        <h4>Upload New Images</h4>
+        <div id='tapPictureRows'></div>
+        <button type='button' id='addTapPictureRow'>Add another image</button>
+        <p style='color:#166534;'>Save requires at least 2 images and at least 1 correct image.</p>
+      </fieldset>
+      <script>
+        (function() {{
+          const typeSelect = document.getElementById('slideTypeSelect');
+          const builder = document.getElementById('tapCorrectPictureBuilder');
+          const rows = document.getElementById('tapPictureRows');
+          const addBtn = document.getElementById('addTapPictureRow');
+          let rowIndex = 0;
+          function escapeAttr(value) {{ return String(value || '').replace(/[&<>"']/g, function(ch) {{ return ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[ch] || ch; }}); }}
+          function toggleBuilder() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'tap_correct_picture' ? 'block' : 'none'; }}
+          function addRow() {{
+            if (!rows) return;
+            const idx = rowIndex++;
+            const row = document.createElement('div');
+            row.className = 'tap-picture-new-row';
+            row.innerHTML = `<img class='tap-picture-preview' alt='Preview' style='display:none;'><label>Image upload <input type='file' name='tap_images' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label><label class='tap-correct-label'><input type='checkbox' name='tap_new_correct' value='${{idx}}'> Correct image</label><button type='button' class='tap-remove-row'>Remove</button>`;
+            const input = row.querySelector('input[type=file]');
+            const preview = row.querySelector('.tap-picture-preview');
+            input.addEventListener('change', function() {{
+              const file = input.files && input.files[0];
+              if (!file) {{ preview.style.display = 'none'; preview.removeAttribute('src'); return; }}
+              preview.src = URL.createObjectURL(file);
+              preview.style.display = 'block';
+            }});
+            row.querySelector('.tap-remove-row').addEventListener('click', function() {{ row.remove(); }});
+            rows.appendChild(row);
+          }}
+          typeSelect?.addEventListener('change', toggleBuilder);
+          addBtn?.addEventListener('click', addRow);
+          toggleBuilder();
+          if (typeSelect && typeSelect.value === 'tap_correct_picture' && rows && !rows.children.length) addRow();
+        }})();
+      </script>
       <label>XP Reward <input type='number' name='xp_reward' value='{slide.xp_reward if slide else 10}' min='0'></label><br><br>
       <label><input type='checkbox' name='is_required' value='1' {'checked' if (slide.is_required if slide else True) else ''}> Is Required</label><br><br>
       <label><input type='checkbox' name='is_active' value='1' {'checked' if (slide.is_active if slide else True) else ''}> Is Active</label><br><br>
