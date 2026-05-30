@@ -2402,9 +2402,7 @@ def build_public_home_lesson_section() -> str:
       <section class="new-popular-lessons" aria-labelledby="new-popular-lessons-title">
         <div class="new-popular-lessons-inner">
           <div class="new-popular-lessons-heading">
-            <span class="new-popular-kicker">SLIS Learning Picks</span>
             <h1 id="new-popular-lessons-title">New and Popular Lessons</h1>
-            <p>Explore selected Sinhala + English friendly chapters chosen by SLIS admins.</p>
           </div>
           <div class="home-lessons-grid">
             {''.join(columns)}
