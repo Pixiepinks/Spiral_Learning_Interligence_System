@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for, get_flashed_messages
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session, url_for, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -63,6 +63,13 @@ def save_question_image_upload(file_storage) -> tuple[str | None, str | None]:
 
 
 SUPPORTED_MEDIA = {"English", "Sinhala"}
+
+HOME_SECTION_TYPES = {
+    "most_popular": "Most Popular",
+    "hot_new_releases": "Hot New Releases",
+    "trending_now": "Trending Now",
+}
+DEFAULT_HOME_SECTION_TYPE = "most_popular"
 
 VALID_GRADES = [str(n) for n in range(1, 11)] + ["OL", "AL"]
 GRADE_LABELS_EN = {"OL": "O/L", "AL": "A/L"}
@@ -512,6 +519,9 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS chapter_image_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS show_on_home BOOLEAN DEFAULT FALSE"))
+    db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS home_section_type VARCHAR(30) DEFAULT 'most_popular'"))
+    db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS home_display_order INTEGER DEFAULT 0"))
     db.session.commit()
     ensure_student_username_schema()
     ensure_family_registration_schema()
@@ -1548,6 +1558,9 @@ class SyllabusChapter(db.Model):
     estimated_periods = db.Column(db.Integer, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     chapter_image_url = db.Column(db.Text, nullable=True)
+    show_on_home = db.Column(db.Boolean, nullable=False, default=False)
+    home_section_type = db.Column(db.String(30), nullable=False, default=DEFAULT_HOME_SECTION_TYPE)
+    home_display_order = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -2271,11 +2284,152 @@ def build_generated_question(grade: str, subject: str, topic: str, difficulty_le
 
 
 FRONTEND_BUILD_DIR = os.path.join(app.root_path, "build", "web")
+HOME_LESSON_IMAGE_FALLBACK = "/static/images/default-module-cover.jpg"
+DEFAULT_MODULE_COVER_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" role="img" aria-label="SLIS default module cover">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#07142f"/><stop offset="0.52" stop-color="#0f2b68"/><stop offset="1" stop-color="#081736"/>
+    </linearGradient>
+    <radialGradient id="blue" cx="20%" cy="22%" r="52%">
+      <stop stop-color="#38a5ff" stop-opacity="0.62"/><stop offset="1" stop-color="#38a5ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="purple" cx="80%" cy="18%" r="55%">
+      <stop stop-color="#9d65ff" stop-opacity="0.52"/><stop offset="1" stop-color="#9d65ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="900" height="600" fill="url(#bg)"/><rect width="900" height="600" fill="url(#blue)"/><rect width="900" height="600" fill="url(#purple)"/>
+  <g opacity="0.24" fill="#b7d8ff"><circle cx="110" cy="110" r="4"/><circle cx="190" cy="190" r="3"/><circle cx="780" cy="120" r="4"/><circle cx="690" cy="430" r="3"/><circle cx="315" cy="465" r="4"/></g>
+  <rect x="170" y="150" width="560" height="300" rx="46" fill="#0d2658" fill-opacity="0.82" stroke="#8fd8ff" stroke-opacity="0.72" stroke-width="5"/>
+  <text x="450" y="282" text-anchor="middle" fill="#ffffff" font-family="Nunito, Arial, sans-serif" font-size="82" font-weight="900">SLIS</text>
+  <text x="450" y="348" text-anchor="middle" fill="#cbe2ff" font-family="Arial, sans-serif" font-size="34" font-weight="700">Learning Module</text>
+</svg>
+"""
+
+
+def normalize_home_section_type(value: str | None) -> str:
+    section_type = (value or DEFAULT_HOME_SECTION_TYPE).strip()
+    return section_type if section_type in HOME_SECTION_TYPES else DEFAULT_HOME_SECTION_TYPE
+
+
+def build_public_home_lesson_section() -> str:
+    section_rows = (
+        db.session.query(SyllabusChapter, SyllabusModule, SyllabusTerm)
+        .join(SyllabusModule, SyllabusModule.id == SyllabusChapter.module_id)
+        .outerjoin(SyllabusTerm, SyllabusTerm.id == SyllabusModule.term_id)
+        .filter(SyllabusChapter.is_active.is_(True))
+        .filter(SyllabusChapter.show_on_home.is_(True))
+        .order_by(
+            SyllabusChapter.home_section_type.asc(),
+            SyllabusChapter.home_display_order.asc(),
+            SyllabusChapter.id.desc(),
+        )
+        .all()
+    )
+
+    lesson_by_chapter_id = {}
+    if section_rows:
+        for lesson in (
+            Lesson.query.filter(
+                Lesson.chapter_id.in_([chapter.id for chapter, _, _ in section_rows]),
+                Lesson.is_active.is_(True),
+            )
+            .order_by(Lesson.chapter_id.asc(), Lesson.lesson_order.asc(), Lesson.id.asc())
+            .all()
+        ):
+            lesson_by_chapter_id.setdefault(lesson.chapter_id, lesson.id)
+
+    grouped: dict[str, list[tuple[SyllabusChapter, SyllabusModule, SyllabusTerm | None]]] = {
+        key: [] for key in HOME_SECTION_TYPES
+    }
+    for chapter, module, term in section_rows:
+        grouped.setdefault(normalize_home_section_type(chapter.home_section_type), []).append((chapter, module, term))
+
+    def lesson_card(chapter: SyllabusChapter, module: SyllabusModule, term: SyllabusTerm | None) -> str:
+        image_url = (
+            (chapter.chapter_image_url or "").strip()
+            or (module.image_si_url or "").strip()
+            or (module.image_en_url or "").strip()
+            or HOME_LESSON_IMAGE_FALLBACK
+        )
+        english_name = (chapter.chapter_name_en or "").strip()
+        sinhala_name = (chapter.chapter_name_si or "").strip()
+        title = " • ".join([name for name in [sinhala_name, english_name] if name]) or "SLIS Lesson"
+        subject_parts = []
+        if term and (term.subject or "").strip():
+            subject_parts.append((term.subject or "").strip())
+        module_name = (module.module_name_si or "").strip() or (module.module_name_en or "").strip()
+        if module_name:
+            subject_parts.append(module_name)
+        context_label = " • ".join(subject_parts) or "SLIS Learning Module"
+        grade_label = f"Grade {display_grade(term.grade if term else '6')}"
+        lesson_id = lesson_by_chapter_id.get(chapter.id)
+        start_href = f"/student/lesson/{lesson_id}" if lesson_id else "/login"
+        return f"""
+          <article class="home-lesson-card">
+            <div class="home-lesson-image-wrap">
+              <img src="{escape(image_url)}" alt="{escape(title)}" class="home-lesson-image" loading="lazy" />
+            </div>
+            <div class="home-lesson-content">
+              <div class="home-lesson-badges" aria-label="Lesson labels">
+                <span>{escape(grade_label)}</span><span>Lesson</span><span>Chapter</span>
+              </div>
+              <h3>{escape(title)}</h3>
+              <p>{escape(context_label)}</p>
+              <a class="home-lesson-start" href="{escape(start_href)}">Start Learning</a>
+            </div>
+          </article>
+        """
+
+    columns = []
+    for section_key, section_title in HOME_SECTION_TYPES.items():
+        cards = "".join(lesson_card(chapter, module, term) for chapter, module, term in grouped.get(section_key, []))
+        if not cards:
+            cards = """
+              <div class="home-lessons-empty">
+                <strong>Lessons coming soon</strong>
+                <span>පාඩම් ඉක්මනින් ලබා ගත හැක</span>
+              </div>
+            """
+        columns.append(f"""
+          <section class="home-lessons-column" aria-label="{escape(section_title)} lessons">
+            <h2>{escape(section_title)}</h2>
+            <div class="home-lessons-list">{cards}</div>
+          </section>
+        """)
+
+    return f"""
+      <section class="new-popular-lessons" aria-labelledby="new-popular-lessons-title">
+        <div class="new-popular-lessons-inner">
+          <div class="new-popular-lessons-heading">
+            <span class="new-popular-kicker">SLIS Learning Picks</span>
+            <h1 id="new-popular-lessons-title">New and Popular Lessons</h1>
+            <p>Explore selected Sinhala + English friendly chapters chosen by SLIS admins.</p>
+          </div>
+          <div class="home-lessons-grid">
+            {''.join(columns)}
+          </div>
+        </div>
+      </section>
+    """
+
+
+def render_public_home_page() -> str:
+    template_path = os.path.join(FRONTEND_BUILD_DIR, "index.html")
+    with open(template_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    section_html = build_public_home_lesson_section()
+    return html.replace("</main>", f"{section_html}\n    </main>", 1)
 
 
 @app.route("/")
 def home() -> object:
-    return send_from_directory(FRONTEND_BUILD_DIR, "index.html")
+    return render_public_home_page()
+
+
+@app.route(HOME_LESSON_IMAGE_FALLBACK)
+def default_module_cover_image() -> Response:
+    return Response(DEFAULT_MODULE_COVER_SVG, mimetype="image/svg+xml")
 
 
 @app.route("/join")
@@ -9400,6 +9554,9 @@ def admin_syllabus_chapter_form(module_id: int | None = None, chapter_id: int | 
         obj.competency_levels = (request.form.get("competency_levels") or "").strip()
         obj.estimated_periods = int(request.form.get("estimated_periods") or 0) or None
         obj.is_active = _syllabus_bool(request.form.get("is_active"))
+        obj.show_on_home = _syllabus_bool(request.form.get("show_on_home"))
+        obj.home_section_type = normalize_home_section_type(request.form.get("home_section_type"))
+        obj.home_display_order = int(request.form.get("home_display_order") or 0)
         if not chapter:
             db.session.add(obj)
             db.session.flush()
@@ -9416,6 +9573,11 @@ def admin_syllabus_chapter_form(module_id: int | None = None, chapter_id: int | 
         return redirect("/admin/syllabus")
 
     current_image = (chapter.chapter_image_url if chapter else "") or ""
+    selected_home_section_type = normalize_home_section_type(chapter.home_section_type if chapter else DEFAULT_HOME_SECTION_TYPE)
+    home_section_options = "".join(
+        f"<option value='{escape(section_key)}' {'selected' if section_key == selected_home_section_type else ''}>{escape(section_label)}</option>"
+        for section_key, section_label in HOME_SECTION_TYPES.items()
+    )
     current_preview = f"""
       <div style='margin-top:10px;'>
         <p style='margin:0 0 8px;font-weight:700;color:#334155;'>Current chapter image</p>
@@ -9433,6 +9595,12 @@ def admin_syllabus_chapter_form(module_id: int | None = None, chapter_id: int | 
       <label style='display:block;margin-bottom:12px;'>Competency Levels<br><input name='competency_levels' value='{escape(chapter.competency_levels if chapter else '')}' style='width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
       <label style='display:block;margin-bottom:12px;'>Estimated Periods<br><input type='number' name='estimated_periods' value='{chapter.estimated_periods if chapter and chapter.estimated_periods else ''}' style='width:100%;max-width:280px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
       <label style='display:block;margin-bottom:16px;'><input type='checkbox' name='is_active' {'checked' if (chapter.is_active if chapter else True) else ''}> Is Active</label>
+      <section style='border:1px solid #dbe2ef;border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff,#f8fbff);margin-bottom:18px;'>
+        <h3 style='margin:0 0 12px;'>Home Page Placement</h3>
+        <label style='display:block;margin-bottom:12px;'><input type='checkbox' name='show_on_home' {'checked' if (chapter.show_on_home if chapter else False) else ''}> Show on Home Page</label>
+        <label style='display:block;margin-bottom:12px;'>Home Section Type<br><select name='home_section_type' style='width:100%;max-width:320px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'>{home_section_options}</select></label>
+        <label style='display:block;margin-bottom:0;'>Home Display Order<br><input type='number' name='home_display_order' value='{chapter.home_display_order if chapter else 0}' style='width:100%;max-width:180px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      </section>
       <section style='border:1px solid #dbe2ef;border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff,#f8fbff);margin-bottom:18px;'>
         <h3 style='margin:0 0 8px;'>Chapter Image</h3>
         {current_preview}
@@ -9833,6 +10001,9 @@ def update_syllabus_db() -> tuple[str, int]:
             "ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT",
             "ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT",
             "ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS chapter_image_url TEXT",
+            "ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS show_on_home BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS home_section_type VARCHAR(30) DEFAULT 'most_popular'",
+            "ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS home_display_order INTEGER DEFAULT 0",
         ]:
             db.session.execute(db.text(col_def))
         db.session.commit()
