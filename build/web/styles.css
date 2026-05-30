@@ -980,7 +980,7 @@ body {
     radial-gradient(700px 320px at 12% 12%, rgba(69, 140, 255, 0.28), transparent 62%),
     radial-gradient(760px 380px at 86% 8%, rgba(150, 91, 255, 0.22), transparent 64%),
     linear-gradient(180deg, #07142f 0%, #0b1d49 48%, #081736 100%);
-  padding: clamp(48px, 6vw, 86px) 20px;
+  padding: 28px 20px 40px;
   isolation: isolate;
 }
 
@@ -1002,7 +1002,7 @@ body {
 
 .new-popular-lessons-heading {
   text-align: center;
-  margin: 0 auto 32px;
+  margin: 0 auto 18px;
   max-width: 760px;
 }
 
@@ -1024,10 +1024,11 @@ body {
 }
 
 .new-popular-lessons-heading h1 {
-  margin: 14px 0 10px;
+  margin: 0;
   font-family: "Nunito", "Noto Sans Sinhala", sans-serif;
-  font-size: clamp(2rem, 4.2vw, 3.65rem);
-  line-height: 1;
+  font-size: clamp(1.2rem, 2.2vw, 2rem);
+  font-weight: 800;
+  line-height: 1.1;
   letter-spacing: -0.04em;
   color: #ffffff;
   text-shadow: 0 12px 34px rgba(3, 8, 27, 0.5);
@@ -1225,7 +1226,7 @@ body {
 
 @media (max-width: 540px) {
   .new-popular-lessons {
-    padding: 42px 14px 54px;
+    padding: 28px 14px 40px;
   }
 
   .home-lessons-list {
