@@ -1083,8 +1083,9 @@ body {
 .home-lessons-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 320px));
-  justify-content: center;
   gap: 18px;
+  justify-content: center;
+  align-items: start;
   padding: 0 18px 22px;
 }
 
@@ -1097,40 +1098,39 @@ body {
   overflow: hidden;
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.055)),
-    rgba(13, 38, 88, 0.78);
-  border: 1px solid rgba(174, 218, 255, 0.2);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 30px rgba(4, 12, 35, 0.32);
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.12),
+      rgba(255, 255, 255, 0.05)
+    );
+  border: 1px solid rgba(174, 218, 255, 0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 14px 30px rgba(4, 12, 35, 0.32);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
 
 .home-lesson-image-wrap {
-  position: relative;
-  flex: 0 0 auto;
   width: 100%;
   overflow: hidden;
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(145deg, #112f6a, #081a43);
-  box-shadow: 0 0 26px rgba(89, 170, 255, 0.22);
 }
 
-.home-lesson-image,
-.home-lesson-image-wrap img {
+.home-lesson-image {
   width: 100%;
   height: 180px;
   display: block;
   object-fit: cover;
   object-position: center;
-  border-radius: 12px 12px 0 0;
+  border-radius: 14px 14px 0 0;
 }
 
 .home-lesson-content {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-width: 0;
   padding: 14px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
 }
 
 .home-lesson-badges {
@@ -1218,8 +1218,7 @@ body {
     grid-template-columns: repeat(2, minmax(0, 320px));
   }
 
-  .home-lesson-image,
-  .home-lesson-image-wrap img {
+  .home-lesson-image {
     height: 140px;
   }
 }
@@ -1238,8 +1237,7 @@ body {
     border-radius: 18px;
   }
 
-  .home-lesson-image,
-  .home-lesson-image-wrap img {
+  .home-lesson-image {
     height: 120px;
   }
 
