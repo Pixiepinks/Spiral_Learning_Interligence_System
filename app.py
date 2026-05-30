@@ -511,6 +511,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS chapter_image_url TEXT"))
     db.session.commit()
     ensure_student_username_schema()
     ensure_family_registration_schema()
@@ -528,6 +529,8 @@ def student_initials(name: str | None) -> str:
 LESSON_IMAGE_BUCKET = (os.environ.get("SUPABASE_BUCKET") or "lesson-images").strip() or "lesson-images"
 MAX_LESSON_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
 MAX_ACTIVITY_IMAGE_UPLOAD_SIZE = 1 * 1024 * 1024
+MAX_CHAPTER_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
+CHAPTER_IMAGE_BUCKET = "chapter-images"
 IMAGE_CONTENT_TYPE_BY_EXT = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -950,6 +953,62 @@ def upload_module_image_to_supabase(module_id: int | None, medium_key: str, imag
         return None, f"Failed to upload module image: {exc}"
     public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket_name}/{object_name}"
     return public_url, None
+
+
+def upload_chapter_image_to_supabase(chapter_id: int | None, file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid image filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in IMAGE_CONTENT_TYPE_BY_EXT:
+        return None, "Invalid file type. Allowed: png, jpg, jpeg, webp."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_CHAPTER_IMAGE_UPLOAD_SIZE:
+        return None, "Chapter image must be 5MB or less."
+
+    uploaded_content_type = (file_storage.mimetype or "").lower().strip()
+    allowed_mimes = set(IMAGE_CONTENT_TYPE_BY_EXT.values())
+    if uploaded_content_type and uploaded_content_type not in allowed_mimes:
+        return None, "Invalid image MIME type. Allowed: PNG, JPG, JPEG, and WebP."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S%f")
+    chapter_ref = str(chapter_id) if chapter_id else timestamp
+    object_name = secure_filename(f"chapter_{chapter_ref}_{timestamp}.{ext}" if chapter_id else f"chapter_{timestamp}.{ext}")
+    image_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{CHAPTER_IMAGE_BUCKET}/{object_name}"
+    req = Request(upload_url, data=image_bytes, method="POST", headers={
+        "Authorization": f"Bearer {supabase_key}",
+        "apikey": supabase_key,
+        "Content-Type": IMAGE_CONTENT_TYPE_BY_EXT[ext],
+        "x-upsert": "true",
+    })
+    try:
+        urlopen(req, timeout=20).read()
+    except (HTTPError, URLError, TimeoutError) as exc:
+        return None, f"Failed to upload chapter image: {exc}"
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{CHAPTER_IMAGE_BUCKET}/{object_name}"
+    return public_url, None
+
+
+def resolve_chapter_module_image(chapter, module, medium: str) -> str:
+    chapter_image = (getattr(chapter, "chapter_image_url", None) or "").strip() if chapter else ""
+    module_image = ""
+    if module:
+        module_image = (module.image_si_url if medium == "Sinhala" else module.image_en_url) or ""
+    return chapter_image or module_image.strip() or "/static/images/default-module-cover.jpg"
 
 
 class School(db.Model):
@@ -1488,6 +1547,7 @@ class SyllabusChapter(db.Model):
     competency_levels = db.Column(db.String(255), nullable=True)
     estimated_periods = db.Column(db.Integer, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    chapter_image_url = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -3209,7 +3269,6 @@ def student_dashboard():
 
     next_rec = get_student_next_recommendation(student.id)
     continue_cards = []
-    default_module_cover = "/static/images/default-module-cover.jpg"
     progress_seed = [22, 35, 48, 57, 63, 71, 84, 90]
     modules = (
         db.session.query(SyllabusModule, SyllabusTerm, SubjectMaster)
@@ -3233,8 +3292,22 @@ def student_dashboard():
     )
     for index, (module, _, subject) in enumerate(modules):
         progress_value = progress_seed[index % len(progress_seed)]
-        module_image = module.image_si_url if student.medium == "Sinhala" else module.image_en_url
-        module_image = (module_image or "").strip() or default_module_cover
+        active_chapters = (
+            SyllabusChapter.query.filter_by(module_id=module.id, is_active=True)
+            .order_by(SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc())
+            .all()
+        )
+        chapter_ids = [chapter.id for chapter in active_chapters]
+        completed_chapter_ids = {
+            row.chapter_id
+            for row in StudentChapterProgress.query.filter(
+                StudentChapterProgress.student_id == student.id,
+                StudentChapterProgress.chapter_id.in_(chapter_ids),
+                StudentChapterProgress.status == "completed",
+            ).all()
+        } if chapter_ids else set()
+        continue_chapter = next((chapter for chapter in active_chapters if chapter.id not in completed_chapter_ids), active_chapters[0] if active_chapters else None)
+        module_image = resolve_chapter_module_image(continue_chapter, module, student.medium)
         module_name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
         subject_name = subject.subject_name_si if student.medium == "Sinhala" else subject.subject_name_en
         continue_label = "ඉදිරියට" if language == "si" else "Continue"
@@ -3253,9 +3326,12 @@ def student_dashboard():
         rec_title = next_rec.get("recommended_lesson_si") if language == "si" else next_rec.get("recommended_lesson_en")
         rec_reason = next_rec.get("reason_si") if language == "si" else next_rec.get("reason_en")
         rec_type = str(next_rec.get("type") or "continue_lesson")
+        recommended_chapter = db.session.get(SyllabusChapter, int(next_rec.get("chapter_id") or 0)) if next_rec.get("chapter_id") else None
+        recommended_module = db.session.get(SyllabusModule, recommended_chapter.module_id) if recommended_chapter else None
+        recommended_image = resolve_chapter_module_image(recommended_chapter, recommended_module, student.medium)
         continue_cards.insert(
             0,
-            f"<article class='continue-module-card' style='border:2px solid #93c5fd;'><img src='/static/images/default-module-cover.jpg' alt='Recommended' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(str(rec_title or ''))}</h4><p class='continue-module-subject'>{escape(rec_type_label.get(rec_type, rec_type))} • {escape(str(next_rec.get('mastery_status') or ''))}</p><p class='continue-module-subject'>Reason: {escape(str(rec_reason or ''))}</p><p class='continue-module-subject'>~{int(next_rec.get('estimated_time') or 10)} min</p><div class='continue-module-progress-row'><span>{rec_progress}%</span><a href='{escape(str(next_rec.get('next_url') or '#'))}' class='continue-module-play' aria-label='Continue' style='display:inline-flex;align-items:center;justify-content:center;text-decoration:none;'>▶</a></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{rec_progress}%;'></span></div></div></article>",
+            f"<article class='continue-module-card' style='border:2px solid #93c5fd;'><img src='{escape(recommended_image)}' alt='Recommended' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(str(rec_title or ''))}</h4><p class='continue-module-subject'>{escape(rec_type_label.get(rec_type, rec_type))} • {escape(str(next_rec.get('mastery_status') or ''))}</p><p class='continue-module-subject'>Reason: {escape(str(rec_reason or ''))}</p><p class='continue-module-subject'>~{int(next_rec.get('estimated_time') or 10)} min</p><div class='continue-module-progress-row'><span>{rec_progress}%</span><a href='{escape(str(next_rec.get('next_url') or '#'))}' class='continue-module-play' aria-label='Continue' style='display:inline-flex;align-items:center;justify-content:center;text-decoration:none;'>▶</a></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{rec_progress}%;'></span></div></div></article>",
         )
     continue_empty = "මෙම ශ්‍රේණියට මොඩියුල නොමැත." if language == "si" else "No modules available for your grade."
     continue_html = "".join(continue_cards) or f"<div class='card' style='padding:16px;'>{continue_empty}</div>"
@@ -9326,9 +9402,50 @@ def admin_syllabus_chapter_form(module_id: int | None = None, chapter_id: int | 
         obj.is_active = _syllabus_bool(request.form.get("is_active"))
         if not chapter:
             db.session.add(obj)
+            db.session.flush()
+
+        chapter_image = request.files.get("chapter_image")
+        if chapter_image and chapter_image.filename:
+            image_url, upload_error = upload_chapter_image_to_supabase(obj.id if chapter else None, chapter_image)
+            if upload_error:
+                db.session.rollback()
+                return f"<h3>{escape(upload_error)}</h3><p><a href='javascript:history.back()'>Go back</a></p>", 400
+            obj.chapter_image_url = image_url
+
         db.session.commit()
         return redirect("/admin/syllabus")
-    return f"<h1>{'Edit' if chapter else 'Add'} Chapter</h1><form method='post'><label>Module ID <input name='module_id' value='{chapter.module_id if chapter else module_id}' required></label><br><label>Chapter Order <input type='number' name='chapter_order' value='{chapter.chapter_order if chapter else 1}' required></label><br><label>Chapter Name EN <input name='chapter_name_en' value='{escape(chapter.chapter_name_en if chapter else '')}' required></label><br><label>Chapter Name SI <input name='chapter_name_si' value='{escape(chapter.chapter_name_si if chapter else '')}' required></label><br><label>Competency Levels <input name='competency_levels' value='{escape(chapter.competency_levels if chapter else '')}'></label><br><label>Estimated Periods <input type='number' name='estimated_periods' value='{chapter.estimated_periods if chapter and chapter.estimated_periods else ''}'></label><br><label>Is Active <input type='checkbox' name='is_active' {'checked' if (chapter.is_active if chapter else True) else ''}></label><br><button type='submit'>Save</button></form>"
+
+    current_image = (chapter.chapter_image_url if chapter else "") or ""
+    current_preview = f"""
+      <div style='margin-top:10px;'>
+        <p style='margin:0 0 8px;font-weight:700;color:#334155;'>Current chapter image</p>
+        <img src='{escape(current_image)}' alt='Current chapter image' style='width:180px;height:120px;object-fit:cover;border-radius:14px;border:1px solid #cbd5e1;background:#f8fafc;'>
+        <p style='margin:6px 0 0;'><a href='{escape(current_image)}' target='_blank' rel='noopener noreferrer'>Open image</a></p>
+      </div>
+    """ if current_image else "<p style='color:#64748b;margin:8px 0 0;'>No chapter image uploaded yet.</p>"
+    return f"""
+    <h1>{'Edit' if chapter else 'Add'} Chapter</h1>
+    <form method='post' enctype='multipart/form-data' style='max-width:720px;background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;padding:22px;box-shadow:0 8px 24px rgba(15,23,42,.06);'>
+      <label style='display:block;margin-bottom:12px;'>Module ID<br><input name='module_id' value='{chapter.module_id if chapter else module_id}' required style='width:100%;max-width:280px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:12px;'>Chapter Order<br><input type='number' name='chapter_order' value='{chapter.chapter_order if chapter else 1}' required style='width:100%;max-width:280px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:12px;'>Chapter Name EN<br><input name='chapter_name_en' value='{escape(chapter.chapter_name_en if chapter else '')}' required style='width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:12px;'>Chapter Name SI<br><input name='chapter_name_si' value='{escape(chapter.chapter_name_si if chapter else '')}' required style='width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:12px;'>Competency Levels<br><input name='competency_levels' value='{escape(chapter.competency_levels if chapter else '')}' style='width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:12px;'>Estimated Periods<br><input type='number' name='estimated_periods' value='{chapter.estimated_periods if chapter and chapter.estimated_periods else ''}' style='width:100%;max-width:280px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;'></label>
+      <label style='display:block;margin-bottom:16px;'><input type='checkbox' name='is_active' {'checked' if (chapter.is_active if chapter else True) else ''}> Is Active</label>
+      <section style='border:1px solid #dbe2ef;border-radius:16px;padding:16px;background:linear-gradient(180deg,#fff,#f8fbff);margin-bottom:18px;'>
+        <h3 style='margin:0 0 8px;'>Chapter Image</h3>
+        {current_preview}
+        <label style='display:block;border:2px dashed #7aa2ff;border-radius:14px;padding:18px;text-align:center;cursor:pointer;margin-top:14px;background:#ffffff;'>
+          Upload Chapter Image
+          <input type='file' name='chapter_image' accept='image/png,image/jpeg,image/webp' style='display:block;margin:10px auto 0;'>
+        </label>
+        <small style='color:#64748b;'>PNG, JPG, JPEG, or WEBP. Leave empty to keep the current image.</small>
+      </section>
+      <button type='submit' style='background:#2563eb;color:#fff;border:0;border-radius:10px;padding:10px 18px;font-weight:700;'>Save</button>
+      <a href='/admin/syllabus' style='margin-left:10px;'>Cancel</a>
+    </form>
+    """
 
 
 @app.route("/admin/edit-question/<int:question_id>", methods=["GET", "POST"])
@@ -9715,6 +9832,7 @@ def update_syllabus_db() -> tuple[str, int]:
             "ALTER TABLE class_test ADD COLUMN IF NOT EXISTS chapter_id INTEGER",
             "ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT",
             "ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT",
+            "ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS chapter_image_url TEXT",
         ]:
             db.session.execute(db.text(col_def))
         db.session.commit()
