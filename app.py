@@ -1597,9 +1597,20 @@ class LessonSlide(db.Model):
     video_url = db.Column(db.Text, nullable=True)
     audio_url = db.Column(db.Text, nullable=True)
     activity_json = db.Column(db.Text, nullable=True)
+    question_count = db.Column(db.Integer, nullable=False, default=0)
     xp_reward = db.Column(db.Integer, nullable=False, default=10)
     is_required = db.Column(db.Boolean, nullable=False, default=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class LessonSlideQuestion(db.Model):
+    __tablename__ = "lesson_slide_questions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slide_id = db.Column(db.Integer, nullable=False, index=True)
+    question_id = db.Column(db.Integer, nullable=False, index=True)
+    display_order = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -4336,6 +4347,7 @@ def ensure_lesson_engine_tables() -> None:
                 video_url TEXT,
                 audio_url TEXT,
                 activity_json TEXT,
+                question_count INTEGER NOT NULL DEFAULT 0,
                 xp_reward INTEGER NOT NULL DEFAULT 10,
                 is_required BOOLEAN NOT NULL DEFAULT TRUE,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -4350,6 +4362,7 @@ def ensure_lesson_engine_tables() -> None:
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS video_url TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS audio_url TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS activity_json TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS question_count INTEGER NOT NULL DEFAULT 0"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 10"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS is_required BOOLEAN NOT NULL DEFAULT TRUE"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
@@ -4388,6 +4401,21 @@ def ensure_lesson_engine_tables() -> None:
             """
         )
     )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_slide_questions (
+                id SERIAL PRIMARY KEY,
+                slide_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                display_order INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_questions_slide ON lesson_slide_questions (slide_id, display_order)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_questions_question ON lesson_slide_questions (question_id)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_chapter_order ON lesson (chapter_id, lesson_order)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_lesson_order ON lesson_slide (lesson_id, slide_order)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_lesson_progress_lookup ON student_lesson_progress (student_id, lesson_id)"))
@@ -7970,6 +7998,107 @@ def update_student_skill_mastery(student_id: int, lesson_id: int, slide_id: int,
     return mastery
 
 
+
+def question_type_label(value: str | None) -> str:
+    labels = {
+        "mcq": "MCQ",
+        "short_answer": "Short Answer",
+        "box_input": "Box Input / Fill-in-the-Boxes",
+        "matching_pairs": "Matching Pairs / Join the Pairs",
+        "tap_select_image": "Tap / Color Correct Picture",
+        "drag_drop_group_container": "Drag Drop Group Container",
+    }
+    return labels.get((value or "mcq").strip().lower(), value or "MCQ")
+
+
+def manual_interim_selected_questions(slide_id: int) -> list[Question]:
+    rows = (
+        db.session.query(LessonSlideQuestion, Question)
+        .join(Question, Question.id == LessonSlideQuestion.question_id)
+        .filter(LessonSlideQuestion.slide_id == slide_id)
+        .order_by(LessonSlideQuestion.display_order.asc(), LessonSlideQuestion.id.asc())
+        .all()
+    )
+    return [question for _, question in rows]
+
+
+def render_manual_interim_question_html(question: Question, medium_key: str, number: int) -> str:
+    image_html = ""
+    if question.image_url and not (is_tap_select_image_question(question) or is_drag_drop_group_container_question(question)):
+        image_html = f"<img class='manual-test-question-image' src='{escape(question.image_url)}' alt='Question image'>"
+    if is_matching_pairs_question(question):
+        answer_html = render_matching_pairs_inputs(question, medium_key)
+    elif is_box_input_question(question):
+        answer_html = render_box_template_with_inputs(question, 'qbox')
+    elif is_tap_select_image_question(question):
+        answer_html = render_tap_select_image_input(question)
+    elif is_drag_drop_group_container_question(question):
+        answer_html = render_drag_drop_group_container_input(question, medium_key)
+    elif is_short_answer_question(question):
+        answer_html = f"<input class='manual-test-text-input' type='text' name='q_{question.id}' placeholder='Type your answer' autocomplete='off'>"
+    else:
+        opts = []
+        for opt in ["A", "B", "C", "D"]:
+            text = getattr(question, f"option_{opt.lower()}_{medium_key}") or ""
+            opts.append(f"<label class='manual-test-option'><input type='radio' name='q_{question.id}' value='{opt}'> <span>{opt}. {escape(text)}</span></label>")
+        answer_html = "".join(opts)
+    question_text = getattr(question, f"question_text_{medium_key}") or ""
+    return f"""
+    <article class='manual-test-question' data-question-id='{question.id}'>
+      <div class='manual-test-question-number'>Question {number}</div>
+      <h4>{escape(question_text)}</h4>
+      {image_html}
+      <div class='manual-test-answer-area'>{answer_html}</div>
+    </article>
+    """
+
+
+def evaluate_manual_interim_question(question: Question, form, medium_key: str) -> tuple[bool, str, str]:
+    if is_matching_pairs_question(question):
+        is_correct, student_pair_answers, correct_pair_answers = evaluate_matching_pairs_question(question, form, medium_key)
+        return is_correct, json.dumps(student_pair_answers, ensure_ascii=False), json.dumps(correct_pair_answers, ensure_ascii=False)
+    if is_box_input_question(question):
+        is_correct, student_box_answers, correct_box_answers = evaluate_box_question(question, form)
+        return is_correct, json.dumps(student_box_answers, ensure_ascii=False), json.dumps(correct_box_answers, ensure_ascii=False)
+    if is_tap_select_image_question(question):
+        return evaluate_tap_select_question(question, form)
+    if is_drag_drop_group_container_question(question):
+        is_correct, student_answer = evaluate_drag_drop_group_container_question(question, form)
+        return is_correct, student_answer, "Grouped in basket"
+    if is_short_answer_question(question):
+        student_answer = form.get(f"q_{question.id}", "").strip()
+        correct_answer = (question.correct_answer_text or "").strip()
+        return bool(correct_answer) and student_answer.casefold() == correct_answer.casefold(), student_answer, correct_answer
+    student_answer = form.get(f"q_{question.id}", "").strip().upper()
+    correct_answer = (question.correct_option or "").strip().upper()
+    return student_answer == correct_answer, student_answer, correct_answer
+
+
+def build_manual_interim_slide_html(slide: LessonSlide, questions: list[Question], medium_key: str, is_si: bool) -> str:
+    title = (slide.title_si if is_si else slide.title_en) or ("අතුරු පරීක්ෂණය" if is_si else "Interim Test")
+    question_blocks = "".join(render_manual_interim_question_html(q, medium_key, index) for index, q in enumerate(questions, start=1))
+    if not question_blocks:
+        question_blocks = f"<p>{'මෙම පරීක්ෂණයට ප්‍රශ්න තෝරා නැත.' if is_si else 'No questions have been selected for this test yet.'}</p>"
+    submit_label = "ලකුණු බලන්න" if is_si else "Submit Test"
+    return f"""
+    <div class='manual-test-wrap' data-slide-id='{slide.id}'>
+      <div class='manual-test-header'>
+        <p class='manual-test-kicker'>{'අතුරු පරීක්ෂණය' if is_si else 'Interim Test'}</p>
+        <h3>{escape(title)}</h3>
+        <p>{'සියලුම ප්‍රශ්නවලට පිළිතුරු දෙන්න.' if is_si else 'Answer all questions, then submit to see your score.'}</p>
+      </div>
+      <form class='manual-test-form' data-slide-id='{slide.id}'>
+        {question_blocks}
+        <div class='manual-test-actions'>
+          <button type='submit' class='lesson-btn next manual-test-submit'>{submit_label}</button>
+          <span class='manual-test-status' aria-live='polite'></span>
+        </div>
+      </form>
+      <div class='manual-test-result' id='manualTestResult_{slide.id}' style='display:none;'></div>
+    </div>
+    """
+
+
 @app.route("/student/lesson/<int:lesson_id>", methods=["GET"])
 def student_lesson_page(lesson_id: int):
     student_id = session.get("student_id")
@@ -8034,6 +8163,9 @@ def student_lesson_page(lesson_id: int):
         if slide_content_type == "image_grid" or (activity_payload or {}).get("type") == "image_grid":
             print(f"[student_lesson] parsed image_grid images count={len(image_grid_images)}")
 
+        manual_test_questions = manual_interim_selected_questions(s.id) if slide_content_type == "manual_interim_test" else []
+        manual_test_html = build_manual_interim_slide_html(s, manual_test_questions, "si" if is_si else "en", is_si) if slide_content_type == "manual_interim_test" else ""
+
         slide_payload.append({
             "id": s.id,
             "slide_order": s.slide_order,
@@ -8046,10 +8178,12 @@ def student_lesson_page(lesson_id: int):
             "activity_json": s.activity_json or "",
             "activity": activity_payload,
             "image_grid_images": image_grid_images,
+            "question_count": int(s.question_count or 0),
+            "manual_test_html": manual_test_html,
         })
 
     inner_html = f"""
-    <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08);position:relative}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.tap-picture-grid{{display:grid;grid-template-columns:repeat(3,200px);justify-content:center;gap:18px;margin-top:18px}}.tap-picture-card{{position:relative;width:200px;height:200px;box-sizing:border-box;border-radius:16px;border:3px solid transparent;background:rgba(255,255,255,.82);box-shadow:0 14px 32px rgba(15,23,42,.12);cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;overflow:hidden;display:flex;align-items:center;justify-content:center}}.tap-picture-card:hover{{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.tap-picture-card img{{width:170px;height:170px;object-fit:contain;border-radius:16px;display:block;flex:0 0 auto}}.tap-picture-card.selected-correct{{border-color:#22c55e;background:#ecfdf5}}.tap-picture-card.selected-wrong{{border-color:#ef4444;background:#fef2f2;animation:tapShake .28s linear}}.tap-picture-check{{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:999px;background:#22c55e;color:#fff;display:none;align-items:center;justify-content:center;font-weight:900;box-shadow:0 8px 20px rgba(34,197,94,.35)}}.tap-picture-card.selected-correct .tap-picture-check{{display:flex}}@keyframes tapShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-5px)}}75%{{transform:translateX(5px)}}}}@media(max-width:900px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}@media(max-width:560px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}.drag-circle-match{{position:relative;overflow:hidden;background:linear-gradient(135deg,#ffffff 0%,#f0f9ff 48%,#ecfeff 100%);border:1px solid rgba(59,130,246,.18);box-shadow:0 18px 42px rgba(15,23,42,.08)}}.drag-circle-match .activity-question{{margin:0 0 6px;color:#0f172a;font-size:22px}}.ddcs-board{{display:flex;flex-direction:column;gap:30px;margin-top:20px;touch-action:none}}.ddcs-section-label{{margin:0 0 12px;color:#475569;font-weight:800;letter-spacing:.01em}}.ddcs-items-row,.ddcs-targets-row{{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}}.ddcs-source-zone{{padding:18px;border-radius:22px;background:rgba(255,255,255,.74);border:1px solid rgba(148,163,184,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}}.ddcs-target-zone{{padding:20px;border-radius:24px;background:linear-gradient(180deg,rgba(240,253,250,.75),rgba(239,246,255,.82));border:1px solid rgba(20,184,166,.18)}}.ddcs-item{{position:relative;width:140px;min-height:178px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;cursor:grab;touch-action:none;user-select:none;z-index:2;transition:transform .28s cubic-bezier(.2,.8,.2,1),filter .2s ease,opacity .2s ease}}.ddcs-item:active{{cursor:grabbing}}.ddcs-item.dragging{{z-index:50;filter:drop-shadow(0 22px 28px rgba(15,23,42,.25));transition:none}}.ddcs-item.returning{{transition:transform .32s cubic-bezier(.22,1,.36,1)}}.ddcs-item.placed{{cursor:default;pointer-events:none;min-height:140px}}.ddcs-item-shell{{width:140px;height:140px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,#fff 0%,#f8fafc 48%,#e0f2fe 100%);box-shadow:0 16px 34px rgba(37,99,235,.16),inset 0 0 0 1px rgba(255,255,255,.85);overflow:hidden}}.ddcs-item img,.ddcs-image-fallback{{width:140px;height:140px;object-fit:contain;display:flex;align-items:center;justify-content:center}}.ddcs-image-fallback{{border-radius:999px;color:#2563eb;font-size:42px;font-weight:900;background:linear-gradient(135deg,#dbeafe,#ccfbf1)}}.ddcs-item-label{{max-width:140px;color:#0f172a;font-weight:800;font-size:15px;line-height:1.25;text-align:center}}.ddcs-target-card{{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:150px}}.ddcs-target-circle{{position:relative;border:4px dashed #60a5fa;border-radius:999px;background:rgba(255,255,255,.42);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 8px rgba(219,234,254,.34),0 16px 30px rgba(15,23,42,.08);transition:border-color .2s ease,background .2s ease,transform .2s ease}}.ddcs-target-circle.hover{{border-color:#2563eb;background:rgba(219,234,254,.72);transform:scale(1.03)}}.ddcs-target-circle.success{{border-style:solid;border-color:#22c55e;background:rgba(220,252,231,.68);box-shadow:inset 0 0 0 8px rgba(187,247,208,.35),0 18px 34px rgba(34,197,94,.18)}}.ddcs-target-circle.reject{{border-color:#ef4444;background:rgba(254,226,226,.65);animation:tapShake .28s linear}}.ddcs-target-circle .ddcs-item{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)!important}}.ddcs-target-label{{color:#0f172a;font-size:16px;font-weight:900}}.ddcs-message{{display:none;margin-top:18px;padding:14px 16px;border-radius:16px;font-weight:900}}.ddcs-message.success{{display:block;color:#166534;background:#dcfce7;border:1px solid #86efac}}.ddcs-message.fail{{display:block;color:#991b1b;background:#fee2e2;border:1px solid #fecaca}}.ddcs-reset{{border:none;border-radius:14px;background:linear-gradient(135deg,#0f172a,#334155);color:#fff;font-weight:900;padding:12px 18px;cursor:pointer;box-shadow:0 12px 24px rgba(15,23,42,.18)}}@media(max-width:760px){{.drag-circle-match{{padding:16px}}.ddcs-board{{gap:22px}}.ddcs-items-row,.ddcs-targets-row{{gap:16px}}.ddcs-item{{width:128px;min-height:164px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:128px;height:128px}}.ddcs-item.placed{{min-height:128px}}.ddcs-target-card{{min-width:130px}}.ddcs-target-circle{{max-width:230px;max-height:230px}}.ddcs-targets-row{{align-items:flex-end}}.ddcs-section-label{{text-align:center}}}}@media(max-width:520px){{.ddcs-items-row{{display:grid;grid-template-columns:repeat(2,minmax(118px,1fr));justify-items:center}}.ddcs-targets-row{{flex-direction:column;align-items:center}}.ddcs-item{{width:120px;min-height:154px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:120px;height:120px}}.ddcs-item.placed{{min-height:120px}}.ddcs-target-card{{width:100%}}.ddcs-target-circle{{width:min(var(--ddcs-target-size),72vw)!important;height:min(var(--ddcs-target-size),72vw)!important}}}}</style>
+    <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08);position:relative}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.manual-test-wrap{{margin-top:16px}}.manual-test-header{{background:linear-gradient(135deg,#eff6ff,#ecfeff);border:1px solid #bfdbfe;border-radius:18px;padding:16px;margin-bottom:14px}}.manual-test-kicker{{margin:0 0 4px;color:#2563eb;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:.08em}}.manual-test-question{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin:14px 0;box-shadow:0 6px 16px rgba(15,23,42,.05)}}.manual-test-question-number{{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em}}.manual-test-question h4{{margin:8px 0 12px;color:#0f172a;line-height:1.55}}.manual-test-question-image{{max-width:100%;border-radius:12px;margin:8px 0 12px}}.manual-test-answer-area{{display:grid;gap:10px}}.manual-test-option{{display:flex;gap:8px;align-items:flex-start;border:1px solid #e2e8f0;border-radius:12px;padding:10px;background:#f8fafc;cursor:pointer}}.manual-test-text-input{{width:100%;max-width:520px;border:1px solid #cbd5e1;border-radius:12px;padding:12px;font-size:16px}}.manual-test-actions{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}}.manual-test-result{{margin-top:14px;border-radius:16px;padding:16px;background:#ecfdf5;border:1px solid #86efac;color:#14532d;font-weight:800}}@media(max-width:640px){{.manual-test-question{{padding:13px}}.manual-test-option{{padding:12px}}}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.tap-picture-grid{{display:grid;grid-template-columns:repeat(3,200px);justify-content:center;gap:18px;margin-top:18px}}.tap-picture-card{{position:relative;width:200px;height:200px;box-sizing:border-box;border-radius:16px;border:3px solid transparent;background:rgba(255,255,255,.82);box-shadow:0 14px 32px rgba(15,23,42,.12);cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;overflow:hidden;display:flex;align-items:center;justify-content:center}}.tap-picture-card:hover{{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.tap-picture-card img{{width:170px;height:170px;object-fit:contain;border-radius:16px;display:block;flex:0 0 auto}}.tap-picture-card.selected-correct{{border-color:#22c55e;background:#ecfdf5}}.tap-picture-card.selected-wrong{{border-color:#ef4444;background:#fef2f2;animation:tapShake .28s linear}}.tap-picture-check{{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:999px;background:#22c55e;color:#fff;display:none;align-items:center;justify-content:center;font-weight:900;box-shadow:0 8px 20px rgba(34,197,94,.35)}}.tap-picture-card.selected-correct .tap-picture-check{{display:flex}}@keyframes tapShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-5px)}}75%{{transform:translateX(5px)}}}}@media(max-width:900px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}@media(max-width:560px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}.drag-circle-match{{position:relative;overflow:hidden;background:linear-gradient(135deg,#ffffff 0%,#f0f9ff 48%,#ecfeff 100%);border:1px solid rgba(59,130,246,.18);box-shadow:0 18px 42px rgba(15,23,42,.08)}}.drag-circle-match .activity-question{{margin:0 0 6px;color:#0f172a;font-size:22px}}.ddcs-board{{display:flex;flex-direction:column;gap:30px;margin-top:20px;touch-action:none}}.ddcs-section-label{{margin:0 0 12px;color:#475569;font-weight:800;letter-spacing:.01em}}.ddcs-items-row,.ddcs-targets-row{{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}}.ddcs-source-zone{{padding:18px;border-radius:22px;background:rgba(255,255,255,.74);border:1px solid rgba(148,163,184,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}}.ddcs-target-zone{{padding:20px;border-radius:24px;background:linear-gradient(180deg,rgba(240,253,250,.75),rgba(239,246,255,.82));border:1px solid rgba(20,184,166,.18)}}.ddcs-item{{position:relative;width:140px;min-height:178px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;cursor:grab;touch-action:none;user-select:none;z-index:2;transition:transform .28s cubic-bezier(.2,.8,.2,1),filter .2s ease,opacity .2s ease}}.ddcs-item:active{{cursor:grabbing}}.ddcs-item.dragging{{z-index:50;filter:drop-shadow(0 22px 28px rgba(15,23,42,.25));transition:none}}.ddcs-item.returning{{transition:transform .32s cubic-bezier(.22,1,.36,1)}}.ddcs-item.placed{{cursor:default;pointer-events:none;min-height:140px}}.ddcs-item-shell{{width:140px;height:140px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,#fff 0%,#f8fafc 48%,#e0f2fe 100%);box-shadow:0 16px 34px rgba(37,99,235,.16),inset 0 0 0 1px rgba(255,255,255,.85);overflow:hidden}}.ddcs-item img,.ddcs-image-fallback{{width:140px;height:140px;object-fit:contain;display:flex;align-items:center;justify-content:center}}.ddcs-image-fallback{{border-radius:999px;color:#2563eb;font-size:42px;font-weight:900;background:linear-gradient(135deg,#dbeafe,#ccfbf1)}}.ddcs-item-label{{max-width:140px;color:#0f172a;font-weight:800;font-size:15px;line-height:1.25;text-align:center}}.ddcs-target-card{{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:150px}}.ddcs-target-circle{{position:relative;border:4px dashed #60a5fa;border-radius:999px;background:rgba(255,255,255,.42);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 8px rgba(219,234,254,.34),0 16px 30px rgba(15,23,42,.08);transition:border-color .2s ease,background .2s ease,transform .2s ease}}.ddcs-target-circle.hover{{border-color:#2563eb;background:rgba(219,234,254,.72);transform:scale(1.03)}}.ddcs-target-circle.success{{border-style:solid;border-color:#22c55e;background:rgba(220,252,231,.68);box-shadow:inset 0 0 0 8px rgba(187,247,208,.35),0 18px 34px rgba(34,197,94,.18)}}.ddcs-target-circle.reject{{border-color:#ef4444;background:rgba(254,226,226,.65);animation:tapShake .28s linear}}.ddcs-target-circle .ddcs-item{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)!important}}.ddcs-target-label{{color:#0f172a;font-size:16px;font-weight:900}}.ddcs-message{{display:none;margin-top:18px;padding:14px 16px;border-radius:16px;font-weight:900}}.ddcs-message.success{{display:block;color:#166534;background:#dcfce7;border:1px solid #86efac}}.ddcs-message.fail{{display:block;color:#991b1b;background:#fee2e2;border:1px solid #fecaca}}.ddcs-reset{{border:none;border-radius:14px;background:linear-gradient(135deg,#0f172a,#334155);color:#fff;font-weight:900;padding:12px 18px;cursor:pointer;box-shadow:0 12px 24px rgba(15,23,42,.18)}}@media(max-width:760px){{.drag-circle-match{{padding:16px}}.ddcs-board{{gap:22px}}.ddcs-items-row,.ddcs-targets-row{{gap:16px}}.ddcs-item{{width:128px;min-height:164px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:128px;height:128px}}.ddcs-item.placed{{min-height:128px}}.ddcs-target-card{{min-width:130px}}.ddcs-target-circle{{max-width:230px;max-height:230px}}.ddcs-targets-row{{align-items:flex-end}}.ddcs-section-label{{text-align:center}}}}@media(max-width:520px){{.ddcs-items-row{{display:grid;grid-template-columns:repeat(2,minmax(118px,1fr));justify-items:center}}.ddcs-targets-row{{flex-direction:column;align-items:center}}.ddcs-item{{width:120px;min-height:154px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:120px;height:120px}}.ddcs-item.placed{{min-height:120px}}.ddcs-target-card{{width:100%}}.ddcs-target-circle{{width:min(var(--ddcs-target-size),72vw)!important;height:min(var(--ddcs-target-size),72vw)!important}}}}</style>
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
@@ -8099,7 +8233,8 @@ def student_lesson_page(lesson_id: int):
       function normalizeSinhalaAnswer(value) {{ return String(value || "").trim(); }}
       function wireFillBlankInteraction(mediaWrap) {{ const input = mediaWrap.querySelector("#fillBlankAnswerInput"); const checkBtn = mediaWrap.querySelector("#checkFillBlankBtn"); const tryAgainBtn = mediaWrap.querySelector("#tryAgainBtn"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const nextBtn = document.getElementById("finishLessonBtn"); const current = slides[currentIndex]; if (!input || !checkBtn) return; const acceptable = Array.isArray(current.activity?.acceptable_answers) ? current.activity.acceptable_answers : []; const primaryAnswers = [current.activity?.answer_en, current.activity?.answer_si].filter((item)=>typeof item === "string" && item.trim()); const allAnswers = [...acceptable, ...primaryAnswers].filter((item)=>typeof item === "string" && item.trim()); const normalized = new Set(allAnswers.map((item)=>isSinhala ? normalizeSinhalaAnswer(item) : normalizeEnglishAnswer(item))); const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); const resetState = () => {{ input.classList.remove("correct", "wrong"); if (resultBox) resultBox.style.display = "none"; if (explainEl) explainEl.style.display = "none"; checkBtn.style.display = "inline-block"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}; checkBtn.addEventListener("click", async () => {{ const rawValue = String(input.value || ""); const trimmed = rawValue.trim(); const normalizedStudent = isSinhala ? normalizeSinhalaAnswer(trimmed) : normalizeEnglishAnswer(trimmed); const isCorrect = trimmed.length > 0 && normalized.has(normalizedStudent); input.classList.remove("correct", "wrong"); input.classList.add(isCorrect ? "correct" : "wrong"); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි. නැවත උත්සාහ කරන්න." : "Not quite. Try again."); }} if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); checkBtn.style.display = "none"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = false; if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} }} else {{ solvedQuizSlides.delete(current.id); if (tryAgainBtn) tryAgainBtn.style.display = "inline-block"; if (nextBtn) nextBtn.disabled = true; }} await recordLessonAnswer(current.id, trimmed, isCorrect); maybeShowAiAssistant(!isCorrect); }}); if (tryAgainBtn) tryAgainBtn.addEventListener("click", resetState); if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}
       function wireMcqInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".mcq-option"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const current = slides[currentIndex]; const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); let locked = false; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ if (locked) return; cards.forEach((item)=>item.classList.remove("selected-answer","correct-answer","wrong-answer")); card.classList.add("selected-answer"); locked = true; cards.forEach((item)=>item.disabled = true); const isCorrect = card.dataset.correct === "true"; card.classList.add(isCorrect ? "correct-answer" : "wrong-answer"); cards.forEach((item)=>{{ if (item.dataset.correct === "true") item.classList.add("correct-answer"); }}); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි." : "Not quite."); }} if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} await recordLessonAnswer(current.id, card.dataset.optionValue || card.dataset.optionLabel || "", isCorrect); maybeShowAiAssistant(!isCorrect); if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); }} }}); }}); }}
-      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      function wireManualInterimTest(mediaWrap, current) {{ const form = mediaWrap.querySelector('.manual-test-form'); if (!form) return; const status = mediaWrap.querySelector('.manual-test-status'); const resultBox = mediaWrap.querySelector('.manual-test-result'); form.addEventListener('submit', async (event) => {{ event.preventDefault(); const submitBtn = form.querySelector('.manual-test-submit'); if (submitBtn) submitBtn.disabled = true; if (status) status.textContent = isSinhala ? 'පරීක්ෂා කරමින්...' : 'Checking...'; try {{ const body = new FormData(form); body.append('slide_id', current.id); const res = await fetch('/student/lesson/' + lessonId + '/manual-interim-test', {{ method: 'POST', body }}); const data = await res.json(); if (!res.ok || !data.ok) {{ throw new Error(data.error || 'Could not submit test.'); }} const scoreText = isSinhala ? `ලකුණු: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)` : `Score: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)`; if (resultBox) {{ resultBox.style.display = 'block'; resultBox.innerHTML = `<div>${{escapeHtml(scoreText)}}</div><p style="margin:.35rem 0 0;font-weight:600;">${{escapeHtml(isSinhala ? 'ඔබට දැන් පාඩම ඉදිරියට ගෙන යා හැක.' : 'You can now continue the lesson.')}}</p>`; }} if (status) status.textContent = isSinhala ? 'සම්පූර්ණයි' : 'Submitted'; solvedQuizSlides.add(current.id); enableFinishLessonButton(); form.querySelectorAll('input,select,button,textarea').forEach((el)=>{{ if (!el.classList.contains('manual-test-submit')) el.disabled = true; }}); }} catch (err) {{ console.error('Manual interim test failed:', err); alert(err.message || (isSinhala ? 'පරීක්ෂණය සුරැකිය නොහැක.' : 'Could not save the test.')); if (status) status.textContent = ''; if (submitBtn) submitBtn.disabled = false; }} }}); }}
+      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
@@ -8139,6 +8274,60 @@ def student_lesson_page(lesson_id: int):
       renderSlide();
     </script>"""
     return render_student_dashboard_shell(inner_html, active_nav="my_subjects")
+
+
+
+@app.route("/student/lesson/<int:lesson_id>/manual-interim-test", methods=["POST"])
+def student_lesson_manual_interim_test_submit(lesson_id: int):
+    student = get_current_student_for_json()
+    if not student:
+        return jsonify({"ok": False, "error": "Student session expired"}), 401
+    ensure_lesson_engine_tables()
+    lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
+    if not lesson:
+        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+    slide_id = int(request.form.get("slide_id") or 0)
+    slide = LessonSlide.query.filter_by(id=slide_id, lesson_id=lesson.id, slide_type="manual_interim_test", is_active=True).first()
+    if not slide:
+        return jsonify({"ok": False, "error": "Manual interim test slide not found"}), 404
+    questions = manual_interim_selected_questions(slide.id)
+    if not questions:
+        return jsonify({"ok": False, "error": "No questions selected for this slide"}), 400
+    medium_key = "si" if student.medium == "Sinhala" else "en"
+    correct_count = 0
+    topic_stats = {}
+    answer_summary = []
+    for question in questions:
+        is_correct, student_answer, correct_answer = evaluate_manual_interim_question(question, request.form, medium_key)
+        correct_count += 1 if is_correct else 0
+        topic_key = (question.grade, question.subject, question.topic_en or question.topic or "General", question.topic_si or question.topic or "General")
+        stats = topic_stats.setdefault(topic_key, {"correct": 0, "total": 0})
+        stats["total"] += 1
+        if is_correct:
+            stats["correct"] += 1
+        answer_summary.append({"question_id": question.id, "answer": student_answer, "correct_answer": correct_answer, "is_correct": is_correct})
+        db.session.add(StudentQuestionAttempt(student_id=student.id, question_id=question.id, source_type="Lesson", is_correct=is_correct, created_at=datetime.utcnow()))
+    total_questions = len(questions)
+    score = round((correct_count / total_questions) * 100, 2) if total_questions else 0
+    for (grade, subject, topic_en, topic_si), stats in topic_stats.items():
+        topic_score = round((stats["correct"] / stats["total"]) * 100, 2) if stats["total"] else 0
+        upsert_student_topic_progress(student.id, grade, subject, topic_en, topic_si, topic_score)
+    db.session.add(
+        StudentLessonAnswer(
+            lesson_id=lesson.id,
+            slide_id=slide.id,
+            student_id=student.id,
+            selected_answer=json.dumps(answer_summary, ensure_ascii=False),
+            is_correct=correct_count == total_questions,
+            answered_at=datetime.utcnow(),
+        )
+    )
+    mastery = update_student_skill_mastery(student.id, lesson.id, slide.id, correct_count == total_questions, {"type": "manual_interim_test", "score": score})
+    if correct_count:
+        student.xp = int(student.xp or 0) + int(correct_count * 5)
+    recalculate_student_chapter_progress(student.id, lesson.chapter_id)
+    db.session.commit()
+    return jsonify({"ok": True, "score": score, "total_questions": total_questions, "correct_answers": correct_count, "mastery_status": mastery.status_en if mastery else None})
 
 
 @app.route("/student/lesson/<int:lesson_id>/finish", methods=["POST"])
@@ -8583,6 +8772,43 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         obj.is_required = _parse_bool_form(request.form.get("is_required"), True)
         obj.is_active = _parse_bool_form(request.form.get("is_active"), True)
 
+        if selected_slide_type == "manual_interim_test":
+            manual_title = (request.form.get("manual_test_title") or "").strip()
+            if manual_title:
+                obj.title_en = manual_title
+            question_count = max(1, int(request.form.get("question_count") or "1"))
+            selected_question_ids = []
+            seen_question_ids = set()
+            for raw_id in request.form.getlist("manual_question_ids"):
+                try:
+                    qid = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                if qid and qid not in seen_question_ids:
+                    selected_question_ids.append(qid)
+                    seen_question_ids.add(qid)
+            if len(selected_question_ids) != question_count:
+                return f"<h2>Could not save manual interim test</h2><p>Select exactly {question_count} question(s). You selected {len(selected_question_ids)}.</p><p><a href='{request.path}'>Back</a></p>", 400
+            found_count = Question.query.filter(Question.id.in_(selected_question_ids)).count() if selected_question_ids else 0
+            if found_count != len(selected_question_ids):
+                return f"<h2>Could not save manual interim test</h2><p>One or more selected questions could not be found.</p><p><a href='{request.path}'>Back</a></p>", 400
+            obj.question_count = question_count
+            obj.content_en = None
+            obj.content_si = None
+            obj.image_url = None
+            obj.video_url = None
+            obj.audio_url = None
+            obj.activity_json = None
+            if not slide and obj not in db.session:
+                db.session.add(obj)
+            db.session.flush()
+            LessonSlideQuestion.query.filter_by(slide_id=obj.id).delete()
+            for display_order, question_id in enumerate(selected_question_ids, start=1):
+                db.session.add(LessonSlideQuestion(slide_id=obj.id, question_id=question_id, display_order=display_order))
+            db.session.commit()
+            return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
+        obj.question_count = 0
+
         old_activity_json = obj.activity_json
         submitted_activity_json = (request.form.get("activity_json") or "").strip()
         upload_files = request.files.getlist("image_grid_images")
@@ -8800,6 +9026,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         ("example", "Example", "උදාහරණය"),
         ("activity", "Activity", "ක්‍රියාකාරකම"),
         ("quiz", "Quiz", "ප්‍රශ්නාවලිය"),
+        ("manual_interim_test", "Interim Test - Manual Questions", "අතින් තෝරාගත් අතුරු පරීක්ෂණය"),
         ("summary", "Summary", "සාරාංශය"),
         ("image_grid", "Image Grid", "රූප ජාලය"),
         ("tap_correct_picture", "Tap Correct Picture", "නිවැරදි පින්තූරය තෝරන්න"),
@@ -8877,6 +9104,34 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for index, item in enumerate(drag_items[:3], start=1)
     )
+    selected_manual_question_ids = [row.question_id for row in LessonSlideQuestion.query.filter_by(slide_id=slide.id).order_by(LessonSlideQuestion.display_order.asc(), LessonSlideQuestion.id.asc()).all()] if slide else []
+    selected_manual_question_id_set = set(selected_manual_question_ids)
+    admin_questions = Question.query.order_by(Question.grade.asc(), Question.subject.asc(), Question.topic_en.asc(), Question.id.asc()).all()
+    def _question_summary(q: Question) -> str:
+        text = (q.question_text_en or q.question_text_si or "").strip().replace("\n", " ")
+        return text[:140] + ("..." if len(text) > 140 else "")
+    question_rows_html = "".join(
+        f"""
+        <tr class='manual-question-row' data-grade='{escape(normalize_grade(q.grade))}' data-subject='{escape(q.subject or '')}' data-topic='{escape(q.topic_en or q.topic or '')}' data-type='{escape((q.question_type or 'mcq').strip().lower())}' data-difficulty='{int(q.difficulty_level or 1)}'>
+          <td><input type='checkbox' name='manual_question_ids' value='{q.id}' {'checked' if q.id in selected_manual_question_id_set else ''}></td>
+          <td>{q.id}</td>
+          <td>{escape(display_grade(q.grade))}</td>
+          <td>{escape(q.subject or '')}</td>
+          <td>{escape(q.topic_en or q.topic or '')}</td>
+          <td>{escape(question_type_label(q.question_type))}</td>
+          <td>{int(q.difficulty_level or 1)}</td>
+          <td>{escape(_question_summary(q))}</td>
+        </tr>
+        """
+        for q in admin_questions
+    )
+    grade_filter_options = "".join(f"<option value='{escape(grade)}'>{escape(GRADE_LABELS_EN.get(grade, grade))}</option>" for grade in VALID_GRADES)
+    subjects = sorted({q.subject for q in admin_questions if q.subject})
+    subject_filter_options = "".join(f"<option value='{escape(subject)}'>{escape(subject)}</option>" for subject in subjects)
+    topics = sorted({q.topic_en or q.topic for q in admin_questions if (q.topic_en or q.topic)})
+    topic_filter_options = "".join(f"<option value='{escape(topic)}'>{escape(topic)}</option>" for topic in topics)
+    type_filter_options = "".join(f"<option value='{escape(value)}'>{escape(label)}</option>" for value, label in [("mcq", "MCQ"), ("short_answer", "Short Answer"), ("box_input", "Box Input / Fill-in-the-Boxes"), ("matching_pairs", "Matching Pairs / Join the Pairs"), ("tap_select_image", "Tap / Color Correct Picture"), ("drag_drop_group_container", "Drag Drop Group Container")])
+    manual_question_count = slide.question_count if slide and slide.question_count else max(1, len(selected_manual_question_ids) or 1)
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
     <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
@@ -8890,6 +9145,53 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       <label>Image URL <input type='url' name='image_url' value='{escape(slide.image_url) if slide and slide.image_url else ''}'></label><br><br>
       <label>Video URL <input type='url' name='video_url' value='{escape(slide.video_url) if slide and slide.video_url else ''}'></label><br><br>
       <label>Audio URL <input type='url' name='audio_url' value='{escape(slide.audio_url) if slide and slide.audio_url else ''}'></label><br><br>
+      <fieldset id='manualInterimTestBuilder' style='border:1px solid #bfdbfe;border-radius:12px;padding:14px;max-width:1120px;margin-bottom:18px;background:#eff6ff;'>
+        <legend><strong>Interim Test - Manual Questions</strong></legend>
+        <style>.manual-admin-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:12px}}.manual-picker-table-wrap{{overflow:auto;max-height:520px;border:1px solid #cbd5e1;border-radius:12px;background:#fff}}.manual-picker-table{{width:100%;border-collapse:collapse;font-size:14px}}.manual-picker-table th,.manual-picker-table td{{border-bottom:1px solid #e2e8f0;padding:8px;text-align:left;vertical-align:top}}.manual-picker-table th{{position:sticky;top:0;background:#dbeafe;z-index:1}}.manual-picker-status{{font-weight:800;color:#1d4ed8}}.manual-picker-status.error{{color:#b91c1c}}@media(max-width:760px){{.manual-admin-grid{{grid-template-columns:1fr}}.manual-picker-table{{font-size:13px}}}}</style>
+        <div class='manual-admin-grid'>
+          <label>Test title <input type='text' name='manual_test_title' value='{escape(slide.title_en) if slide and slide.title_en else ''}' oninput="document.querySelector('input[name=title_en]').value=this.value" style='width:100%;'></label>
+          <label>Number of questions <input id='manualQuestionCount' type='number' name='question_count' value='{manual_question_count}' min='1' style='width:100%;'></label>
+          <label>Grade <select id='manualFilterGrade'><option value=''>All grades</option>{grade_filter_options}</select></label>
+          <label>Subject <select id='manualFilterSubject'><option value=''>All subjects</option>{subject_filter_options}</select></label>
+          <label>Topic <select id='manualFilterTopic'><option value=''>All topics</option>{topic_filter_options}</select></label>
+          <label>Question Type <select id='manualFilterType'><option value=''>All types</option>{type_filter_options}</select></label>
+          <label>Difficulty Level <select id='manualFilterDifficulty'><option value=''>All levels</option><option value='1'>1</option><option value='2'>2</option><option value='3'>3</option><option value='4'>4</option><option value='5'>5</option></select></label>
+        </div>
+        <p class='manual-picker-status' id='manualPickerStatus'>Select exactly {manual_question_count} question(s).</p>
+        <div class='manual-picker-table-wrap'>
+          <table class='manual-picker-table'>
+            <thead><tr><th>Select</th><th>ID</th><th>Grade</th><th>Subject</th><th>Topic</th><th>Type</th><th>Level</th><th>Question</th></tr></thead>
+            <tbody>{question_rows_html or "<tr><td colspan='8'>No questions found.</td></tr>"}</tbody>
+          </table>
+        </div>
+      </fieldset>
+      <script>
+        (function() {{
+          const typeSelect = document.getElementById('slideTypeSelect');
+          const builder = document.getElementById('manualInterimTestBuilder');
+          const countInput = document.getElementById('manualQuestionCount');
+          const status = document.getElementById('manualPickerStatus');
+          const rows = Array.from(document.querySelectorAll('.manual-question-row'));
+          const filters = {{
+            grade: document.getElementById('manualFilterGrade'),
+            subject: document.getElementById('manualFilterSubject'),
+            topic: document.getElementById('manualFilterTopic'),
+            type: document.getElementById('manualFilterType'),
+            difficulty: document.getElementById('manualFilterDifficulty')
+          }};
+          function selectedBoxes() {{ return rows.map((row)=>row.querySelector('input[type=checkbox]')).filter((box)=>box && box.checked); }}
+          function updateStatus() {{ const required = Number(countInput?.value || 0); const selected = selectedBoxes().length; if (status) {{ status.textContent = `Selected ${{selected}} of ${{required}} required question(s).`; status.classList.toggle('error', selected !== required); }} }}
+          function applyFilters() {{ rows.forEach((row)=>{{ const visible = (!filters.grade.value || row.dataset.grade === filters.grade.value) && (!filters.subject.value || row.dataset.subject === filters.subject.value) && (!filters.topic.value || row.dataset.topic === filters.topic.value) && (!filters.type.value || row.dataset.type === filters.type.value) && (!filters.difficulty.value || row.dataset.difficulty === filters.difficulty.value); row.style.display = visible ? '' : 'none'; }}); }}
+          function toggleBuilder() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'manual_interim_test' ? 'block' : 'none'; }}
+          Object.values(filters).forEach((el)=>el?.addEventListener('change', applyFilters));
+          rows.forEach((row)=>row.querySelector('input[type=checkbox]')?.addEventListener('change', updateStatus));
+          countInput?.addEventListener('input', updateStatus);
+          typeSelect?.addEventListener('change', toggleBuilder);
+          document.querySelector('form')?.addEventListener('submit', function(event) {{ if (typeSelect?.value === 'manual_interim_test') {{ const required = Number(countInput?.value || 0); const selected = selectedBoxes().length; if (required < 1 || selected !== required) {{ event.preventDefault(); alert(`Select exactly ${{required}} question(s). You selected ${{selected}}.`); }} }} }});
+          toggleBuilder(); applyFilters(); updateStatus();
+        }})();
+      </script>
+
       <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json else ''}</textarea></label>
       <p style='max-width:760px;color:#475569;'>For <strong>image_grid</strong>, uploaded image URLs and captions are saved automatically in this JSON field as <code>{{"type":"image_grid","images":[...]}}</code>.</p>
       <fieldset style='border:1px solid #cbd5e1;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;'>
