@@ -34,6 +34,8 @@ UPLOAD_DIR = os.path.join(app.root_path, "static", "images", "questions")
 UPLOAD_URL_PREFIX = "/static/images/questions/"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
+QUESTION_IMAGE_BUCKET = "question-images"
+
 
 
 def save_question_image_upload(file_storage) -> tuple[str | None, str | None]:
@@ -60,6 +62,56 @@ def save_question_image_upload(file_storage) -> tuple[str | None, str | None]:
     filename = secure_filename(f"question_{timestamp}_{random_part}.{ext}")
     file_storage.save(os.path.join(UPLOAD_DIR, filename))
     return f"{UPLOAD_URL_PREFIX}{filename}", None
+
+
+def upload_question_choice_image_to_supabase(question_id: int, file_storage) -> tuple[str | None, str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None, None
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, None, "Invalid image filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, None, "Invalid file type. Allowed: png, jpg, jpeg, webp."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_SIZE:
+        return None, None, "Image size must be 2MB or less."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, None, "Supabase storage is not configured."
+
+    image_bytes = file_storage.read()
+    object_name = f"questions/{question_id}/{uuid.uuid4().hex}.webp"
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{QUESTION_IMAGE_BUCKET}/{object_name}"
+    req = Request(
+        upload_url,
+        data=image_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": file_storage.mimetype or "image/webp",
+            "x-upsert": "false",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            if resp.status not in {200, 201}:
+                return None, None, "Image upload failed."
+    except HTTPError as exc:
+        return None, None, f"Image upload failed: {exc.read().decode('utf-8', 'ignore') or exc.reason}"
+    except URLError as exc:
+        return None, None, f"Image upload failed: {exc.reason}"
+
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{QUESTION_IMAGE_BUCKET}/{object_name}"
+    return public_url, original_name, None
 
 
 SUPPORTED_MEDIA = {"English", "Sinhala"}
@@ -1073,6 +1125,14 @@ def is_tap_select_image_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "tap_select_image"
 
 
+def is_tap_correct_image_question(question: "Question") -> bool:
+    return (question.question_type or "mcq").strip().lower() == "tap_correct_image"
+
+
+def get_question_choice_images(question_id: int) -> list["QuestionImage"]:
+    return QuestionImage.query.filter_by(question_id=question_id).order_by(QuestionImage.display_order.asc(), QuestionImage.id.asc()).all()
+
+
 def is_drag_drop_group_container_question(question: "Question") -> bool:
     return (question.question_type or "mcq").strip().lower() == "drag_drop_group_container"
 
@@ -1164,8 +1224,42 @@ def tap_select_common_assets() -> str:
       .tap-area.review-wrong { fill: rgba(239,68,68,0.35); stroke: rgba(220,38,38,0.8); }
       .tap-area.review-correct { fill: rgba(34,197,94,0.35); stroke: rgba(22,163,74,0.9); }
       .tap-select-empty-msg { margin-top: 8px; color: #b45309; font-size: 14px; }
+      .tap-correct-image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 170px)); gap: 14px; align-items: center; }
+      .tap-correct-image-card { width: 170px; height: 170px; border: 2px solid #e2e8f0; border-radius: 18px; background: #fff; padding: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+      .tap-correct-image-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .tap-correct-image-card:hover { transform: translateY(-2px); border-color: #93c5fd; box-shadow: 0 10px 20px rgba(37,99,235,.12); }
+      .tap-correct-image-card.selected { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.16); }
+      .tap-correct-image-card.correct { border-color: #22c55e !important; box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+      .tap-correct-image-card.wrong { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,.16); }
+      .tap-correct-image-feedback { margin: 10px 0 0; font-weight: 900; color: #0f172a; }
+      @media (max-width: 520px) { .tap-correct-image-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); } .tap-correct-image-card { width: 100%; height: 150px; } }
     </style>
     <script>
+      function initTapCorrectImageUI(root=document) {
+        root.querySelectorAll('.tap-correct-image-wrap').forEach((wrap) => {
+          if (wrap.dataset.ready === '1') return;
+          wrap.dataset.ready = '1';
+          const hidden = wrap.querySelector("input[type='hidden']");
+          const cards = Array.from(wrap.querySelectorAll('.tap-correct-image-card[data-image-id]'));
+          const isMulti = wrap.dataset.multi === '1';
+          const selected = new Set();
+          const sync = () => {
+            cards.forEach((card) => card.classList.toggle('selected', selected.has(String(card.dataset.imageId || ''))));
+            if (hidden) hidden.value = JSON.stringify(Array.from(selected).map(Number).sort((a,b)=>a-b));
+          };
+          cards.forEach((card) => {
+            card.addEventListener('click', () => {
+              const id = String(card.dataset.imageId || '');
+              if (!id) return;
+              if (!isMulti) selected.clear();
+              if (isMulti && selected.has(id)) selected.delete(id); else selected.add(id);
+              sync();
+            });
+          });
+          sync();
+        });
+      }
+
       function initTapSelectUI(root=document) {
         root.querySelectorAll('.tap-select-wrap').forEach((wrap) => {
           const svg = wrap.querySelector('.tap-select-overlay');
@@ -1193,7 +1287,7 @@ def tap_select_common_assets() -> str:
           draw(hidden.value || "");
         });
       }
-      document.addEventListener("DOMContentLoaded", () => initTapSelectUI(document));
+      document.addEventListener("DOMContentLoaded", () => { initTapSelectUI(document); initTapCorrectImageUI(document); });
     </script>
     """
 
@@ -1202,6 +1296,62 @@ def evaluate_tap_select_question(question: "Question", form) -> tuple[bool, str,
     student_answer = (form.get(f"answer_{question.id}") or "").strip()
     correct_answer = (question.correct_area_id or "").strip()
     return bool(student_answer) and student_answer == correct_answer, student_answer, correct_answer
+
+
+def render_tap_correct_image_input(question: "Question", input_prefix: str = "answer") -> str:
+    images = get_question_choice_images(question.id)
+    correct_count = sum(1 for image in images if image.is_correct)
+    multi = "1" if correct_count > 1 else "0"
+    cards = []
+    for image in images:
+        cards.append(
+            f"<button type='button' class='tap-correct-image-card' data-image-id='{image.id}'>"
+            f"<img src='{escape(normalize_local_image_url(image.image_url))}' alt='{escape(image.image_name or 'Question image')}' loading='lazy'>"
+            f"</button>"
+        )
+    empty_note = "<p class='tap-select-empty-msg'>Images not configured yet.</p>" if not images else ""
+    return f"""
+    <div class='tap-correct-image-wrap' data-multi='{multi}' data-question-id='{question.id}'>
+      <div class='tap-correct-image-grid'>{''.join(cards)}</div>
+      <input type='hidden' name='answer_{question.id}' value='[]'>
+      <p class='tap-correct-image-feedback' aria-live='polite'></p>
+      {empty_note}
+    </div>
+    """
+
+
+def evaluate_tap_correct_image_question(question: "Question", form) -> tuple[bool, str, str]:
+    raw = (form.get(f"answer_{question.id}") or "").strip()
+    try:
+        selected_values = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        selected_values = [item for item in raw.split(",") if item.strip()]
+    selected_ids = {int(item) for item in selected_values if str(item).strip().isdigit()}
+    correct_ids = {image.id for image in get_question_choice_images(question.id) if image.is_correct}
+    return bool(correct_ids) and selected_ids == correct_ids, json.dumps(sorted(selected_ids)), json.dumps(sorted(correct_ids))
+
+
+def render_tap_correct_image_review(question: "Question", selected_answer: str, correct_answer: str) -> str:
+    try:
+        selected_ids = {int(item) for item in json.loads(selected_answer or "[]")}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        selected_ids = set()
+    try:
+        correct_ids = {int(item) for item in json.loads(correct_answer or "[]")}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        correct_ids = {image.id for image in get_question_choice_images(question.id) if image.is_correct}
+    cards = []
+    for image in get_question_choice_images(question.id):
+        cls = "tap-correct-image-card review"
+        if image.id in correct_ids:
+            cls += " correct"
+        elif image.id in selected_ids:
+            cls += " wrong"
+        cards.append(
+            f"<div class='{cls}'><img src='{escape(normalize_local_image_url(image.image_url))}' alt='{escape(image.image_name or 'Question image')}'></div>"
+        )
+    msg = "නිවැරදියි!" if selected_ids == correct_ids and correct_ids else "නැවත උත්සාහ කරන්න"
+    return f"<div class='tap-correct-image-wrap'><div class='tap-correct-image-grid'>{''.join(cards)}</div><p class='tap-correct-image-feedback'>{escape(msg)}</p></div>"
 
 
 def render_tap_select_review(question: "Question", selected_area_id: str, correct_area_id: str) -> str:
@@ -1610,6 +1760,18 @@ class LessonSlideQuestion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     slide_id = db.Column(db.Integer, nullable=False, index=True)
     question_id = db.Column(db.Integer, nullable=False, index=True)
+    display_order = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QuestionImage(db.Model):
+    __tablename__ = "question_images"
+
+    id = db.Column(db.Integer, primary_key=True)
+    question_id = db.Column(db.Integer, db.ForeignKey("question.id", ondelete="CASCADE"), nullable=False, index=True)
+    image_url = db.Column(db.Text, nullable=False)
+    image_name = db.Column(db.Text, nullable=True)
+    is_correct = db.Column(db.Boolean, nullable=False, default=False)
     display_order = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -4414,6 +4576,22 @@ def ensure_lesson_engine_tables() -> None:
             """
         )
     )
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS question_images (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER NOT NULL REFERENCES question(id) ON DELETE CASCADE,
+                image_url TEXT NOT NULL,
+                image_name TEXT,
+                is_correct BOOLEAN DEFAULT FALSE,
+                display_order INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_images_question ON question_images (question_id, display_order)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_questions_slide ON lesson_slide_questions (slide_id, display_order)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_slide_questions_question ON lesson_slide_questions (question_id)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_lesson_chapter_order ON lesson (chapter_id, lesson_order)"))
@@ -6219,8 +6397,8 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
     question_text_en = (request.form.get("question_text_en") or "").strip()
     question_text_si = (request.form.get("question_text_si") or "").strip()
     question_type = (request.form.get("question_type") or "mcq").strip().lower()
-    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs", "tap_select_image", "drag_drop_group_container"}:
-        return {}, "Question type must be MCQ, Short Answer, Box Input, Matching Pairs, or Tap Select Image."
+    if question_type not in {"mcq", "short_answer", "box_input", "matching_pairs", "tap_select_image", "tap_correct_image", "drag_drop_group_container"}:
+        return {}, "Question type must be MCQ, Short Answer, Box Input, Matching Pairs, Tap Select Image, Tap Correct Image, or Drag Drop Group Container."
     option_a = (request.form.get("option_a") or "").strip()
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
@@ -6382,6 +6560,8 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     box_hidden = "" if question_type == "box_input" else "display:none;"
     matching_hidden = "" if question_type == "matching_pairs" else "display:none;"
     tap_select_hidden = "" if question_type == "tap_select_image" else "display:none;"
+    tap_correct_hidden = "" if question_type == "tap_correct_image" else "display:none;"
+    tap_correct_images = data.get("tap_correct_images") or []
     drag_group_hidden = "" if question_type == "drag_drop_group_container" else "display:none;"
     grade = (data.get("grade") or "").strip()
     subject = (data.get("subject") or "").strip()
@@ -6421,6 +6601,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               <option value="box_input" {"selected" if question_type == "box_input" else ""}>Box Input / Fill-in-the-Boxes</option>
               <option value="matching_pairs" {"selected" if question_type == "matching_pairs" else ""}>Matching Pairs / Join the Pairs</option>
               <option value="tap_select_image" {"selected" if question_type == "tap_select_image" else ""}>Tap / Color Correct Picture</option>
+              <option value="tap_correct_image" {"selected" if question_type == "tap_correct_image" else ""}>Tap Correct Image</option>
               <option value="drag_drop_group_container" {"selected" if question_type == "drag_drop_group_container" else ""}>Drag Drop Group Container</option>
             </select>
           </label><br><br>
@@ -6468,6 +6649,15 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
               </select>
             </label><br><br>
           </div>
+          <div id="tap_correct_image_fields" style="{tap_correct_hidden}">
+            <h3>Tap Correct Image</h3>
+            <p>Upload two or more images. Tick every image that is a correct answer.</p>
+            {''.join([f"<div style='display:inline-block;margin:8px;padding:10px;border:1px solid #dbeafe;border-radius:14px;vertical-align:top;'><img src='{escape(img.image_url)}' alt='{escape(img.image_name or 'Question image')}' style='width:170px;height:170px;object-fit:contain;display:block;'><label><input type='checkbox' name='existing_correct_image_ids' value='{img.id}' {'checked' if img.is_correct else ''}> Correct Answer</label><input type='hidden' name='existing_image_ids' value='{img.id}'></div>" for img in tap_correct_images])}
+            <div id="tap_correct_uploads">
+              <label>Images: <input type="file" name="tap_correct_images" accept=".png,.jpg,.jpeg,.webp" multiple></label>
+              <div id="tap_correct_previews" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;"></div>
+            </div>
+          </div>
           <div id="drag_group_fields" style="{drag_group_hidden}">
             <label>Container image URL: <input type="text" name="drag_container_image_url" value="{escape(data.get('drag_container_image_url', ''))}"></label><br><br>
             <label>Drag Items JSON:<br><textarea name="drag_items_json" rows="8" cols="80">{escape(data.get('drag_items_json', ''))}</textarea></label><br><br>
@@ -6493,9 +6683,22 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             document.getElementById("box_input_fields").style.display = selectedType === "box_input" ? "block" : "none";
             document.getElementById("matching_pairs_fields").style.display = selectedType === "matching_pairs" ? "block" : "none";
             document.getElementById("tap_select_fields").style.display = selectedType === "tap_select_image" ? "block" : "none";
+            document.getElementById("tap_correct_image_fields").style.display = selectedType === "tap_correct_image" ? "block" : "none";
             document.getElementById("drag_group_fields").style.display = selectedType === "drag_drop_group_container" ? "block" : "none";
           }}
         document.addEventListener("DOMContentLoaded", () => {{ const t=document.querySelector("textarea[name=box_template]"); const p=document.getElementById("box_preview"); const r=(raw) => (raw||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); const u=() => {{ if (p && t) {{ const v=t.value||""; p.innerHTML=v? r(v).replace(/\\[box(\\d+)\\]/gi, () => "<input type='text' class='box-input' disabled>") : "Live preview..."; }} }}; if (t) t.addEventListener("input",u); u();
+          const tapCorrectInput=document.querySelector("input[name='tap_correct_images']");
+          const tapCorrectPreviews=document.getElementById("tap_correct_previews");
+          if(tapCorrectInput&&tapCorrectPreviews) tapCorrectInput.addEventListener("change",()=>{{
+            tapCorrectPreviews.innerHTML="";
+            Array.from(tapCorrectInput.files||[]).forEach((file,idx)=>{{
+              const url=URL.createObjectURL(file);
+              const card=document.createElement("div");
+              card.style.cssText="width:190px;border:1px solid #dbeafe;border-radius:14px;padding:10px;background:#fff;";
+              card.innerHTML=`<img src="${{url}}" alt="preview" style="width:170px;height:170px;object-fit:contain;display:block;"><label><input type="checkbox" name="new_correct_image_indexes" value="${{idx}}"> Correct Answer</label>`;
+              tapCorrectPreviews.appendChild(card);
+            }});
+          }});
           const imageInput=document.querySelector("input[name='image_url']");
           const imageFileInput=document.querySelector("input[name='question_image']");
           const imageEl=document.getElementById("tap_editor_image");
@@ -7589,6 +7792,8 @@ def student_chapter_page(chapter_id: int):
                 correct_answer = q.matching_answers_si if student.medium == "Sinhala" else q.matching_answers_en
             elif question_type == "tap_select_image":
                 correct_answer = q.correct_area_id
+            elif question_type == "tap_correct_image":
+                correct_answer = json.dumps([image.id for image in get_question_choice_images(q.id) if image.is_correct])
             else:
                 correct_answer = None
             packed.append({
@@ -7626,6 +7831,10 @@ def student_chapter_page(chapter_id: int):
                 "matching_answers_si": q.matching_answers_si or "{}",
                 "tap_areas_json": q.tap_areas_json or "[]",
                 "correct_area_id": q.correct_area_id or "",
+                "question_images": [
+                    {"id": image.id, "image_url": image.image_url, "image_name": image.image_name or "", "is_correct": bool(image.is_correct)}
+                    for image in get_question_choice_images(q.id)
+                ],
                 "answer_data": {
                     "correct_answer": correct_answer,
                     "explanation_en": q.explanation_en,
@@ -7693,7 +7902,7 @@ def student_chapter_page(chapter_id: int):
       const body = document.getElementById('quiz-body');
       const qText = getInteractionQuestionText(interaction);
       const qType = (interaction.question_type || 'mcq').toLowerCase();
-      const imageHtml = (qType !== 'tap_select_image' && qType !== 'drag_drop_group_container' && interaction.image_url) ? `<p><img src='${{escapeHtml(normalizeLocalImageUrl(interaction.image_url))}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
+      const imageHtml = (qType !== 'tap_select_image' && qType !== 'tap_correct_image' && qType !== 'drag_drop_group_container' && interaction.image_url) ? `<p><img src='${{escapeHtml(normalizeLocalImageUrl(interaction.image_url))}}' alt='Question image' style='max-width:100%;border:1px solid #ddd;border-radius:6px;'></p>` : '';
       let controlHtml = '';
       if (qType === 'mcq') {{
         const options = getInteractionOptions(interaction);
@@ -7719,6 +7928,30 @@ def student_chapter_page(chapter_id: int):
             return `<img class="dd-item ${{groupClass ? `dd-item-${{groupClass}}` : ''}}" data-id="${{escapeHtml(String(it.id || ''))}}" data-group="${{escapeHtml(group)}}" src="${{escapeHtml(normalizeLocalImageUrl(it.image_url || ''))}}" alt="${{escapeHtml(String(it.label_si || it.label_en || it.group || 'drag item'))}}">`;
           }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}' alt='drop container'></div><input id='interactive_drag_answer' class='drag-answer-json' name='answer_interactive' type='hidden' value=''></div>`;
         }}
+      }} else if (qType === 'tap_correct_image') {{
+        const images = Array.isArray(interaction.question_images) ? interaction.question_images : [];
+        const correctCount = images.filter((img) => img.is_correct).length;
+        const multi = correctCount > 1;
+        const imageCards = images.map((img) => `<button type='button' class='tap-correct-image-card' data-image-id='${{escapeHtml(String(img.id || ''))}}'><img src='${{escapeHtml(normalizeLocalImageUrl(img.image_url || ''))}}' alt='${{escapeHtml(img.image_name || 'Question image')}}'></button>`).join('');
+        controlHtml = `<div class='tap-correct-image-wrap' id='interactive_tap_correct_wrapper' data-multi='${{multi ? '1' : '0'}}'><div class='tap-correct-image-grid'>${{imageCards}}</div><input id='interactive_tap_correct_answer' type='hidden' value='[]'><p class='tap-correct-image-feedback'>${{multi ? 'Select all correct images.' : 'Select the correct image.'}}</p></div>`;
+        setTimeout(() => {{
+          const wrapper = document.getElementById('interactive_tap_correct_wrapper');
+          const hidden = document.getElementById('interactive_tap_correct_answer');
+          const continueBtn = document.getElementById('interactive_continue');
+          if (!wrapper || !hidden || !continueBtn) return;
+          const selected = new Set();
+          wrapper.querySelectorAll('.tap-correct-image-card').forEach((card) => {{
+            card.addEventListener('click', () => {{
+              const id = String(card.dataset.imageId || '');
+              if (!id) return;
+              if (!multi) selected.clear();
+              if (multi && selected.has(id)) selected.delete(id); else selected.add(id);
+              wrapper.querySelectorAll('.tap-correct-image-card').forEach((node) => node.classList.toggle('selected', selected.has(String(node.dataset.imageId || ''))));
+              hidden.value = JSON.stringify(Array.from(selected).map(Number).sort((a,b)=>a-b));
+              continueBtn.disabled = selected.size === 0;
+            }});
+          }});
+        }}, 0);
       }} else if (qType === 'tap_select_image') {{
         const question = interaction;
         console.log("tap areas", question.tap_areas_json);
@@ -7780,7 +8013,7 @@ def student_chapter_page(chapter_id: int):
         if (window.initDragGroupUI) window.initDragGroupUI(body);
       }}, 0);
       const continueBtn = document.getElementById('interactive_continue');
-      if (qType === 'tap_select_image') continueBtn.disabled = true;
+      if (qType === 'tap_select_image' || qType === 'tap_correct_image') continueBtn.disabled = true;
       continueBtn.addEventListener('click', () => {{
         let answerValue = 'SKIP';
         if (qType === 'mcq') {{
@@ -7797,6 +8030,9 @@ def student_chapter_page(chapter_id: int):
         }} else if (qType === 'tap_select_image') {{
           answerValue = (document.getElementById('interactive_tap_answer') || {{value:''}}).value || '';
           if (!answerValue) return;
+        }} else if (qType === 'tap_correct_image') {{
+          answerValue = (document.getElementById('interactive_tap_correct_answer') || {{value:'[]'}}).value || '[]';
+          try {{ if (!JSON.parse(answerValue).length) return; }} catch(e) {{ return; }}
         }}
         handleInteractionAnswer(answerValue);
       }});
@@ -7883,6 +8119,9 @@ def student_video_interaction_answer():
         is_correct = (answer.strip().lower() == (question.matching_answers_en or "").strip().lower() or answer.strip().lower() == (question.matching_answers_si or "").strip().lower())
     elif question_type == "tap_select_image":
         is_correct = (answer.strip() == (question.correct_area_id or "").strip())
+    elif question_type == "tap_correct_image":
+        form_like = {f"answer_{question.id}": answer}
+        is_correct, _, _ = evaluate_tap_correct_image_question(question, form_like)
     elif question_type == "drag_drop_group_container":
         form_like = {f"answer_{question.id}": answer}
         is_correct, _ = evaluate_drag_drop_group_container_question(question, form_like)
@@ -8006,6 +8245,7 @@ def question_type_label(value: str | None) -> str:
         "box_input": "Box Input / Fill-in-the-Boxes",
         "matching_pairs": "Matching Pairs / Join the Pairs",
         "tap_select_image": "Tap / Color Correct Picture",
+        "tap_correct_image": "Tap Correct Image",
         "drag_drop_group_container": "Drag Drop Group Container",
     }
     return labels.get((value or "mcq").strip().lower(), value or "MCQ")
@@ -8024,7 +8264,7 @@ def manual_interim_selected_questions(slide_id: int) -> list[Question]:
 
 def render_manual_interim_question_html(question: Question, medium_key: str, number: int) -> str:
     image_html = ""
-    if question.image_url and not (is_tap_select_image_question(question) or is_drag_drop_group_container_question(question)):
+    if question.image_url and not (is_tap_select_image_question(question) or is_tap_correct_image_question(question) or is_drag_drop_group_container_question(question)):
         image_html = f"<img class='manual-test-question-image' src='{escape(question.image_url)}' alt='Question image'>"
     if is_matching_pairs_question(question):
         answer_html = render_matching_pairs_inputs(question, medium_key)
@@ -8032,6 +8272,8 @@ def render_manual_interim_question_html(question: Question, medium_key: str, num
         answer_html = render_box_template_with_inputs(question, 'qbox')
     elif is_tap_select_image_question(question):
         answer_html = render_tap_select_image_input(question)
+    elif is_tap_correct_image_question(question):
+        answer_html = render_tap_correct_image_input(question)
     elif is_drag_drop_group_container_question(question):
         answer_html = render_drag_drop_group_container_input(question, medium_key)
     elif is_short_answer_question(question):
@@ -8062,6 +8304,8 @@ def evaluate_manual_interim_question(question: Question, form, medium_key: str) 
         return is_correct, json.dumps(student_box_answers, ensure_ascii=False), json.dumps(correct_box_answers, ensure_ascii=False)
     if is_tap_select_image_question(question):
         return evaluate_tap_select_question(question, form)
+    if is_tap_correct_image_question(question):
+        return evaluate_tap_correct_image_question(question, form)
     if is_drag_drop_group_container_question(question):
         is_correct, student_answer = evaluate_drag_drop_group_container_question(question, form)
         return is_correct, student_answer, "Grouped in basket"
@@ -8184,6 +8428,7 @@ def student_lesson_page(lesson_id: int):
 
     inner_html = f"""
     <style>.lesson-player-card{{margin-top:16px;background:#fff;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(15,23,42,.08);position:relative}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-progress-line{{height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:10px 0 16px}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.manual-test-wrap{{margin-top:16px}}.manual-test-header{{background:linear-gradient(135deg,#eff6ff,#ecfeff);border:1px solid #bfdbfe;border-radius:18px;padding:16px;margin-bottom:14px}}.manual-test-kicker{{margin:0 0 4px;color:#2563eb;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:.08em}}.manual-test-question{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin:14px 0;box-shadow:0 6px 16px rgba(15,23,42,.05)}}.manual-test-question-number{{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em}}.manual-test-question h4{{margin:8px 0 12px;color:#0f172a;line-height:1.55}}.manual-test-question-image{{max-width:100%;border-radius:12px;margin:8px 0 12px}}.manual-test-answer-area{{display:grid;gap:10px}}.manual-test-option{{display:flex;gap:8px;align-items:flex-start;border:1px solid #e2e8f0;border-radius:12px;padding:10px;background:#f8fafc;cursor:pointer}}.manual-test-text-input{{width:100%;max-width:520px;border:1px solid #cbd5e1;border-radius:12px;padding:12px;font-size:16px}}.manual-test-actions{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}}.manual-test-result{{margin-top:14px;border-radius:16px;padding:16px;background:#ecfdf5;border:1px solid #86efac;color:#14532d;font-weight:800}}@media(max-width:640px){{.manual-test-question{{padding:13px}}.manual-test-option{{padding:12px}}}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.tap-picture-grid{{display:grid;grid-template-columns:repeat(3,200px);justify-content:center;gap:18px;margin-top:18px}}.tap-picture-card{{position:relative;width:200px;height:200px;box-sizing:border-box;border-radius:16px;border:3px solid transparent;background:rgba(255,255,255,.82);box-shadow:0 14px 32px rgba(15,23,42,.12);cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;overflow:hidden;display:flex;align-items:center;justify-content:center}}.tap-picture-card:hover{{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.tap-picture-card img{{width:170px;height:170px;object-fit:contain;border-radius:16px;display:block;flex:0 0 auto}}.tap-picture-card.selected-correct{{border-color:#22c55e;background:#ecfdf5}}.tap-picture-card.selected-wrong{{border-color:#ef4444;background:#fef2f2;animation:tapShake .28s linear}}.tap-picture-check{{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:999px;background:#22c55e;color:#fff;display:none;align-items:center;justify-content:center;font-weight:900;box-shadow:0 8px 20px rgba(34,197,94,.35)}}.tap-picture-card.selected-correct .tap-picture-check{{display:flex}}@keyframes tapShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-5px)}}75%{{transform:translateX(5px)}}}}@media(max-width:900px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}@media(max-width:560px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}.drag-circle-match{{position:relative;overflow:hidden;background:linear-gradient(135deg,#ffffff 0%,#f0f9ff 48%,#ecfeff 100%);border:1px solid rgba(59,130,246,.18);box-shadow:0 18px 42px rgba(15,23,42,.08)}}.drag-circle-match .activity-question{{margin:0 0 6px;color:#0f172a;font-size:22px}}.ddcs-board{{display:flex;flex-direction:column;gap:30px;margin-top:20px;touch-action:none}}.ddcs-section-label{{margin:0 0 12px;color:#475569;font-weight:800;letter-spacing:.01em}}.ddcs-items-row,.ddcs-targets-row{{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}}.ddcs-source-zone{{padding:18px;border-radius:22px;background:rgba(255,255,255,.74);border:1px solid rgba(148,163,184,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}}.ddcs-target-zone{{padding:20px;border-radius:24px;background:linear-gradient(180deg,rgba(240,253,250,.75),rgba(239,246,255,.82));border:1px solid rgba(20,184,166,.18)}}.ddcs-item{{position:relative;width:140px;min-height:178px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;cursor:grab;touch-action:none;user-select:none;z-index:2;transition:transform .28s cubic-bezier(.2,.8,.2,1),filter .2s ease,opacity .2s ease}}.ddcs-item:active{{cursor:grabbing}}.ddcs-item.dragging{{z-index:50;filter:drop-shadow(0 22px 28px rgba(15,23,42,.25));transition:none}}.ddcs-item.returning{{transition:transform .32s cubic-bezier(.22,1,.36,1)}}.ddcs-item.placed{{cursor:default;pointer-events:none;min-height:140px}}.ddcs-item-shell{{width:140px;height:140px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,#fff 0%,#f8fafc 48%,#e0f2fe 100%);box-shadow:0 16px 34px rgba(37,99,235,.16),inset 0 0 0 1px rgba(255,255,255,.85);overflow:hidden}}.ddcs-item img,.ddcs-image-fallback{{width:140px;height:140px;object-fit:contain;display:flex;align-items:center;justify-content:center}}.ddcs-image-fallback{{border-radius:999px;color:#2563eb;font-size:42px;font-weight:900;background:linear-gradient(135deg,#dbeafe,#ccfbf1)}}.ddcs-item-label{{max-width:140px;color:#0f172a;font-weight:800;font-size:15px;line-height:1.25;text-align:center}}.ddcs-target-card{{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:150px}}.ddcs-target-circle{{position:relative;border:4px dashed #60a5fa;border-radius:999px;background:rgba(255,255,255,.42);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 8px rgba(219,234,254,.34),0 16px 30px rgba(15,23,42,.08);transition:border-color .2s ease,background .2s ease,transform .2s ease}}.ddcs-target-circle.hover{{border-color:#2563eb;background:rgba(219,234,254,.72);transform:scale(1.03)}}.ddcs-target-circle.success{{border-style:solid;border-color:#22c55e;background:rgba(220,252,231,.68);box-shadow:inset 0 0 0 8px rgba(187,247,208,.35),0 18px 34px rgba(34,197,94,.18)}}.ddcs-target-circle.reject{{border-color:#ef4444;background:rgba(254,226,226,.65);animation:tapShake .28s linear}}.ddcs-target-circle .ddcs-item{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)!important}}.ddcs-target-label{{color:#0f172a;font-size:16px;font-weight:900}}.ddcs-message{{display:none;margin-top:18px;padding:14px 16px;border-radius:16px;font-weight:900}}.ddcs-message.success{{display:block;color:#166534;background:#dcfce7;border:1px solid #86efac}}.ddcs-message.fail{{display:block;color:#991b1b;background:#fee2e2;border:1px solid #fecaca}}.ddcs-reset{{border:none;border-radius:14px;background:linear-gradient(135deg,#0f172a,#334155);color:#fff;font-weight:900;padding:12px 18px;cursor:pointer;box-shadow:0 12px 24px rgba(15,23,42,.18)}}@media(max-width:760px){{.drag-circle-match{{padding:16px}}.ddcs-board{{gap:22px}}.ddcs-items-row,.ddcs-targets-row{{gap:16px}}.ddcs-item{{width:128px;min-height:164px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:128px;height:128px}}.ddcs-item.placed{{min-height:128px}}.ddcs-target-card{{min-width:130px}}.ddcs-target-circle{{max-width:230px;max-height:230px}}.ddcs-targets-row{{align-items:flex-end}}.ddcs-section-label{{text-align:center}}}}@media(max-width:520px){{.ddcs-items-row{{display:grid;grid-template-columns:repeat(2,minmax(118px,1fr));justify-items:center}}.ddcs-targets-row{{flex-direction:column;align-items:center}}.ddcs-item{{width:120px;min-height:154px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:120px;height:120px}}.ddcs-item.placed{{min-height:120px}}.ddcs-target-card{{width:100%}}.ddcs-target-circle{{width:min(var(--ddcs-target-size),72vw)!important;height:min(var(--ddcs-target-size),72vw)!important}}}}</style>
+    {tap_select_common_assets()}
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
@@ -8233,8 +8478,8 @@ def student_lesson_page(lesson_id: int):
       function normalizeSinhalaAnswer(value) {{ return String(value || "").trim(); }}
       function wireFillBlankInteraction(mediaWrap) {{ const input = mediaWrap.querySelector("#fillBlankAnswerInput"); const checkBtn = mediaWrap.querySelector("#checkFillBlankBtn"); const tryAgainBtn = mediaWrap.querySelector("#tryAgainBtn"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const nextBtn = document.getElementById("finishLessonBtn"); const current = slides[currentIndex]; if (!input || !checkBtn) return; const acceptable = Array.isArray(current.activity?.acceptable_answers) ? current.activity.acceptable_answers : []; const primaryAnswers = [current.activity?.answer_en, current.activity?.answer_si].filter((item)=>typeof item === "string" && item.trim()); const allAnswers = [...acceptable, ...primaryAnswers].filter((item)=>typeof item === "string" && item.trim()); const normalized = new Set(allAnswers.map((item)=>isSinhala ? normalizeSinhalaAnswer(item) : normalizeEnglishAnswer(item))); const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); const resetState = () => {{ input.classList.remove("correct", "wrong"); if (resultBox) resultBox.style.display = "none"; if (explainEl) explainEl.style.display = "none"; checkBtn.style.display = "inline-block"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}; checkBtn.addEventListener("click", async () => {{ const rawValue = String(input.value || ""); const trimmed = rawValue.trim(); const normalizedStudent = isSinhala ? normalizeSinhalaAnswer(trimmed) : normalizeEnglishAnswer(trimmed); const isCorrect = trimmed.length > 0 && normalized.has(normalizedStudent); input.classList.remove("correct", "wrong"); input.classList.add(isCorrect ? "correct" : "wrong"); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි. නැවත උත්සාහ කරන්න." : "Not quite. Try again."); }} if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); checkBtn.style.display = "none"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = false; if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} }} else {{ solvedQuizSlides.delete(current.id); if (tryAgainBtn) tryAgainBtn.style.display = "inline-block"; if (nextBtn) nextBtn.disabled = true; }} await recordLessonAnswer(current.id, trimmed, isCorrect); maybeShowAiAssistant(!isCorrect); }}); if (tryAgainBtn) tryAgainBtn.addEventListener("click", resetState); if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}
       function wireMcqInteraction(mediaWrap) {{ const cards = mediaWrap.querySelectorAll(".mcq-option"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const current = slides[currentIndex]; const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); let locked = false; cards.forEach((card) => {{ card.addEventListener("click", async () => {{ if (locked) return; cards.forEach((item)=>item.classList.remove("selected-answer","correct-answer","wrong-answer")); card.classList.add("selected-answer"); locked = true; cards.forEach((item)=>item.disabled = true); const isCorrect = card.dataset.correct === "true"; card.classList.add(isCorrect ? "correct-answer" : "wrong-answer"); cards.forEach((item)=>{{ if (item.dataset.correct === "true") item.classList.add("correct-answer"); }}); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි." : "Not quite."); }} if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} await recordLessonAnswer(current.id, card.dataset.optionValue || card.dataset.optionLabel || "", isCorrect); maybeShowAiAssistant(!isCorrect); if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); }} }}); }}); }}
-      function wireManualInterimTest(mediaWrap, current) {{ const form = mediaWrap.querySelector('.manual-test-form'); if (!form) return; const status = mediaWrap.querySelector('.manual-test-status'); const resultBox = mediaWrap.querySelector('.manual-test-result'); form.addEventListener('submit', async (event) => {{ event.preventDefault(); const submitBtn = form.querySelector('.manual-test-submit'); if (submitBtn) submitBtn.disabled = true; if (status) status.textContent = isSinhala ? 'පරීක්ෂා කරමින්...' : 'Checking...'; try {{ const body = new FormData(form); body.append('slide_id', current.id); const res = await fetch('/student/lesson/' + lessonId + '/manual-interim-test', {{ method: 'POST', body }}); const data = await res.json(); if (!res.ok || !data.ok) {{ throw new Error(data.error || 'Could not submit test.'); }} const scoreText = isSinhala ? `ලකුණු: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)` : `Score: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)`; if (resultBox) {{ resultBox.style.display = 'block'; resultBox.innerHTML = `<div>${{escapeHtml(scoreText)}}</div><p style="margin:.35rem 0 0;font-weight:600;">${{escapeHtml(isSinhala ? 'ඔබට දැන් පාඩම ඉදිරියට ගෙන යා හැක.' : 'You can now continue the lesson.')}}</p>`; }} if (status) status.textContent = isSinhala ? 'සම්පූර්ණයි' : 'Submitted'; solvedQuizSlides.add(current.id); enableFinishLessonButton(); form.querySelectorAll('input,select,button,textarea').forEach((el)=>{{ if (!el.classList.contains('manual-test-submit')) el.disabled = true; }}); }} catch (err) {{ console.error('Manual interim test failed:', err); alert(err.message || (isSinhala ? 'පරීක්ෂණය සුරැකිය නොහැක.' : 'Could not save the test.')); if (status) status.textContent = ''; if (submitBtn) submitBtn.disabled = false; }} }}); }}
-      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      function wireManualInterimTest(mediaWrap, current) {{ const form = mediaWrap.querySelector('.manual-test-form'); if (!form) return; const status = mediaWrap.querySelector('.manual-test-status'); const resultBox = mediaWrap.querySelector('.manual-test-result'); form.addEventListener('submit', async (event) => {{ event.preventDefault(); const submitBtn = form.querySelector('.manual-test-submit'); if (submitBtn) submitBtn.disabled = true; if (status) status.textContent = isSinhala ? 'පරීක්ෂා කරමින්...' : 'Checking...'; try {{ const body = new FormData(form); body.append('slide_id', current.id); const res = await fetch('/student/lesson/' + lessonId + '/manual-interim-test', {{ method: 'POST', body }}); const data = await res.json(); if (!res.ok || !data.ok) {{ throw new Error(data.error || 'Could not submit test.'); }} const scoreText = isSinhala ? `ලකුණු: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)` : `Score: ${{data.correct_answers}}/${{data.total_questions}} (${{data.score}}%)`; if (resultBox) {{ resultBox.style.display = 'block'; resultBox.innerHTML = `<div>${{escapeHtml(scoreText)}}</div><p style="margin:.35rem 0 0;font-weight:600;">${{escapeHtml(isSinhala ? 'ඔබට දැන් පාඩම ඉදිරියට ගෙන යා හැක.' : 'You can now continue the lesson.')}}</p>`; }} (data.answers || []).forEach((answer) => {{ const article = form.querySelector(`[data-question-id="${{answer.question_id}}"]`); if (!article) return; const wrap = article.querySelector('.tap-correct-image-wrap'); if (!wrap) return; let selected = []; let correct = []; try {{ selected = JSON.parse(answer.answer || '[]'); }} catch(e) {{ selected = []; }} try {{ correct = JSON.parse(answer.correct_answer || '[]'); }} catch(e) {{ correct = []; }} const selectedSet = new Set(selected.map(String)); const correctSet = new Set(correct.map(String)); wrap.querySelectorAll('.tap-correct-image-card').forEach((card) => {{ const id = String(card.dataset.imageId || ''); card.classList.remove('selected'); if (correctSet.has(id)) card.classList.add('correct'); else if (selectedSet.has(id)) card.classList.add('wrong'); }}); const feedback = wrap.querySelector('.tap-correct-image-feedback'); if (feedback) feedback.textContent = answer.is_correct ? 'නිවැරදියි!' : 'නැවත උත්සාහ කරන්න'; }}); if (status) status.textContent = isSinhala ? 'සම්පූර්ණයි' : 'Submitted'; solvedQuizSlides.add(current.id); enableFinishLessonButton(); form.querySelectorAll('input,select,button,textarea').forEach((el)=>{{ if (!el.classList.contains('manual-test-submit')) el.disabled = true; }}); }} catch (err) {{ console.error('Manual interim test failed:', err); alert(err.message || (isSinhala ? 'පරීක්ෂණය සුරැකිය නොහැක.' : 'Could not save the test.')); if (status) status.textContent = ''; if (submitBtn) submitBtn.disabled = false; }} }}); }}
+      function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
@@ -8327,7 +8572,7 @@ def student_lesson_manual_interim_test_submit(lesson_id: int):
         student.xp = int(student.xp or 0) + int(correct_count * 5)
     recalculate_student_chapter_progress(student.id, lesson.chapter_id)
     db.session.commit()
-    return jsonify({"ok": True, "score": score, "total_questions": total_questions, "correct_answers": correct_count, "mastery_status": mastery.status_en if mastery else None})
+    return jsonify({"ok": True, "score": score, "total_questions": total_questions, "correct_answers": correct_count, "mastery_status": mastery.status_en if mastery else None, "answers": answer_summary})
 
 
 @app.route("/student/lesson/<int:lesson_id>/finish", methods=["POST"])
@@ -9130,7 +9375,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
     subject_filter_options = "".join(f"<option value='{escape(subject)}'>{escape(subject)}</option>" for subject in subjects)
     topics = sorted({q.topic_en or q.topic for q in admin_questions if (q.topic_en or q.topic)})
     topic_filter_options = "".join(f"<option value='{escape(topic)}'>{escape(topic)}</option>" for topic in topics)
-    type_filter_options = "".join(f"<option value='{escape(value)}'>{escape(label)}</option>" for value, label in [("mcq", "MCQ"), ("short_answer", "Short Answer"), ("box_input", "Box Input / Fill-in-the-Boxes"), ("matching_pairs", "Matching Pairs / Join the Pairs"), ("tap_select_image", "Tap / Color Correct Picture"), ("drag_drop_group_container", "Drag Drop Group Container")])
+    type_filter_options = "".join(f"<option value='{escape(value)}'>{escape(label)}</option>" for value, label in [("mcq", "MCQ"), ("short_answer", "Short Answer"), ("box_input", "Box Input / Fill-in-the-Boxes"), ("matching_pairs", "Matching Pairs / Join the Pairs"), ("tap_select_image", "Tap / Color Correct Picture"), ("tap_correct_image", "Tap Correct Image"), ("drag_drop_group_container", "Drag Drop Group Container")])
     manual_question_count = slide.question_count if slide and slide.question_count else max(1, len(selected_manual_question_ids) or 1)
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
@@ -9709,6 +9954,44 @@ def admin_syllabus():
     return f"<h1>Syllabus Management</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/syllabus/term/add'>Add Term</a> | <a href='/admin/subjects'>Manage Subjects</a></p><form method='get'><label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label><label> Subject <select name='subject'>{subject_options_html(grade, subject, active_only=False)}</select></label><button type='submit'>Filter</button></form><table border='1' cellpadding='6'><tr><th>Grade</th><th>Subject</th><th>Term #</th><th>Term Name</th><th>Hierarchy</th></tr>{rows or '<tr><td colspan=5>No terms found</td></tr>'}</table>"
 
 
+
+def validate_tap_correct_image_request(existing_count: int = 0) -> str | None:
+    uploaded_count = sum(1 for file in request.files.getlist("tap_correct_images") if file and file.filename)
+    total_count = existing_count + uploaded_count
+    existing_correct = set(request.form.getlist("existing_correct_image_ids"))
+    new_correct = set(request.form.getlist("new_correct_image_indexes"))
+    if total_count < 2:
+        return "Tap Correct Image questions require at least 2 images."
+    if not existing_correct and not new_correct:
+        return "Tap Correct Image questions require at least 1 correct image."
+    return None
+
+
+def save_tap_correct_question_images(question: Question, existing_images: list[QuestionImage] | None = None) -> str | None:
+    existing_images = existing_images or []
+    existing_correct_ids = {int(value) for value in request.form.getlist("existing_correct_image_ids") if str(value).isdigit()}
+    for image in existing_images:
+        image.is_correct = image.id in existing_correct_ids
+
+    new_correct_indexes = {int(value) for value in request.form.getlist("new_correct_image_indexes") if str(value).isdigit()}
+    next_order = (max([image.display_order or 0 for image in existing_images], default=0) + 1)
+    for index, file_storage in enumerate([file for file in request.files.getlist("tap_correct_images") if file and file.filename]):
+        image_url, image_name, upload_error = upload_question_choice_image_to_supabase(question.id, file_storage)
+        if upload_error:
+            return upload_error
+        db.session.add(
+            QuestionImage(
+                question_id=question.id,
+                image_url=image_url,
+                image_name=image_name,
+                is_correct=index in new_correct_indexes,
+                display_order=next_order,
+            )
+        )
+        next_order += 1
+    return None
+
+
 @app.route("/admin/add-question", methods=["GET", "POST"])
 def admin_add_question():
     admin_redirect = admin_session_required()
@@ -9720,6 +10003,10 @@ def admin_add_question():
     form_data, error = parse_question_form_data(has_uploaded_image=bool(request.files.get("question_image") and request.files.get("question_image").filename))
     if error:
         return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", error), 400
+    if form_data["question_type"] == "tap_correct_image":
+        image_error = validate_tap_correct_image_request(existing_count=0)
+        if image_error:
+            return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", image_error), 400
 
     uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
     if upload_error:
@@ -9763,7 +10050,7 @@ def admin_add_question():
         drag_items_json=form_data["drag_items_json"] or None,
         drag_container_image_url=form_data["drag_container_image_url"] or None,
         drag_groups_json=form_data["drag_groups_json"] or None,
-        image_url=form_data["image_url"] or None,
+        image_url=None if form_data["question_type"] == "tap_correct_image" else (form_data["image_url"] or None),
         correct_option=form_data["correct_option"],
         explanation_en="N/A",
         explanation_si="N/A",
@@ -9771,6 +10058,14 @@ def admin_add_question():
     )
     db.session.add(question)
     db.session.commit()
+    if question.question_type == "tap_correct_image":
+        image_error = save_tap_correct_question_images(question)
+        if image_error:
+            db.session.rollback()
+            db.session.delete(question)
+            db.session.commit()
+            return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", image_error), 400
+        db.session.commit()
     return redirect("/admin/questions")
 
 
@@ -9957,6 +10252,7 @@ def admin_edit_question(question_id: int):
                 "drag_groups_json": question.drag_groups_json or "",
                 "image_url": question.image_url or "",
                 "difficulty_level": question.difficulty_level or 1,
+                "tap_correct_images": get_question_choice_images(question.id),
             },
             "Edit Question",
             "Update Question",
@@ -9968,6 +10264,13 @@ def admin_edit_question(question_id: int):
     )
     if error:
         return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", error), 400
+    existing_tap_images = get_question_choice_images(question.id)
+    if form_data["question_type"] == "tap_correct_image":
+        image_error = validate_tap_correct_image_request(existing_count=len(existing_tap_images))
+        if image_error:
+            data = dict(request.form)
+            data["tap_correct_images"] = existing_tap_images
+            return render_question_form(f"/admin/edit-question/{question_id}", data, "Edit Question", "Update Question", image_error), 400
 
     uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
     if upload_error:
@@ -10008,10 +10311,18 @@ def admin_edit_question(question_id: int):
     question.drag_items_json = form_data["drag_items_json"] or None
     question.drag_container_image_url = form_data["drag_container_image_url"] or None
     question.drag_groups_json = form_data["drag_groups_json"] or None
-    question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
+    question.image_url = None if form_data["question_type"] == "tap_correct_image" else (uploaded_image_url or form_data["image_url"] or question.image_url)
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
     db.session.commit()
+    if question.question_type == "tap_correct_image":
+        image_error = save_tap_correct_question_images(question, existing_tap_images)
+        if image_error:
+            db.session.rollback()
+            data = dict(request.form)
+            data["tap_correct_images"] = existing_tap_images
+            return render_question_form(f"/admin/edit-question/{question_id}", data, "Edit Question", "Update Question", image_error), 400
+        db.session.commit()
     return redirect("/admin/questions")
 
 
@@ -10539,6 +10850,18 @@ def update_question_format_db() -> tuple[str, int]:
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS image_url TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS tap_areas_json TEXT"))
         db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS correct_area_id VARCHAR(100)"))
+        db.session.execute(db.text("""
+            CREATE TABLE IF NOT EXISTS question_images (
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER NOT NULL REFERENCES question(id) ON DELETE CASCADE,
+                image_url TEXT NOT NULL,
+                image_name TEXT,
+                is_correct BOOLEAN DEFAULT FALSE,
+                display_order INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_images_question ON question_images (question_id, display_order)"))
         db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
         db.session.commit()
         return "Question format database updated successfully", 200
@@ -10848,6 +11171,8 @@ def test_page() -> str:
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_tap_correct_image_question(q):
+            answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
@@ -10858,7 +11183,7 @@ def test_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -10988,6 +11313,8 @@ def submit_test() -> str:
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
         elif is_tap_select_image_question(q):
             is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
+        elif is_tap_correct_image_question(q):
+            is_correct, student_answer, correct_answer = evaluate_tap_correct_image_question(q, request.form)
         elif is_drag_drop_group_container_question(q):
             is_correct, student_answer = evaluate_drag_drop_group_container_question(q, request.form)
             correct_answer = 'Grouped in basket'
@@ -11036,6 +11363,9 @@ def submit_test() -> str:
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
         elif is_tap_select_image_question(q):
             student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
+            correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
+        elif is_tap_correct_image_question(q):
+            student_answer_text = render_tap_correct_image_review(q, student_answer, correct_answer)
             correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
         elif is_drag_drop_group_container_question(q):
             student_answer_text = escape(student_answer or t(selected_medium, 'not_answered'))
@@ -11432,6 +11762,8 @@ def retest_weak() -> str:
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_tap_correct_image_question(q):
+            answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
@@ -11706,6 +12038,8 @@ def practice_page() -> str:
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_tap_correct_image_question(q):
+            answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
@@ -11716,7 +12050,7 @@ def practice_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -11869,6 +12203,8 @@ def submit_practice() -> str:
             correct_answer = json.dumps(correct_box_answers, ensure_ascii=False)
         elif is_tap_select_image_question(q):
             is_correct, student_answer, correct_answer = evaluate_tap_select_question(q, request.form)
+        elif is_tap_correct_image_question(q):
+            is_correct, student_answer, correct_answer = evaluate_tap_correct_image_question(q, request.form)
         elif is_drag_drop_group_container_question(q):
             is_correct, student_answer = evaluate_drag_drop_group_container_question(q, request.form)
             correct_answer = 'Grouped in basket'
@@ -11912,6 +12248,9 @@ def submit_practice() -> str:
             correct_answer_text = ''.join([f"<div><strong>{k}</strong>: {escape(str(v))}</div>" for k,v in correct_map.items()]) or t(selected_medium, 'not_answered')
         elif is_tap_select_image_question(q):
             student_answer_text = render_tap_select_review(q, student_answer, correct_answer)
+            correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
+        elif is_tap_correct_image_question(q):
+            student_answer_text = render_tap_correct_image_review(q, student_answer, correct_answer)
             correct_answer_text = f"Selected: {escape(student_answer or '-')} | Correct: {escape(correct_answer or '-')}"
         elif is_drag_drop_group_container_question(q):
             student_answer_text = escape(student_answer or t(selected_medium, 'not_answered'))
@@ -12091,13 +12430,15 @@ def student_homework_detail(homework_id: int):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_tap_correct_image_question(q):
+            answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     return f"""<!doctype html>
 <html>
@@ -12149,6 +12490,8 @@ def student_homework_submit(homework_id: int):
             is_correct, _, _ = evaluate_box_question(q, request.form)
         elif is_tap_select_image_question(q):
             is_correct, _, _ = evaluate_tap_select_question(q, request.form)
+        elif is_tap_correct_image_question(q):
+            is_correct, _, _ = evaluate_tap_correct_image_question(q, request.form)
         elif is_drag_drop_group_container_question(q):
             is_correct, _ = evaluate_drag_drop_group_container_question(q, request.form)
         elif is_short_answer_question(q):
@@ -12211,6 +12554,9 @@ def student_take_test(test_id: int):
             if is_tap_select_image_question(q):
                 ok, _, _ = evaluate_tap_select_question(q, request.form)
                 return ok
+            if is_tap_correct_image_question(q):
+                ok, _, _ = evaluate_tap_correct_image_question(q, request.form)
+                return ok
             if is_drag_drop_group_container_question(q):
                 ok, _ = evaluate_drag_drop_group_container_question(q, request.form)
                 return ok
@@ -12237,13 +12583,15 @@ def student_take_test(test_id: int):
             answer_html = render_box_template_with_inputs(q, 'qbox')
         elif is_tap_select_image_question(q):
             answer_html = render_tap_select_image_input(q)
+        elif is_tap_correct_image_question(q):
+            answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"""<!doctype html>
