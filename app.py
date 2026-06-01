@@ -7,6 +7,7 @@ import secrets
 import uuid
 import base64
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from fractions import Fraction
 from html import escape
 from io import BytesIO
@@ -35,6 +36,12 @@ UPLOAD_URL_PREFIX = "/static/images/questions/"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
 QUESTION_IMAGE_BUCKET = "question-images"
+SRI_LANKA_TZ = ZoneInfo("Asia/Colombo")
+
+
+def sri_lanka_now() -> datetime:
+    """Return the current server time in Sri Lanka as a naive datetime for DB comparisons."""
+    return datetime.now(SRI_LANKA_TZ).replace(tzinfo=None)
 
 
 
@@ -3838,7 +3845,7 @@ def student_dashboard():
     }
     language = "si" if student.medium == "Sinhala" else "en"
     text = ui_text[language]
-    today_start = datetime.combine(date.today(), datetime.min.time())
+    today_start = datetime.combine(sri_lanka_now().date(), datetime.min.time())
     completed_activity_today = (
         StudentResult.query.filter(
             StudentResult.student_id == student.id,
@@ -3858,14 +3865,14 @@ def student_dashboard():
             item for item in get_visible_live_classes_for_student(student)
             if today_start <= item.start_datetime < today_end
         ]
-        now_for_schedule = datetime.utcnow()
+        now_for_schedule = sri_lanka_now()
         schedule_bits = []
         for item in todays_live_classes:
             status = live_class_effective_status(item, now_for_schedule)
             title = item.title_si if language == "si" and item.title_si else item.title_en
             subject = live_class_subject_name(item, student.medium)
             can_join = (item.start_datetime - timedelta(minutes=15)) <= now_for_schedule <= item.end_datetime and status != "cancelled"
-            has_recording = bool(preferred_recording_url(item, student)) and status == "completed"
+            has_recording = bool(preferred_recording_url(item, student)) and status == "recorded"
             action = ""
             if can_join:
                 action = f"<a class='schedule-action' href='/student/live-classes/{item.id}/join'>{'එකතු වන්න' if language=='si' else 'Join'}</a>"
@@ -6696,15 +6703,22 @@ def get_visible_live_classes_for_student(student: Student):
     return [row for row in rows if student_can_see_live_class(student, row)]
 
 
+def live_class_has_recording(live_class: LiveClass) -> bool:
+    return bool((live_class.recording_url_si or "").strip() or (live_class.recording_url_en or "").strip())
+
+
 def live_class_effective_status(live_class: LiveClass, now: datetime | None = None) -> str:
-    if live_class.status in {"cancelled", "completed"}:
-        return live_class.status
-    now = now or datetime.utcnow()
-    if live_class.start_datetime <= now <= live_class.end_datetime:
+    now = now or sri_lanka_now()
+    status = (live_class.status or "").strip().lower()
+    if status == "live" and live_class.start_datetime <= now <= live_class.end_datetime:
         return "live"
-    if now > live_class.end_datetime:
-        return "completed"
-    return "upcoming"
+    if live_class.start_datetime > now and status != "cancelled":
+        return "upcoming"
+    if live_class.end_datetime < now:
+        return "recorded" if live_class_has_recording(live_class) else "completed_no_recording"
+    if status == "cancelled":
+        return "cancelled"
+    return "scheduled"
 
 
 def student_subscription_allows_live(student: Student) -> bool:
@@ -6714,6 +6728,19 @@ def student_subscription_allows_live(student: Student) -> bool:
     if getattr(student, "is_premium", False) and (not student.subscription_end_date or student.subscription_end_date >= date.today()):
         return True
     return False
+
+
+
+def live_class_status_label(status: str) -> str:
+    labels = {
+        "live": "Live Now",
+        "upcoming": "Upcoming",
+        "recorded": "Recorded",
+        "completed_no_recording": "Completed",
+        "cancelled": "Cancelled",
+        "scheduled": "Scheduled",
+    }
+    return labels.get(status, status.replace("_", " ").title())
 
 
 def preferred_live_url(live_class: LiveClass, student: Student) -> str:
@@ -7559,7 +7586,7 @@ def admin_login():
 
 
 def live_class_form_html(live_class: LiveClass | None = None, errors: list[str] | None = None) -> str:
-    live_class = live_class or LiveClass(start_datetime=datetime.utcnow(), end_datetime=datetime.utcnow() + timedelta(hours=1), title_en="")
+    live_class = live_class or LiveClass(start_datetime=sri_lanka_now(), end_datetime=sri_lanka_now() + timedelta(hours=1), title_en="")
     errors_html = "" if not errors else "<div style='background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;margin:10px 0;'><ul>" + "".join(f"<li>{escape(e)}</li>" for e in errors) + "</ul></div>"
     grades = "<option value=''>Select grade</option>" + grade_options_html(str(live_class.grade or ""))
     audience_grades = "<option value=''>Select grade</option>" + grade_options_html(str(live_class.audience_grade or ""))
@@ -7718,26 +7745,28 @@ def student_live_classes():
     if not student:
         session.pop("student_id", None); return redirect(url_for("login"))
     language = "si" if student.medium == "Sinhala" else "en"
-    now = datetime.utcnow()
+    now = sri_lanka_now()
     classes = get_visible_live_classes_for_student(student)
     def card(item):
         status = live_class_effective_status(item, now)
         title = item.title_si if language == "si" and item.title_si else item.title_en
         subject = live_class_subject_name(item, student.medium)
         chapter_lesson = live_class_chapter_lesson_label(item, student.medium)
-        recording_button = f"<a class='live-card-btn secondary' href='/student/live-classes/{item.id}/recording'>Watch Recording</a>" if preferred_recording_url(item, student) and status == "completed" else ""
+        recording_button = f"<a class='live-card-btn secondary' href='/student/live-classes/{item.id}/recording'>Watch Recording</a>" if preferred_recording_url(item, student) and status == "recorded" else ""
         notes_button = f"<a class='live-card-btn ghost' href='{escape(item.notes_url)}' target='_blank' rel='noopener'>Download Notes</a>" if item.notes_url else ""
-        join_button = "" if status in {"completed", "cancelled"} else f"<a class='live-card-btn primary' href='/student/live-classes/{item.id}/join'>Join Class</a>"
-        return f"<article class='live-class-card'><div class='live-card-top'><span>{escape(subject)}</span><b class='status {status}'>{'Live Now' if status=='live' else status.title()}</b></div><h3>{escape(title)}</h3><p>{escape(chapter_lesson or 'Live learning session')}</p><div class='live-meta'>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}<br>🗓 {item.start_datetime.strftime('%Y-%m-%d %I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}</div><div class='live-actions'>{join_button}{recording_button}{notes_button}</div></article>"
+        join_button = "" if status in {"recorded", "completed_no_recording", "cancelled", "scheduled"} else f"<a class='live-card-btn primary' href='/student/live-classes/{item.id}/join'>Join Class</a>"
+        return f"<article class='live-class-card'><div class='live-card-top'><span>{escape(subject)}</span><b class='status {status}'>{escape(live_class_status_label(status))}</b></div><h3>{escape(title)}</h3><p>{escape(chapter_lesson or 'Live learning session')}</p><div class='live-meta'>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}<br>🗓 {item.start_datetime.strftime('%Y-%m-%d %I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}</div><div class='live-actions'>{join_button}{recording_button}{notes_button}</div></article>"
     live_now = [c for c in classes if live_class_effective_status(c, now) == "live"]
     upcoming = [c for c in classes if live_class_effective_status(c, now) == "upcoming"]
-    recorded = [c for c in classes if live_class_effective_status(c, now) == "completed"]
+    recorded = [c for c in classes if live_class_effective_status(c, now) == "recorded"]
+    completed_without_recording = [c for c in classes if live_class_effective_status(c, now) == "completed_no_recording"]
     html = f"""
-    <style>.live-page{{padding:20px 0 40px}}.live-hero{{border-radius:28px;padding:28px;background:linear-gradient(135deg,#061a4f,#0f347a 55%,#123f91);color:#fff;box-shadow:0 22px 55px rgba(15,23,42,.18);margin-bottom:22px}}.live-hero h1{{margin:0;font-size:32px}}.live-section{{margin:22px 0}}.live-section h2{{margin:0 0 12px;color:#0f172a}}.live-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}}.live-class-card{{border-radius:22px;padding:18px;background:linear-gradient(145deg,rgba(8,29,76,.92),rgba(18,63,145,.86));color:#eaf2ff;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.live-card-top{{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#bfdbfe;font-size:13px}}.status{{border-radius:999px;padding:4px 9px;background:#334155;color:#fff;font-size:11px}}.status.live{{background:#16a34a}}.status.upcoming{{background:#2563eb}}.status.completed{{background:#7c3aed}}.status.cancelled{{background:#dc2626}}.live-class-card h3{{margin:12px 0 6px;color:#fff}}.live-class-card p,.live-meta{{color:#dbeafe;line-height:1.5}}.live-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.live-card-btn{{border-radius:999px;padding:9px 12px;text-decoration:none;font-weight:800;font-size:13px}}.primary{{background:#22c55e;color:#052e16}}.secondary{{background:#f8fafc;color:#1d4ed8}}.ghost{{border:1px solid rgba(255,255,255,.28);color:#fff}}.empty-live{{padding:18px;border-radius:18px;background:rgba(255,255,255,.75);color:#64748b}}</style>
+    <style>.live-page{{padding:20px 0 40px}}.live-hero{{border-radius:28px;padding:28px;background:linear-gradient(135deg,#061a4f,#0f347a 55%,#123f91);color:#fff;box-shadow:0 22px 55px rgba(15,23,42,.18);margin-bottom:22px}}.live-hero h1{{margin:0;font-size:32px}}.live-section{{margin:22px 0}}.live-section h2{{margin:0 0 12px;color:#0f172a}}.live-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}}.live-class-card{{border-radius:22px;padding:18px;background:linear-gradient(145deg,rgba(8,29,76,.92),rgba(18,63,145,.86));color:#eaf2ff;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.live-card-top{{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#bfdbfe;font-size:13px}}.status{{border-radius:999px;padding:4px 9px;background:#334155;color:#fff;font-size:11px}}.status.live{{background:#16a34a}}.status.upcoming{{background:#2563eb}}.status.recorded{{background:#7c3aed}}.status.completed_no_recording{{background:#475569}}.status.scheduled{{background:#f59e0b}}.status.cancelled{{background:#dc2626}}.live-class-card h3{{margin:12px 0 6px;color:#fff}}.live-class-card p,.live-meta{{color:#dbeafe;line-height:1.5}}.live-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.live-card-btn{{border-radius:999px;padding:9px 12px;text-decoration:none;font-weight:800;font-size:13px}}.primary{{background:#22c55e;color:#052e16}}.secondary{{background:#f8fafc;color:#1d4ed8}}.ghost{{border:1px solid rgba(255,255,255,.28);color:#fff}}.empty-live{{padding:18px;border-radius:18px;background:rgba(255,255,255,.75);color:#64748b}}</style>
     <main class='live-page'><section class='live-hero'><h1>{'සජීවී පන්ති' if language=='si' else 'Live Classes'}</h1><p>{'ඔබට පැවරුණු සජීවී හා පටිගත පන්ති මෙතැනින් බලන්න.' if language=='si' else 'Join assigned live lessons, review recordings, and download notes.'}</p></section>
     <section class='live-section'><h2>Live Now</h2><div class='live-grid'>{''.join(card(c) for c in live_now) or '<div class="empty-live">No classes are live right now.</div>'}</div></section>
     <section class='live-section'><h2>Upcoming Classes</h2><div class='live-grid'>{''.join(card(c) for c in upcoming) or '<div class="empty-live">No upcoming classes assigned.</div>'}</div></section>
-    <section class='live-section'><h2>Recorded Classes</h2><div class='live-grid'>{''.join(card(c) for c in recorded) or '<div class="empty-live">No recordings available yet.</div>'}</div></section></main>
+    <section class='live-section'><h2>Recorded Classes</h2><div class='live-grid'>{''.join(card(c) for c in recorded) or '<div class="empty-live">No recordings available yet.</div>'}</div></section>
+    <section class='live-section'><h2>Completed without Recording</h2><div class='live-grid'>{''.join(card(c) for c in completed_without_recording) or '<div class="empty-live">No completed classes are waiting for recordings.</div>'}</div></section></main>
     """
     return render_student_dashboard_shell(html, active_nav="live_classes")
 
@@ -7757,7 +7786,11 @@ def student_live_class_join(live_class_id: int):
     if not student_can_see_live_class(student, live_class):
         log_live_class_access(live_class.id, student.id, "blocked_audience")
         return live_class_block_page("This live class is not assigned to your account.")
-    now = datetime.utcnow()
+    now = sri_lanka_now()
+    effective_status = live_class_effective_status(live_class, now)
+    if effective_status in {"cancelled", "recorded", "completed_no_recording", "scheduled"}:
+        log_live_class_access(live_class.id, student.id, "blocked_time")
+        return live_class_block_page("This class is not open for joining right now.")
     if now < (live_class.start_datetime - timedelta(minutes=15)) or now > live_class.end_datetime:
         log_live_class_access(live_class.id, student.id, "blocked_time")
         return live_class_block_page("This class is not open yet. You can join 15 minutes before the start time.")
@@ -7781,7 +7814,7 @@ def student_live_class_recording(live_class_id: int):
     if not student_subscription_allows_live(student):
         return live_class_block_page("Your subscription is inactive. Please renew your subscription to join live classes.", True)
     url = preferred_recording_url(live_class, student)
-    if not url or live_class_effective_status(live_class) != "completed":
+    if not url or live_class_effective_status(live_class) != "recorded":
         return live_class_block_page("The recording is not available yet.")
     return redirect(url)
 
