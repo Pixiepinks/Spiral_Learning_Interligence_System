@@ -180,6 +180,74 @@ GRADE_LABELS_EN = {"OL": "O/L", "AL": "A/L"}
 GRADE_LABELS_SI = {"OL": "සාමාන්‍ය පෙළ", "AL": "උසස් පෙළ"}
 
 
+
+ANSWER_VALIDATION_MODES = {"exact": "Exact Match", "smart": "Smart Match"}
+DEFAULT_ANSWER_VALIDATION_MODE = "smart"
+IGNORED_NUMERIC_UNITS = {"cm", "mm", "m", "kg", "g", "l", "ml"}
+
+
+def normalize_answer_validation_mode(value: str | None) -> str:
+    mode = (value or DEFAULT_ANSWER_VALIDATION_MODE).strip().lower().replace("_", "-")
+    if mode in {"exact", "exact-match"}:
+        return "exact"
+    return DEFAULT_ANSWER_VALIDATION_MODE
+
+
+def split_accepted_answers(answer: str | None) -> list[str]:
+    return [part for part in (answer or "").split("|") if part != ""]
+
+
+def _collapse_answer_spaces(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _numeric_answer_value(value: str):
+    normalized = _collapse_answer_spaces(value).casefold()
+    unit_pattern = "|".join(sorted(IGNORED_NUMERIC_UNITS, key=len, reverse=True))
+    match = re.fullmatch(rf"([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*({unit_pattern})?", normalized)
+    if not match:
+        return None
+    try:
+        return Fraction(match.group(1))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def answers_match(student_answer: str | None, accepted_answer: str | None, validation_mode: str | None = None) -> bool:
+    mode = normalize_answer_validation_mode(validation_mode)
+    student = "" if student_answer is None else str(student_answer)
+    accepted_options = split_accepted_answers("" if accepted_answer is None else str(accepted_answer))
+    if not accepted_options:
+        return False
+    if mode == "exact":
+        return any(student == accepted for accepted in accepted_options)
+
+    for accepted in accepted_options:
+        student_number = _numeric_answer_value(student)
+        accepted_number = _numeric_answer_value(accepted)
+        if student_number is not None and accepted_number is not None and student_number == accepted_number:
+            return True
+
+        student_collapsed = _collapse_answer_spaces(student).casefold()
+        accepted_collapsed = _collapse_answer_spaces(accepted).casefold()
+        if "=" in student_collapsed or "=" in accepted_collapsed:
+            if re.sub(r"\s+", "", student).casefold() == re.sub(r"\s+", "", accepted).casefold():
+                return True
+        elif student_collapsed == accepted_collapsed:
+            return True
+    return False
+
+
+def any_answers_match(student_answer: str | None, accepted_answers: list[str], validation_mode: str | None = None) -> bool:
+    return any(answers_match(student_answer, accepted_answer, validation_mode) for accepted_answer in accepted_answers if accepted_answer)
+
+
+def ensure_answer_validation_schema() -> None:
+    db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS validation_mode VARCHAR(20) DEFAULT 'smart'"))
+    db.session.execute(db.text("ALTER TABLE question_sub_questions ADD COLUMN IF NOT EXISTS validation_mode VARCHAR(20) DEFAULT 'smart'"))
+    db.session.execute(db.text("UPDATE question SET validation_mode = 'smart' WHERE validation_mode IS NULL OR validation_mode = ''"))
+    db.session.execute(db.text("UPDATE question_sub_questions SET validation_mode = 'smart' WHERE validation_mode IS NULL OR validation_mode = ''"))
+
 def normalize_grade(value: str | None) -> str:
     raw = (value or "").strip().upper().replace(" ", "")
     if raw in {"O/L", "O-L", "OL"}:
@@ -322,6 +390,20 @@ def get_question_sub_questions(question_id: int) -> list["QuestionSubQuestion"]:
     )
 
 
+
+
+def evaluate_short_answer_question(question: "Question", form) -> tuple[bool, str, str]:
+    student_answer_raw = form.get(f"q_{question.id}", "") or ""
+    student_answer = student_answer_raw.strip()
+    correct_answer = (question.correct_answer_text or "").strip()
+    is_correct = bool(correct_answer) and answers_match(
+        student_answer_raw,
+        correct_answer,
+        normalize_answer_validation_mode(getattr(question, "validation_mode", None)),
+    )
+    return is_correct, student_answer, correct_answer
+
+
 def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool, list[dict], int, int]:
     sub_questions = get_question_sub_questions(question.id)
     rows = []
@@ -330,11 +412,13 @@ def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool,
     for sub_question in sub_questions:
         marks = max(int(sub_question.marks or 0), 0)
         total_marks += marks
-        student_answer = (form.get(f"qsub_{question.id}_{sub_question.id}") or "").strip()
+        student_answer_raw = form.get(f"qsub_{question.id}_{sub_question.id}") or ""
+        student_answer = student_answer_raw.strip()
         correct_answer_en = (sub_question.correct_answer_en or sub_question.correct_answer or "").strip()
         correct_answer_si = (sub_question.correct_answer_si or sub_question.correct_answer or "").strip()
         accepted_answers = [answer for answer in (correct_answer_en, correct_answer_si) if answer]
-        is_correct = bool(student_answer) and any(student_answer.casefold() == answer.casefold() for answer in accepted_answers)
+        validation_mode = normalize_answer_validation_mode(getattr(sub_question, "validation_mode", None))
+        is_correct = bool(student_answer) and any_answers_match(student_answer_raw, accepted_answers, validation_mode)
         if is_correct:
             earned_marks += marks
         rows.append({
@@ -346,6 +430,7 @@ def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool,
             "correct_answer": correct_answer_en,
             "correct_answer_en": correct_answer_en,
             "correct_answer_si": correct_answer_si,
+            "validation_mode": validation_mode,
             "marks": marks,
             "earned_marks": marks if is_correct else 0,
             "is_correct": is_correct,
@@ -710,12 +795,14 @@ def run_startup_migrations() -> None:
             correct_answer TEXT NOT NULL,
             correct_answer_en TEXT,
             correct_answer_si TEXT,
+            validation_mode VARCHAR(20) NOT NULL DEFAULT 'smart',
             marks INTEGER NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     ))
     db.session.execute(db.text("ALTER TABLE question_sub_questions ADD COLUMN IF NOT EXISTS correct_answer_en TEXT, ADD COLUMN IF NOT EXISTS correct_answer_si TEXT"))
+    ensure_answer_validation_schema()
     db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_en = COALESCE(NULLIF(correct_answer_en, ''), correct_answer) WHERE correct_answer_en IS NULL OR correct_answer_en = ''"))
     db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
@@ -2106,6 +2193,7 @@ class Question(db.Model):
     option_d_si = db.Column(db.Text, nullable=False)
     question_type = db.Column(db.String(50), nullable=False, default="mcq")
     correct_answer_text = db.Column(db.Text, nullable=True)
+    validation_mode = db.Column(db.String(20), nullable=False, default=DEFAULT_ANSWER_VALIDATION_MODE)
     box_template = db.Column(db.Text, nullable=True)
     box_answers = db.Column(db.Text, nullable=True)
     matching_left_en = db.Column(db.Text, nullable=True)
@@ -2139,6 +2227,7 @@ class QuestionSubQuestion(db.Model):
     correct_answer = db.Column(db.Text, nullable=False)
     correct_answer_en = db.Column(db.Text, nullable=True)
     correct_answer_si = db.Column(db.Text, nullable=True)
+    validation_mode = db.Column(db.String(20), nullable=False, default=DEFAULT_ANSWER_VALIDATION_MODE)
     marks = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -6571,6 +6660,7 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = (request.form.get("correct_option") or "").strip().upper()
     correct_answer_text = (request.form.get("correct_answer_text") or "").strip()
+    validation_mode = normalize_answer_validation_mode(request.form.get("validation_mode"))
     box_template = request.form.get("box_template") or ""
     box_answers_raw = request.form.get("box_answers") or ""
     matching_left_en = request.form.get("matching_left_en") or ""
@@ -6701,6 +6791,7 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
         "correct_option": correct_option,
         "question_type": question_type,
         "correct_answer_text": correct_answer_text,
+        "validation_mode": validation_mode,
         "box_template": box_template,
         "box_answers": json.dumps(normalized_box_answers, ensure_ascii=False) if normalized_box_answers is not None else "",
         "matching_left_en": json.dumps(parse_matching_items(matching_left_en), ensure_ascii=False) if question_type == "matching_pairs" else "",
@@ -6736,6 +6827,7 @@ def parse_image_analysis_sub_questions_from_form() -> tuple[list[dict], str | No
         answer_type = (request.form.get(f"sub_answer_type_{index}") or "text").strip().lower()
         correct_answer_en = (request.form.get(f"sub_correct_answer_en_{index}") or request.form.get(f"sub_correct_answer_{index}") or "").strip()
         correct_answer_si = (request.form.get(f"sub_correct_answer_si_{index}") or "").strip()
+        validation_mode = normalize_answer_validation_mode(request.form.get(f"sub_validation_mode_{index}"))
         marks_raw = (request.form.get(f"sub_marks_{index}") or "1").strip()
         if answer_type not in {"text", "number"}:
             return [], f"Sub-question {index} answer type must be text or number."
@@ -6755,6 +6847,7 @@ def parse_image_analysis_sub_questions_from_form() -> tuple[list[dict], str | No
             "correct_answer": correct_answer_en,
             "correct_answer_en": correct_answer_en,
             "correct_answer_si": correct_answer_si,
+            "validation_mode": validation_mode,
             "marks": marks,
         })
     return sub_questions, None
@@ -6769,6 +6862,11 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     error_html = f"<p style='color:red;'>{escape(error)}</p>" if error else ""
     difficulty_level = str(data.get("difficulty_level", "1"))
     question_type = data.get("question_type", "mcq")
+    validation_mode = normalize_answer_validation_mode(data.get("validation_mode"))
+    validation_options = "".join([
+        f"<option value='{mode}' {'selected' if validation_mode == mode else ''}>{label}</option>"
+        for mode, label in ANSWER_VALIDATION_MODES.items()
+    ])
     mcq_hidden = "" if question_type == "mcq" else "display:none;"
     short_hidden = "" if question_type == "short_answer" else "display:none;"
     box_hidden = "" if question_type == "box_input" else "display:none;"
@@ -6786,7 +6884,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         except (TypeError, ValueError):
             sub_count = 1
         image_analysis_sub_questions = [
-            {"question_text_en": "", "question_text_si": "", "answer_type": "text", "correct_answer_en": "", "correct_answer_si": "", "marks": 1}
+            {"question_text_en": "", "question_text_si": "", "answer_type": "text", "correct_answer_en": "", "correct_answer_si": "", "validation_mode": DEFAULT_ANSWER_VALIDATION_MODE, "marks": 1}
             for _ in range(sub_count)
         ]
     image_analysis_rows_html = "".join([
@@ -6795,6 +6893,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <label>Question text EN:<br><textarea name='sub_question_text_en_{idx}' rows='2' cols='70'>{escape(item.get('question_text_en',''))}</textarea></label><br>
           <label>Question text SI:<br><textarea name='sub_question_text_si_{idx}' rows='2' cols='70'>{escape(item.get('question_text_si',''))}</textarea></label><br>
           <label>Answer type: <select name='sub_answer_type_{idx}'><option value='text' {'selected' if item.get('answer_type','text') == 'text' else ''}>Text</option><option value='number' {'selected' if item.get('answer_type') == 'number' else ''}>Number</option></select></label><br>
+          <label>Validation mode: <select name='sub_validation_mode_{idx}'><option value='smart' {'selected' if normalize_answer_validation_mode(item.get('validation_mode')) == 'smart' else ''}>Smart Match</option><option value='exact' {'selected' if normalize_answer_validation_mode(item.get('validation_mode')) == 'exact' else ''}>Exact Match</option></select></label><br>
           <label>Correct answer EN: <input type='text' name='sub_correct_answer_en_{idx}' value='{escape(str(item.get('correct_answer_en') or item.get('correct_answer') or ''))}'></label><br>
           <label>Correct answer SI: <input type='text' name='sub_correct_answer_si_{idx}' value='{escape(str(item.get('correct_answer_si') or ''))}'></label><br>
           <label>Marks: <input type='number' min='1' step='1' name='sub_marks_{idx}' value='{escape(str(item.get('marks',1)))}'></label>
@@ -6853,6 +6952,8 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           </div>
           <div id="short_answer_fields" style="{short_hidden}">
             <label>Correct Answer (text or number): <input type="text" name="correct_answer_text" value="{escape(data.get('correct_answer_text', ''))}"></label><br><br>
+            <label>Validation mode: <select name="validation_mode">{validation_options}</select></label>
+            <p style="color:#64748b;margin-top:6px;">Smart Match ignores case, extra spaces, supported units (cm, mm, m, kg, g, l, ml), and accepts pipe-separated alternatives like <code>13|13cm|13 cm</code>.</p>
           </div>
 
           <div id="box_input_fields" style="{box_hidden}">
@@ -6951,6 +7052,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
                 type: row.querySelector(`[name="sub_answer_type_${{n}}"]`)?.value||"text",
                 answerEn: row.querySelector(`[name="sub_correct_answer_en_${{n}}"]`)?.value||row.querySelector(`[name="sub_correct_answer_${{n}}"]`)?.value||"",
                 answerSi: row.querySelector(`[name="sub_correct_answer_si_${{n}}"]`)?.value||"",
+                validationMode: row.querySelector(`[name="sub_validation_mode_${{n}}"]`)?.value||"smart",
                 marks: row.querySelector(`[name="sub_marks_${{n}}"]`)?.value||"1"
               }};
             }});
@@ -6962,11 +7064,11 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             const existing=readExistingRows();
             iaRows.innerHTML="";
             for(let i=1;i<=count;i++){{
-              const v=existing[i]||{{en:"",si:"",type:"text",answerEn:"",answerSi:"",marks:"1"}};
+              const v=existing[i]||{{en:"",si:"",type:"text",answerEn:"",answerSi:"",validationMode:"smart",marks:"1"}};
               const fs=document.createElement("fieldset");
               fs.className="image-analysis-admin-row";
               fs.style.cssText="border:1px solid #cbd5e1;border-radius:12px;padding:12px;";
-              fs.innerHTML=`<legend>Sub-question ${{i}}</legend><label>Question text EN:<br><textarea name="sub_question_text_en_${{i}}" rows="2" cols="70">${{htmlEscape(v.en)}}</textarea></label><br><label>Question text SI:<br><textarea name="sub_question_text_si_${{i}}" rows="2" cols="70">${{htmlEscape(v.si)}}</textarea></label><br><label>Answer type: <select name="sub_answer_type_${{i}}"><option value="text" ${{v.type==='text'?'selected':''}}>Text</option><option value="number" ${{v.type==='number'?'selected':''}}>Number</option></select></label><br><label>Correct answer EN: <input type="text" name="sub_correct_answer_en_${{i}}" value="${{htmlEscape(v.answerEn)}}"></label><br><label>Correct answer SI: <input type="text" name="sub_correct_answer_si_${{i}}" value="${{htmlEscape(v.answerSi)}}"></label><br><label>Marks: <input type="number" min="1" step="1" name="sub_marks_${{i}}" value="${{htmlEscape(v.marks)}}"></label>`;
+              fs.innerHTML=`<legend>Sub-question ${{i}}</legend><label>Question text EN:<br><textarea name="sub_question_text_en_${{i}}" rows="2" cols="70">${{htmlEscape(v.en)}}</textarea></label><br><label>Question text SI:<br><textarea name="sub_question_text_si_${{i}}" rows="2" cols="70">${{htmlEscape(v.si)}}</textarea></label><br><label>Answer type: <select name="sub_answer_type_${{i}}"><option value="text" ${{v.type==='text'?'selected':''}}>Text</option><option value="number" ${{v.type==='number'?'selected':''}}>Number</option></select></label><br><label>Validation mode: <select name="sub_validation_mode_${{i}}"><option value="smart" ${{v.validationMode==='smart'?'selected':''}}>Smart Match</option><option value="exact" ${{v.validationMode==='exact'?'selected':''}}>Exact Match</option></select></label><br><label>Correct answer EN: <input type="text" name="sub_correct_answer_en_${{i}}" value="${{htmlEscape(v.answerEn)}}"></label><br><label>Correct answer SI: <input type="text" name="sub_correct_answer_si_${{i}}" value="${{htmlEscape(v.answerSi)}}"></label><br><label>Marks: <input type="number" min="1" step="1" name="sub_marks_${{i}}" value="${{htmlEscape(v.marks)}}"></label>`;
               iaRows.appendChild(fs);
             }}
           }};
@@ -8397,7 +8499,7 @@ def student_video_interaction_answer():
     if question_type == "mcq":
         is_correct = (answer.strip().upper() == (question.correct_option or "").strip().upper())
     elif question_type == "short_answer":
-        is_correct = (answer.strip().lower() == (question.correct_answer_text or "").strip().lower())
+        is_correct = answers_match(answer, question.correct_answer_text or "", getattr(question, "validation_mode", None))
     elif question_type == "box_input":
         is_correct = (answer.strip().lower() == (question.box_answers or "").strip().lower())
     elif question_type == "matching_pairs":
@@ -8602,9 +8704,7 @@ def evaluate_manual_interim_question(question: Question, form, medium_key: str) 
         is_correct, rows, earned_marks, total_marks = evaluate_image_analysis_worksheet(question, form)
         return is_correct, json.dumps(rows, ensure_ascii=False), f"{earned_marks}/{total_marks}"
     if is_short_answer_question(question):
-        student_answer = form.get(f"q_{question.id}", "").strip()
-        correct_answer = (question.correct_answer_text or "").strip()
-        return bool(correct_answer) and student_answer.casefold() == correct_answer.casefold(), student_answer, correct_answer
+        return evaluate_short_answer_question(question, form)
     student_answer = form.get(f"q_{question.id}", "").strip().upper()
     correct_answer = (question.correct_option or "").strip().upper()
     return student_answer == correct_answer, student_answer, correct_answer
@@ -10339,6 +10439,7 @@ def admin_add_question():
         option_d_si=form_data["option_d"],
         question_type=form_data["question_type"],
         correct_answer_text=form_data["correct_answer_text"] or None,
+        validation_mode=form_data["validation_mode"],
         box_template=form_data["box_template"] or None,
         box_answers=form_data["box_answers"] or None,
         matching_left_en=form_data["matching_left_en"] or None,
@@ -10547,6 +10648,7 @@ def admin_edit_question(question_id: int):
                 "correct_option": question.correct_option,
                 "question_type": question.question_type or "mcq",
                 "correct_answer_text": question.correct_answer_text or "",
+                "validation_mode": normalize_answer_validation_mode(getattr(question, "validation_mode", None)),
                 "box_template": question.box_template or "",
                 "box_answers": question.box_answers or "",
                 "matching_left_en": "\n".join(json.loads(question.matching_left_en or "[]")),
@@ -10571,6 +10673,7 @@ def admin_edit_question(question_id: int):
                         "correct_answer": sub.correct_answer,
                         "correct_answer_en": sub.correct_answer_en or sub.correct_answer,
                         "correct_answer_si": sub.correct_answer_si or sub.correct_answer,
+                        "validation_mode": normalize_answer_validation_mode(getattr(sub, "validation_mode", None)),
                         "marks": sub.marks,
                     }
                     for sub in get_question_sub_questions(question.id)
@@ -10631,6 +10734,7 @@ def admin_edit_question(question_id: int):
     question.option_d_si = form_data["option_d"]
     question.question_type = form_data["question_type"]
     question.correct_answer_text = form_data["correct_answer_text"] or None
+    question.validation_mode = form_data["validation_mode"]
     question.box_template = form_data["box_template"] or None
     question.box_answers = form_data["box_answers"] or None
     question.matching_left_en = form_data["matching_left_en"] or None
@@ -11217,12 +11321,14 @@ def update_question_format_db() -> tuple[str, int]:
                 correct_answer TEXT NOT NULL,
                 correct_answer_en TEXT,
                 correct_answer_si TEXT,
+                validation_mode VARCHAR(20) NOT NULL DEFAULT 'smart',
                 marks INTEGER NOT NULL DEFAULT 1,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
         ))
         db.session.execute(db.text("ALTER TABLE question_sub_questions ADD COLUMN IF NOT EXISTS correct_answer_en TEXT, ADD COLUMN IF NOT EXISTS correct_answer_si TEXT"))
+        ensure_answer_validation_schema()
         db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_en = COALESCE(NULLIF(correct_answer_en, ''), correct_answer) WHERE correct_answer_en IS NULL OR correct_answer_en = ''"))
         db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
@@ -11708,9 +11814,7 @@ def submit_test() -> str:
                 "earned_marks": row["earned_marks"],
             } for row in worksheet_rows], ensure_ascii=False)
         elif is_short_answer_question(q):
-            student_answer = request.form.get(f"q_{q.id}", "").strip()
-            correct_answer = (q.correct_answer_text or "").strip()
-            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+            is_correct, student_answer, correct_answer = evaluate_short_answer_question(q, request.form)
         else:
             student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
             correct_answer = q.correct_option.strip().upper()
@@ -12094,8 +12198,7 @@ def retest_weak() -> str:
             elif is_box_input_question(q):
                 is_correct, _, _ = evaluate_box_question(q, request.form)
             elif is_short_answer_question(q):
-                student_answer = request.form.get(f"q_{q.id}", "").strip()
-                is_correct = bool((q.correct_answer_text or '').strip()) and student_answer.casefold() == (q.correct_answer_text or '').strip().casefold()
+                is_correct, student_answer, _ = evaluate_short_answer_question(q, request.form)
             else:
                 student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
                 is_correct = student_answer == q.correct_option.strip().upper()
@@ -12632,9 +12735,7 @@ def submit_practice() -> str:
                 "earned_marks": row["earned_marks"],
             } for row in worksheet_rows], ensure_ascii=False)
         elif is_short_answer_question(q):
-            student_answer = request.form.get(f"q_{q.id}", "").strip()
-            correct_answer = (q.correct_answer_text or "").strip()
-            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+            is_correct, student_answer, correct_answer = evaluate_short_answer_question(q, request.form)
         else:
             student_answer = request.form.get(f"q_{q.id}", "").strip().upper()
             correct_answer = q.correct_option.strip().upper()
@@ -12937,7 +13038,7 @@ def student_homework_submit(homework_id: int):
         elif is_image_analysis_worksheet_question(q):
             is_correct, _, _, _ = evaluate_image_analysis_worksheet(q, request.form)
         elif is_short_answer_question(q):
-            is_correct = (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
+            is_correct, _, _ = evaluate_short_answer_question(q, request.form)
         else:
             is_correct = (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
         if is_correct:
@@ -12996,9 +13097,7 @@ def score_class_test_questions(questions: list["Question"], form, medium_key: st
                 for sub_index, row in enumerate(worksheet_rows, start=1)
             ]
         elif is_short_answer_question(q):
-            student_answer = (form.get(f"q_{q.id}") or "").strip()
-            correct_answer = (q.correct_answer_text or "").strip()
-            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+            is_correct, _, _ = evaluate_short_answer_question(q, form)
             earned = 1 if is_correct else 0
         else:
             is_correct = (form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
