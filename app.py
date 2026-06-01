@@ -7745,28 +7745,224 @@ def student_live_classes():
     if not student:
         session.pop("student_id", None); return redirect(url_for("login"))
     language = "si" if student.medium == "Sinhala" else "en"
+    is_si = language == "si"
     now = sri_lanka_now()
     classes = get_visible_live_classes_for_student(student)
-    def card(item):
-        status = live_class_effective_status(item, now)
-        title = item.title_si if language == "si" and item.title_si else item.title_en
+
+    def class_title(item: LiveClass) -> str:
+        return item.title_si if is_si and item.title_si else item.title_en
+
+    def class_description(item: LiveClass) -> str:
+        description = item.description_si if is_si and item.description_si else item.description_en
+        return description or live_class_chapter_lesson_label(item, student.medium) or ("සජීවී ඉගෙනුම් සැසිය" if is_si else "Live learning session")
+
+    def grade_label(item: LiveClass) -> str:
+        grade = item.grade or item.audience_grade or _student_grade_int(student)
+        return f"{'ශ්‍රේණිය' if is_si else 'Grade'} {escape(str(grade))}" if grade else ("සියලුම ශ්‍රේණි" if is_si else "All grades")
+
+    def format_class_time(item: LiveClass, include_date: bool = True) -> str:
+        if include_date:
+            return f"{item.start_datetime.strftime('%a, %d %b %Y')} • {item.start_datetime.strftime('%I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}"
+        return f"{item.start_datetime.strftime('%I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}"
+
+    def duration_label(delta: timedelta) -> str:
+        total_seconds = max(0, int(delta.total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}"
+        return f"{minutes:02d} min"
+
+    def subject_initial(subject: str) -> str:
+        clean = (subject or "SLIS").strip()
+        return escape(clean[0].upper() if clean and clean != "-" else "S")
+
+    def subject_icon(subject: str, extra_class: str = "") -> str:
+        return f"<div class='live-subject-icon {extra_class}' aria-hidden='true'><span>{subject_initial(subject)}</span></div>"
+
+    def live_card(item: LiveClass) -> str:
+        title = class_title(item)
         subject = live_class_subject_name(item, student.medium)
-        chapter_lesson = live_class_chapter_lesson_label(item, student.medium)
-        recording_button = f"<a class='live-card-btn secondary' href='/student/live-classes/{item.id}/recording'>Watch Recording</a>" if preferred_recording_url(item, student) and status == "recorded" else ""
-        notes_button = f"<a class='live-card-btn ghost' href='{escape(item.notes_url)}' target='_blank' rel='noopener'>Download Notes</a>" if item.notes_url else ""
-        join_button = "" if status in {"recorded", "completed_no_recording", "cancelled", "scheduled"} else f"<a class='live-card-btn primary' href='/student/live-classes/{item.id}/join'>Join Class</a>"
-        return f"<article class='live-class-card'><div class='live-card-top'><span>{escape(subject)}</span><b class='status {status}'>{escape(live_class_status_label(status))}</b></div><h3>{escape(title)}</h3><p>{escape(chapter_lesson or 'Live learning session')}</p><div class='live-meta'>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}<br>🗓 {item.start_datetime.strftime('%Y-%m-%d %I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}</div><div class='live-actions'>{join_button}{recording_button}{notes_button}</div></article>"
+        live_for = duration_label(now - item.start_datetime)
+        details_id = f"live-class-{item.id}"
+        return f"""
+        <article class='live-now-card' id='{details_id}'>
+          <div class='live-now-glow'></div>
+          <div class='live-now-main'>
+            {subject_icon(subject, 'live-now-icon')}
+            <div class='live-now-content'>
+              <div class='live-card-kicker'>
+                <span class='live-status-badge'><span class='live-dot'></span>LIVE</span>
+                <span class='live-subject-pill'>{escape(subject)}</span>
+              </div>
+              <h2>{escape(title)}</h2>
+              <p>{escape(class_description(item))}</p>
+              <div class='live-premium-meta'>
+                <span>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}</span>
+                <span>🕒 {escape(format_class_time(item, False))}</span>
+                <span>🎓 {grade_label(item)}</span>
+                <span class='live-countdown'>Live for {escape(live_for)}</span>
+              </div>
+              <div class='live-actions live-now-actions'>
+                <a class='live-join-btn' href='/student/live-classes/{item.id}/join'>Join Class</a>
+                <a class='live-details-btn' href='#{details_id}'>Class Details</a>
+              </div>
+            </div>
+          </div>
+        </article>
+        """
+
+    def upcoming_card(item: LiveClass) -> str:
+        title = class_title(item)
+        subject = live_class_subject_name(item, student.medium)
+        starts_in = duration_label(item.start_datetime - now)
+        return f"""
+        <article class='live-class-card' id='live-class-{item.id}'>
+          <div class='live-class-topline'>
+            {subject_icon(subject)}
+            <span class='live-subject-label'>{escape(subject)}</span>
+          </div>
+          <h3>{escape(title)}</h3>
+          <p>{escape(class_description(item))}</p>
+          <div class='live-card-meta'>
+            <span>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}</span>
+            <span>🗓 {escape(format_class_time(item))}</span>
+            <span>🎓 {grade_label(item)}</span>
+          </div>
+          <div class='live-card-footer'>
+            <span class='live-starts-badge'>Starts in {escape(starts_in)}</span>
+            <a class='live-details-btn compact' href='#live-class-{item.id}'>View Details</a>
+          </div>
+        </article>
+        """
+
+    def recording_card(item: LiveClass) -> str:
+        title = class_title(item)
+        subject = live_class_subject_name(item, student.medium)
+        duration = duration_label(item.end_datetime - item.start_datetime)
+        notes_button = f"<a class='live-details-btn compact' href='{escape(item.notes_url)}' target='_blank' rel='noopener'>Download notes</a>" if item.notes_url else ""
+        return f"""
+        <article class='recording-card' id='live-class-{item.id}'>
+          <div class='recording-thumb'>
+            {subject_icon(subject, 'recording-subject-icon')}
+            <span class='recording-play'>▶</span>
+            <span class='recording-duration'>{escape(duration)}</span>
+          </div>
+          <div class='recording-content'>
+            <span class='live-subject-label'>{escape(subject)}</span>
+            <h3>{escape(title)}</h3>
+            <div class='live-card-meta'>
+              <span>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}</span>
+              <span>🗓 {item.end_datetime.strftime('%d %b %Y')}</span>
+              <span>🎓 {grade_label(item)}</span>
+            </div>
+            <div class='recording-actions'>
+              <a class='live-join-btn recording-watch-btn' href='/student/live-classes/{item.id}/recording'>Watch Recording</a>
+              {notes_button}
+            </div>
+          </div>
+        </article>
+        """
+
+    def empty_card(message: str, icon: str = "✨") -> str:
+        return f"<div class='live-empty-card'><span>{icon}</span><strong>{escape(message)}</strong><small>{'නවතම පන්ති මෙහි පෙන්වනු ඇත.' if is_si else 'New classes will appear here as soon as they are available.'}</small></div>"
+
     live_now = [c for c in classes if live_class_effective_status(c, now) == "live"]
     upcoming = [c for c in classes if live_class_effective_status(c, now) == "upcoming"]
     recorded = [c for c in classes if live_class_effective_status(c, now) == "recorded"]
-    completed_without_recording = [c for c in classes if live_class_effective_status(c, now) == "completed_no_recording"]
+    live_now_html = "".join(live_card(c) for c in live_now) or empty_card("No classes are live right now.", "🔴")
+    upcoming_html = "".join(upcoming_card(c) for c in upcoming) or empty_card("No upcoming classes assigned.", "📅")
+    recorded_html = "".join(recording_card(c) for c in recorded) or empty_card("No recordings available yet.", "▶")
+
     html = f"""
-    <style>.live-page{{padding:20px 0 40px}}.live-hero{{border-radius:28px;padding:28px;background:linear-gradient(135deg,#061a4f,#0f347a 55%,#123f91);color:#fff;box-shadow:0 22px 55px rgba(15,23,42,.18);margin-bottom:22px}}.live-hero h1{{margin:0;font-size:32px}}.live-section{{margin:22px 0}}.live-section h2{{margin:0 0 12px;color:#0f172a}}.live-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}}.live-class-card{{border-radius:22px;padding:18px;background:linear-gradient(145deg,rgba(8,29,76,.92),rgba(18,63,145,.86));color:#eaf2ff;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.live-card-top{{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#bfdbfe;font-size:13px}}.status{{border-radius:999px;padding:4px 9px;background:#334155;color:#fff;font-size:11px}}.status.live{{background:#16a34a}}.status.upcoming{{background:#2563eb}}.status.recorded{{background:#7c3aed}}.status.completed_no_recording{{background:#475569}}.status.scheduled{{background:#f59e0b}}.status.cancelled{{background:#dc2626}}.live-class-card h3{{margin:12px 0 6px;color:#fff}}.live-class-card p,.live-meta{{color:#dbeafe;line-height:1.5}}.live-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.live-card-btn{{border-radius:999px;padding:9px 12px;text-decoration:none;font-weight:800;font-size:13px}}.primary{{background:#22c55e;color:#052e16}}.secondary{{background:#f8fafc;color:#1d4ed8}}.ghost{{border:1px solid rgba(255,255,255,.28);color:#fff}}.empty-live{{padding:18px;border-radius:18px;background:rgba(255,255,255,.75);color:#64748b}}</style>
-    <main class='live-page'><section class='live-hero'><h1>{'සජීවී පන්ති' if language=='si' else 'Live Classes'}</h1><p>{'ඔබට පැවරුණු සජීවී හා පටිගත පන්ති මෙතැනින් බලන්න.' if language=='si' else 'Join assigned live lessons, review recordings, and download notes.'}</p></section>
-    <section class='live-section'><h2>Live Now</h2><div class='live-grid'>{''.join(card(c) for c in live_now) or '<div class="empty-live">No classes are live right now.</div>'}</div></section>
-    <section class='live-section'><h2>Upcoming Classes</h2><div class='live-grid'>{''.join(card(c) for c in upcoming) or '<div class="empty-live">No upcoming classes assigned.</div>'}</div></section>
-    <section class='live-section'><h2>Recorded Classes</h2><div class='live-grid'>{''.join(card(c) for c in recorded) or '<div class="empty-live">No recordings available yet.</div>'}</div></section>
-    <section class='live-section'><h2>Completed without Recording</h2><div class='live-grid'>{''.join(card(c) for c in completed_without_recording) or '<div class="empty-live">No completed classes are waiting for recordings.</div>'}</div></section></main>
+    <style>
+      .live-classes-page{{padding:22px 0 44px;background:linear-gradient(180deg,#f4f8ff 0%,#eef6ff 48%,#f8fbff 100%);font-family:'Inter','Noto Sans Sinhala','Noto Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;}}
+      .live-hero{{display:flex;align-items:center;justify-content:space-between;gap:18px;border-radius:28px;padding:28px 30px;margin-bottom:26px;background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(236,253,245,.92) 46%,rgba(219,234,254,.9));border:1px solid rgba(37,99,235,.12);box-shadow:0 24px 70px rgba(15,23,42,.12);position:relative;overflow:hidden;}}
+      .live-hero:before{{content:'';position:absolute;inset:auto -70px -90px auto;width:260px;height:260px;border-radius:999px;background:radial-gradient(circle,rgba(34,197,94,.24),rgba(37,99,235,.08) 56%,transparent 70%);}}
+      .live-hero-copy{{position:relative;z-index:1;}}
+      .live-hero h1{{margin:0 0 8px;font-size:clamp(30px,4vw,44px);line-height:1;font-weight:950;letter-spacing:-.04em;color:#071a44;}}
+      .live-hero p{{margin:0;max-width:760px;color:#475569;font-size:16px;line-height:1.7;}}
+      .live-schedule-btn{{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border-radius:999px;background:linear-gradient(135deg,#2563eb,#123f91);color:#fff;text-decoration:none;font-weight:900;box-shadow:0 16px 34px rgba(37,99,235,.26);white-space:nowrap;}}
+      .live-section{{margin:26px 0;}}
+      .live-section-title{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;}}
+      .live-section-title h2{{margin:0;color:#071a44;font-size:23px;font-weight:950;letter-spacing:-.025em;}}
+      .live-section-title span{{color:#64748b;font-size:13px;font-weight:800;}}
+      .live-now-stack{{display:grid;gap:16px;}}
+      .live-now-card{{position:relative;overflow:hidden;border-radius:26px;padding:24px;background:linear-gradient(135deg,#ffffff,#f0fdf4 55%,#ecfeff);border:1px solid rgba(22,163,74,.42);box-shadow:0 26px 60px rgba(21,128,61,.14),0 12px 30px rgba(15,23,42,.08);}}
+      .live-now-glow{{position:absolute;right:-80px;top:-80px;width:240px;height:240px;border-radius:999px;background:radial-gradient(circle,rgba(34,197,94,.23),transparent 66%);}}
+      .live-now-main{{position:relative;display:flex;gap:22px;align-items:center;z-index:1;}}
+      .live-subject-icon{{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;background:linear-gradient(135deg,#dbeafe,#ecfdf5);border:1px solid rgba(37,99,235,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 14px 30px rgba(15,23,42,.1);color:#123f91;font-weight:950;font-size:21px;}}
+      .live-now-icon{{width:104px;height:104px;font-size:38px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 20px 42px rgba(22,163,74,.28);}}
+      .live-card-kicker,.live-class-topline{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}}
+      .live-status-badge{{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:7px 12px;background:#fee2e2;color:#b91c1c;font-size:12px;font-weight:950;letter-spacing:.08em;box-shadow:0 8px 20px rgba(220,38,38,.12);}}
+      .live-dot{{width:8px;height:8px;border-radius:999px;background:#ef4444;box-shadow:0 0 0 6px rgba(239,68,68,.14);}}
+      .live-subject-pill,.live-subject-label{{display:inline-flex;border-radius:999px;padding:7px 12px;background:#e0f2fe;color:#075985;font-size:12px;font-weight:900;}}
+      .live-now-card h2{{margin:14px 0 8px;color:#052e16;font-size:clamp(24px,3vw,34px);letter-spacing:-.035em;}}
+      .live-now-card p,.live-class-card p{{margin:0;color:#475569;line-height:1.65;}}
+      .live-premium-meta,.live-card-meta{{display:grid;gap:8px;margin-top:16px;color:#334155;font-size:14px;font-weight:750;}}
+      .live-premium-meta{{grid-template-columns:repeat(4,minmax(0,auto));align-items:center;}}
+      .live-countdown,.live-starts-badge{{display:inline-flex;width:max-content;border-radius:999px;padding:8px 12px;background:#dcfce7;color:#166534;font-weight:950;box-shadow:0 8px 18px rgba(22,163,74,.09);}}
+      .live-actions{{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;}}
+      .live-join-btn,.live-details-btn{{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;text-decoration:none;font-weight:950;transition:transform .18s ease,box-shadow .18s ease;}}
+      .live-join-btn{{min-height:48px;padding:0 22px;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;box-shadow:0 16px 32px rgba(22,163,74,.25);}}
+      .live-details-btn{{min-height:48px;padding:0 20px;background:#fff;color:#123f91;border:1px solid rgba(37,99,235,.14);box-shadow:0 10px 24px rgba(15,23,42,.08);}}
+      .live-join-btn:hover,.live-details-btn:hover{{transform:translateY(-2px);}}
+      .live-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;}}
+      .live-class-card,.recording-card{{border-radius:24px;background:rgba(255,255,255,.92);border:1px solid rgba(226,232,240,.9);box-shadow:0 18px 45px rgba(15,23,42,.09);overflow:hidden;}}
+      .live-class-card{{padding:20px;}}
+      .live-class-card h3,.recording-card h3{{margin:14px 0 8px;color:#071a44;font-size:20px;line-height:1.25;letter-spacing:-.025em;}}
+      .live-card-meta{{font-size:13px;color:#64748b;}}
+      .live-card-footer{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:18px;}}
+      .live-details-btn.compact{{min-height:40px;padding:0 14px;font-size:13px;}}
+      .recording-card{{display:flex;flex-direction:column;}}
+      .recording-thumb{{position:relative;min-height:150px;background:linear-gradient(135deg,#071a44,#123f91 56%,#2563eb);display:flex;align-items:center;justify-content:center;overflow:hidden;}}
+      .recording-thumb:before{{content:'';position:absolute;inset:14px;border-radius:22px;border:1px solid rgba(255,255,255,.18);}}
+      .recording-subject-icon{{position:absolute;left:16px;top:16px;width:46px;height:46px;background:rgba(255,255,255,.94);}}
+      .recording-play{{position:relative;display:grid;place-items:center;width:62px;height:62px;border-radius:999px;background:rgba(255,255,255,.94);color:#2563eb;font-size:24px;box-shadow:0 16px 34px rgba(0,0,0,.2);}}
+      .recording-duration{{position:absolute;right:14px;bottom:14px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;padding:6px 10px;font-size:12px;font-weight:900;}}
+      .recording-content{{padding:18px;display:flex;flex-direction:column;gap:4px;flex:1;}}
+      .recording-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:16px;}}
+      .recording-watch-btn{{min-height:42px;padding:0 16px;background:linear-gradient(135deg,#2563eb,#123f91);box-shadow:0 14px 28px rgba(37,99,235,.22);}}
+      .live-empty-card{{grid-column:1/-1;border-radius:24px;padding:30px;text-align:center;background:rgba(255,255,255,.9);border:1px dashed rgba(37,99,235,.22);box-shadow:0 18px 45px rgba(15,23,42,.07);color:#475569;}}
+      .live-empty-card span{{display:grid;place-items:center;width:58px;height:58px;margin:0 auto 12px;border-radius:999px;background:#eff6ff;font-size:26px;}}
+      .live-empty-card strong{{display:block;color:#071a44;font-size:18px;margin-bottom:6px;}}
+      .live-empty-card small{{color:#64748b;font-weight:700;}}
+      .live-help-card{{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:30px;padding:24px;border-radius:26px;background:linear-gradient(135deg,#071a44,#123f91);color:#fff;box-shadow:0 24px 60px rgba(15,23,42,.18);}}
+      .live-help-card h2{{margin:0 0 6px;font-size:24px;}}
+      .live-help-card p{{margin:0;color:#dbeafe;line-height:1.6;}}
+      .live-help-card a{{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;background:#fff;color:#123f91;text-decoration:none;font-weight:950;white-space:nowrap;}}
+      @media(max-width:1100px){{.live-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}.live-premium-meta{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
+      @media(max-width:720px){{.live-classes-page{{padding-top:12px;}}.live-hero,.live-help-card{{flex-direction:column;align-items:stretch;}}.live-schedule-btn,.live-help-card a{{width:100%;}}.live-grid{{grid-template-columns:1fr;}}.live-now-main{{flex-direction:column;align-items:flex-start;}}.live-now-icon{{width:82px;height:82px;font-size:30px;}}.live-premium-meta{{grid-template-columns:1fr;}}.live-now-actions,.recording-actions,.live-card-footer{{flex-direction:column;align-items:stretch;}}.live-join-btn,.live-details-btn{{width:100%;}}}}
+    </style>
+    <main class='live-classes-page'>
+      <section class='live-hero'>
+        <div class='live-hero-copy'>
+          <h1>{'සජීවී පන්ති' if is_si else 'Live Classes'}</h1>
+          <p>{'ඔබේ ගුරුවරුන් සමඟ සජීවීව සම්බන්ධ වී, ප්‍රශ්න අසන්න, සහ පටිගත කිරීම් ඕනෑම වේලාවක නැවත බලන්න.' if is_si else 'Join live classes, interact with your teachers and rewatch recordings anytime.'}</p>
+        </div>
+        <a class='live-schedule-btn' href='/student/calendar'>{'පන්ති කාලසටහන' if is_si else 'Class Schedule'}</a>
+      </section>
+
+      <section class='live-section' aria-labelledby='live-now-heading'>
+        <div class='live-section-title'><h2 id='live-now-heading'>Live Now</h2><span>{len(live_now)} active</span></div>
+        <div class='live-now-stack'>{live_now_html}</div>
+      </section>
+
+      <section class='live-section' aria-labelledby='upcoming-heading'>
+        <div class='live-section-title'><h2 id='upcoming-heading'>Upcoming Classes</h2><span>{len(upcoming)} scheduled</span></div>
+        <div class='live-grid'>{upcoming_html}</div>
+      </section>
+
+      <section class='live-section' aria-labelledby='recorded-heading'>
+        <div class='live-section-title'><h2 id='recorded-heading'>Recorded Classes</h2><span>{len(recorded)} available</span></div>
+        <div class='live-grid'>{recorded_html}</div>
+      </section>
+
+      <section class='live-help-card'>
+        <div><h2>{'පන්තියට සම්බන්ධ විය නොහැකිද?' if is_si else "Can’t join the class?"}</h2><p>{'නවතම browser හෝ app භාවිතා කරන බව සහතික කරගන්න. උදව් අවශ්‍ය නම් support අමතන්න.' if is_si else 'Make sure you are using the latest browser or app. Contact support if you need help.'}</p></div>
+        <a href='/student/messages'>{'සහාය අමතන්න' if is_si else 'Contact Support'}</a>
+      </section>
+    </main>
     """
     return render_student_dashboard_shell(html, active_nav="live_classes")
 
