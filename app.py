@@ -64,6 +64,58 @@ def save_question_image_upload(file_storage) -> tuple[str | None, str | None]:
     return f"{UPLOAD_URL_PREFIX}{filename}", None
 
 
+
+
+def upload_image_analysis_question_image_to_supabase(question_id: int, file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid image filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "Invalid file type. Allowed: png, jpg, jpeg, webp."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_SIZE:
+        return None, "Image size must be 2MB or less."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+
+    object_name = f"image-analysis/{question_id}/{uuid.uuid4().hex}.webp"
+    image_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{QUESTION_IMAGE_BUCKET}/{object_name}"
+    req = Request(
+        upload_url,
+        data=image_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": file_storage.mimetype or "image/webp",
+            "x-upsert": "false",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            if resp.status not in {200, 201}:
+                return None, "Image upload failed."
+    except HTTPError as exc:
+        return None, f"Image upload failed: {exc.read().decode('utf-8', 'ignore') or exc.reason}"
+    except URLError as exc:
+        return None, f"Image upload failed: {exc.reason}"
+
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{QUESTION_IMAGE_BUCKET}/{object_name}"
+    return public_url, None
+
 def upload_question_choice_image_to_supabase(question_id: int, file_storage) -> tuple[str | None, str | None, str | None]:
     if not file_storage or not file_storage.filename:
         return None, None, None
@@ -279,8 +331,10 @@ def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool,
         marks = max(int(sub_question.marks or 0), 0)
         total_marks += marks
         student_answer = (form.get(f"qsub_{question.id}_{sub_question.id}") or "").strip()
-        correct_answer = (sub_question.correct_answer or "").strip()
-        is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+        correct_answer_en = (sub_question.correct_answer_en or sub_question.correct_answer or "").strip()
+        correct_answer_si = (sub_question.correct_answer_si or sub_question.correct_answer or "").strip()
+        accepted_answers = [answer for answer in (correct_answer_en, correct_answer_si) if answer]
+        is_correct = bool(student_answer) and any(student_answer.casefold() == answer.casefold() for answer in accepted_answers)
         if is_correct:
             earned_marks += marks
         rows.append({
@@ -289,7 +343,9 @@ def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool,
             "question_text_si": sub_question.question_text_si,
             "answer_type": sub_question.answer_type,
             "student_answer": student_answer,
-            "correct_answer": correct_answer,
+            "correct_answer": correct_answer_en,
+            "correct_answer_en": correct_answer_en,
+            "correct_answer_si": correct_answer_si,
             "marks": marks,
             "earned_marks": marks if is_correct else 0,
             "is_correct": is_correct,
@@ -300,7 +356,7 @@ def evaluate_image_analysis_worksheet(question: "Question", form) -> tuple[bool,
 def render_image_analysis_worksheet_input(question: "Question", medium_key: str) -> str:
     image_html = ""
     if question.image_url:
-        image_html = f"<img src='{escape(normalize_local_image_url(question.image_url))}' alt='Image analysis worksheet image' class='image-analysis-main-image'>"
+        image_html = f"<img src='{escape(normalize_local_image_url(question.image_url))}' alt='Image analysis worksheet image' class='image-analysis-main-image' style='max-width:min(100%,680px);width:100%;height:auto;display:block;margin:12px 0;border-radius:12px;border:1px solid #ddd;'>"
     rows = []
     for index, sub_question in enumerate(get_question_sub_questions(question.id), start=1):
         question_text = getattr(sub_question, f"question_text_{medium_key}") or sub_question.question_text_en
@@ -649,11 +705,16 @@ def run_startup_migrations() -> None:
             question_text_si TEXT NOT NULL,
             answer_type VARCHAR(30) NOT NULL DEFAULT 'text',
             correct_answer TEXT NOT NULL,
+            correct_answer_en TEXT,
+            correct_answer_si TEXT,
             marks INTEGER NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     ))
+    db.session.execute(db.text("ALTER TABLE question_sub_questions ADD COLUMN IF NOT EXISTS correct_answer_en TEXT, ADD COLUMN IF NOT EXISTS correct_answer_si TEXT"))
+    db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_en = COALESCE(NULLIF(correct_answer_en, ''), correct_answer) WHERE correct_answer_en IS NULL OR correct_answer_en = ''"))
+    db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
     db.session.commit()
     ensure_student_username_schema()
@@ -2073,6 +2134,8 @@ class QuestionSubQuestion(db.Model):
     question_text_si = db.Column(db.Text, nullable=False)
     answer_type = db.Column(db.String(30), nullable=False, default="text")
     correct_answer = db.Column(db.Text, nullable=False)
+    correct_answer_en = db.Column(db.Text, nullable=True)
+    correct_answer_si = db.Column(db.Text, nullable=True)
     marks = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -6544,10 +6607,12 @@ def parse_question_form_data(has_uploaded_image: bool = False, existing_image_ur
         required_values.extend([drag_items_json_raw.strip(), drag_groups_json_raw.strip(), drag_container_image_url.strip()])
     if any(value == "" for value in required_values):
         return {}, "All fields are required."
-    if question_type in {"tap_select_image", "image_analysis_worksheet"}:
+    if question_type == "tap_select_image":
         effective_image_url = image_url or existing_image_url
         if not effective_image_url and not has_uploaded_image:
             return {}, "Please upload an image or enter image URL."
+    elif question_type == "image_analysis_worksheet" and not existing_image_url and not has_uploaded_image:
+        return {}, "Image Analysis Worksheet requires a parent image upload."
 
     grade = normalize_grade(grade)
     if not is_valid_grade(grade):
@@ -6663,12 +6728,13 @@ def parse_image_analysis_sub_questions_from_form() -> tuple[list[dict], str | No
         question_text_en = (request.form.get(f"sub_question_text_en_{index}") or "").strip()
         question_text_si = (request.form.get(f"sub_question_text_si_{index}") or "").strip()
         answer_type = (request.form.get(f"sub_answer_type_{index}") or "text").strip().lower()
-        correct_answer = (request.form.get(f"sub_correct_answer_{index}") or "").strip()
+        correct_answer_en = (request.form.get(f"sub_correct_answer_en_{index}") or request.form.get(f"sub_correct_answer_{index}") or "").strip()
+        correct_answer_si = (request.form.get(f"sub_correct_answer_si_{index}") or "").strip()
         marks_raw = (request.form.get(f"sub_marks_{index}") or "1").strip()
         if answer_type not in {"text", "number"}:
             return [], f"Sub-question {index} answer type must be text or number."
-        if not question_text_en or not question_text_si or not correct_answer:
-            return [], f"Please complete all text and answer fields for sub-question {index}."
+        if not question_text_en or not question_text_si or not correct_answer_en or not correct_answer_si:
+            return [], f"Please complete English/Sinhala question text and correct answers for sub-question {index}."
         try:
             marks = int(marks_raw)
         except ValueError:
@@ -6680,7 +6746,9 @@ def parse_image_analysis_sub_questions_from_form() -> tuple[list[dict], str | No
             "question_text_en": question_text_en,
             "question_text_si": question_text_si,
             "answer_type": answer_type,
-            "correct_answer": correct_answer,
+            "correct_answer": correct_answer_en,
+            "correct_answer_en": correct_answer_en,
+            "correct_answer_si": correct_answer_si,
             "marks": marks,
         })
     return sub_questions, None
@@ -6712,7 +6780,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
         except (TypeError, ValueError):
             sub_count = 1
         image_analysis_sub_questions = [
-            {"question_text_en": "", "question_text_si": "", "answer_type": "text", "correct_answer": "", "marks": 1}
+            {"question_text_en": "", "question_text_si": "", "answer_type": "text", "correct_answer_en": "", "correct_answer_si": "", "marks": 1}
             for _ in range(sub_count)
         ]
     image_analysis_rows_html = "".join([
@@ -6721,7 +6789,8 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
           <label>Question text EN:<br><textarea name='sub_question_text_en_{idx}' rows='2' cols='70'>{escape(item.get('question_text_en',''))}</textarea></label><br>
           <label>Question text SI:<br><textarea name='sub_question_text_si_{idx}' rows='2' cols='70'>{escape(item.get('question_text_si',''))}</textarea></label><br>
           <label>Answer type: <select name='sub_answer_type_{idx}'><option value='text' {'selected' if item.get('answer_type','text') == 'text' else ''}>Text</option><option value='number' {'selected' if item.get('answer_type') == 'number' else ''}>Number</option></select></label><br>
-          <label>Correct answer: <input type='text' name='sub_correct_answer_{idx}' value='{escape(str(item.get('correct_answer','')))}'></label><br>
+          <label>Correct answer EN: <input type='text' name='sub_correct_answer_en_{idx}' value='{escape(str(item.get('correct_answer_en') or item.get('correct_answer') or ''))}'></label><br>
+          <label>Correct answer SI: <input type='text' name='sub_correct_answer_si_{idx}' value='{escape(str(item.get('correct_answer_si') or ''))}'></label><br>
           <label>Marks: <input type='number' min='1' step='1' name='sub_marks_{idx}' value='{escape(str(item.get('marks',1)))}'></label>
         </fieldset>"""
         for idx, item in enumerate(image_analysis_sub_questions, start=1)
@@ -6874,7 +6943,8 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
                 en: row.querySelector(`[name="sub_question_text_en_${{n}}"]`)?.value||"",
                 si: row.querySelector(`[name="sub_question_text_si_${{n}}"]`)?.value||"",
                 type: row.querySelector(`[name="sub_answer_type_${{n}}"]`)?.value||"text",
-                answer: row.querySelector(`[name="sub_correct_answer_${{n}}"]`)?.value||"",
+                answerEn: row.querySelector(`[name="sub_correct_answer_en_${{n}}"]`)?.value||row.querySelector(`[name="sub_correct_answer_${{n}}"]`)?.value||"",
+                answerSi: row.querySelector(`[name="sub_correct_answer_si_${{n}}"]`)?.value||"",
                 marks: row.querySelector(`[name="sub_marks_${{n}}"]`)?.value||"1"
               }};
             }});
@@ -6886,11 +6956,11 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
             const existing=readExistingRows();
             iaRows.innerHTML="";
             for(let i=1;i<=count;i++){{
-              const v=existing[i]||{{en:"",si:"",type:"text",answer:"",marks:"1"}};
+              const v=existing[i]||{{en:"",si:"",type:"text",answerEn:"",answerSi:"",marks:"1"}};
               const fs=document.createElement("fieldset");
               fs.className="image-analysis-admin-row";
               fs.style.cssText="border:1px solid #cbd5e1;border-radius:12px;padding:12px;";
-              fs.innerHTML=`<legend>Sub-question ${{i}}</legend><label>Question text EN:<br><textarea name="sub_question_text_en_${{i}}" rows="2" cols="70">${{htmlEscape(v.en)}}</textarea></label><br><label>Question text SI:<br><textarea name="sub_question_text_si_${{i}}" rows="2" cols="70">${{htmlEscape(v.si)}}</textarea></label><br><label>Answer type: <select name="sub_answer_type_${{i}}"><option value="text" ${{v.type==='text'?'selected':''}}>Text</option><option value="number" ${{v.type==='number'?'selected':''}}>Number</option></select></label><br><label>Correct answer: <input type="text" name="sub_correct_answer_${{i}}" value="${{htmlEscape(v.answer)}}"></label><br><label>Marks: <input type="number" min="1" step="1" name="sub_marks_${{i}}" value="${{htmlEscape(v.marks)}}"></label>`;
+              fs.innerHTML=`<legend>Sub-question ${{i}}</legend><label>Question text EN:<br><textarea name="sub_question_text_en_${{i}}" rows="2" cols="70">${{htmlEscape(v.en)}}</textarea></label><br><label>Question text SI:<br><textarea name="sub_question_text_si_${{i}}" rows="2" cols="70">${{htmlEscape(v.si)}}</textarea></label><br><label>Answer type: <select name="sub_answer_type_${{i}}"><option value="text" ${{v.type==='text'?'selected':''}}>Text</option><option value="number" ${{v.type==='number'?'selected':''}}>Number</option></select></label><br><label>Correct answer EN: <input type="text" name="sub_correct_answer_en_${{i}}" value="${{htmlEscape(v.answerEn)}}"></label><br><label>Correct answer SI: <input type="text" name="sub_correct_answer_si_${{i}}" value="${{htmlEscape(v.answerSi)}}"></label><br><label>Marks: <input type="number" min="1" step="1" name="sub_marks_${{i}}" value="${{htmlEscape(v.marks)}}"></label>`;
               iaRows.appendChild(fs);
             }}
           }};
@@ -10231,11 +10301,14 @@ def admin_add_question():
         if image_error:
             return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", image_error), 400
 
-    uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
-    if upload_error:
-        return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", upload_error), 400
-    if uploaded_image_url:
-        form_data["image_url"] = uploaded_image_url
+    uploaded_image_url = None
+    upload_error = None
+    if form_data["question_type"] != "image_analysis_worksheet":
+        uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
+        if upload_error:
+            return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", upload_error), 400
+        if uploaded_image_url:
+            form_data["image_url"] = uploaded_image_url
 
     question = Question(
         grade=form_data["grade"],
@@ -10282,6 +10355,11 @@ def admin_add_question():
     db.session.add(question)
     db.session.flush()
     if question.question_type == "image_analysis_worksheet":
+        uploaded_image_url, upload_error = upload_image_analysis_question_image_to_supabase(question.id, request.files.get("question_image"))
+        if upload_error:
+            db.session.rollback()
+            return render_question_form("/admin/add-question", request.form, "Add New Question", "Save Question", upload_error), 400
+        question.image_url = uploaded_image_url
         save_image_analysis_sub_questions(question, image_analysis_sub_questions)
     db.session.commit()
     if question.question_type == "tap_correct_image":
@@ -10485,6 +10563,8 @@ def admin_edit_question(question_id: int):
                         "question_text_si": sub.question_text_si,
                         "answer_type": sub.answer_type,
                         "correct_answer": sub.correct_answer,
+                        "correct_answer_en": sub.correct_answer_en or sub.correct_answer,
+                        "correct_answer_si": sub.correct_answer_si or sub.correct_answer,
                         "marks": sub.marks,
                     }
                     for sub in get_question_sub_questions(question.id)
@@ -10516,7 +10596,10 @@ def admin_edit_question(question_id: int):
             data["tap_correct_images"] = existing_tap_images
             return render_question_form(f"/admin/edit-question/{question_id}", data, "Edit Question", "Update Question", image_error), 400
 
-    uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
+    if form_data["question_type"] == "image_analysis_worksheet":
+        uploaded_image_url, upload_error = upload_image_analysis_question_image_to_supabase(question.id, request.files.get("question_image"))
+    else:
+        uploaded_image_url, upload_error = save_question_image_upload(request.files.get("question_image"))
     if upload_error:
         return render_question_form(f"/admin/edit-question/{question_id}", request.form, "Edit Question", "Update Question", upload_error), 400
 
@@ -10555,7 +10638,12 @@ def admin_edit_question(question_id: int):
     question.drag_items_json = form_data["drag_items_json"] or None
     question.drag_container_image_url = form_data["drag_container_image_url"] or None
     question.drag_groups_json = form_data["drag_groups_json"] or None
-    question.image_url = None if form_data["question_type"] == "tap_correct_image" else (uploaded_image_url or form_data["image_url"] or question.image_url)
+    if form_data["question_type"] == "tap_correct_image":
+        question.image_url = None
+    elif form_data["question_type"] == "image_analysis_worksheet":
+        question.image_url = uploaded_image_url or question.image_url
+    else:
+        question.image_url = uploaded_image_url or form_data["image_url"] or question.image_url
     question.correct_option = form_data["correct_option"]
     question.difficulty_level = form_data["difficulty_level"]
     if question.question_type == "image_analysis_worksheet":
@@ -11121,11 +11209,16 @@ def update_question_format_db() -> tuple[str, int]:
                 question_text_si TEXT NOT NULL,
                 answer_type VARCHAR(30) NOT NULL DEFAULT 'text',
                 correct_answer TEXT NOT NULL,
+                correct_answer_en TEXT,
+                correct_answer_si TEXT,
                 marks INTEGER NOT NULL DEFAULT 1,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
         ))
+        db.session.execute(db.text("ALTER TABLE question_sub_questions ADD COLUMN IF NOT EXISTS correct_answer_en TEXT, ADD COLUMN IF NOT EXISTS correct_answer_si TEXT"))
+        db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_en = COALESCE(NULLIF(correct_answer_en, ''), correct_answer) WHERE correct_answer_en IS NULL OR correct_answer_en = ''"))
+        db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
         db.session.execute(db.text("UPDATE question SET question_type = 'mcq' WHERE question_type IS NULL"))
         db.session.commit()
@@ -11451,7 +11544,7 @@ def test_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q) or is_image_analysis_worksheet_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -11603,7 +11696,8 @@ def submit_test() -> str:
             student_answer = json.dumps(worksheet_rows, ensure_ascii=False)
             correct_answer = json.dumps([{
                 "id": row["id"],
-                "correct_answer": row["correct_answer"],
+                "correct_answer_en": row["correct_answer_en"],
+                "correct_answer_si": row["correct_answer_si"],
                 "marks": row["marks"],
                 "earned_marks": row["earned_marks"],
             } for row in worksheet_rows], ensure_ascii=False)
@@ -11673,7 +11767,7 @@ def submit_test() -> str:
                 parts.append(
                     f"<div style='margin-bottom:8px;'><strong>{idx}. {escape(text)}</strong><br>"
                     f"Your Answer: <span style='color:{color}'>{escape(row.get('student_answer') or t(selected_medium, 'not_answered'))}</span><br>"
-                    f"Correct Answer: {escape(row.get('correct_answer') or '')}<br>"
+                    f"Correct Answer: {escape(row.get(f'correct_answer_{medium_key}') or row.get('correct_answer_en') or '')}<br>"
                     f"Score: {int(row.get('earned_marks') or 0)}/{int(row.get('marks') or 0)}</div>"
                 )
             student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
@@ -12075,6 +12169,8 @@ def retest_weak() -> str:
             answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
+        elif is_image_analysis_worksheet_question(q):
+            answer_html = render_image_analysis_worksheet_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -12351,6 +12447,8 @@ def practice_page() -> str:
             answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
+        elif is_image_analysis_worksheet_question(q):
+            answer_html = render_image_analysis_worksheet_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
@@ -12359,7 +12457,7 @@ def practice_page() -> str:
             option_c = getattr(q, f"option_c_{medium_key}")
             option_d = getattr(q, f"option_d_{medium_key}")
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {option_a}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {option_b}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {option_c}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {option_d}</label>"
-        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        question_blocks.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {question_text}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q) or is_image_analysis_worksheet_question(q)) else image_html}{answer_html}</div>")
 
     show_language_controls = student is None
     language_controls_html = f"""
@@ -12517,6 +12615,16 @@ def submit_practice() -> str:
         elif is_drag_drop_group_container_question(q):
             is_correct, student_answer = evaluate_drag_drop_group_container_question(q, request.form)
             correct_answer = 'Grouped in basket'
+        elif is_image_analysis_worksheet_question(q):
+            is_correct, worksheet_rows, question_score_earned, question_score_possible = evaluate_image_analysis_worksheet(q, request.form)
+            student_answer = json.dumps(worksheet_rows, ensure_ascii=False)
+            correct_answer = json.dumps([{
+                "id": row["id"],
+                "correct_answer_en": row["correct_answer_en"],
+                "correct_answer_si": row["correct_answer_si"],
+                "marks": row["marks"],
+                "earned_marks": row["earned_marks"],
+            } for row in worksheet_rows], ensure_ascii=False)
         elif is_short_answer_question(q):
             student_answer = request.form.get(f"q_{q.id}", "").strip()
             correct_answer = (q.correct_answer_text or "").strip()
@@ -12564,6 +12672,21 @@ def submit_practice() -> str:
         elif is_drag_drop_group_container_question(q):
             student_answer_text = escape(student_answer or t(selected_medium, 'not_answered'))
             correct_answer_text = 'All items inside basket and grouped close' if selected_medium == 'English' else 'සියලු දේ basket තුළ හා එකම කණ්ඩායම් ලඟින්'
+        elif is_image_analysis_worksheet_question(q):
+            rows = json.loads(student_answer or '[]')
+            parts = []
+            for idx, row in enumerate(rows, start=1):
+                text = row.get(f"question_text_{medium_key}") or row.get("question_text_en") or ""
+                correct_text = row.get(f"correct_answer_{medium_key}") or row.get("correct_answer_en") or ""
+                color = '#16a34a' if row.get('is_correct') else '#dc2626'
+                parts.append(
+                    f"<div style='margin-bottom:8px;'><strong>{idx}. {escape(text)}</strong><br>"
+                    f"Your Answer: <span style='color:{color}'>{escape(row.get('student_answer') or t(selected_medium, 'not_answered'))}</span><br>"
+                    f"Correct Answer: {escape(correct_text)}<br>"
+                    f"Score: {int(row.get('earned_marks') or 0)}/{int(row.get('marks') or 0)}</div>"
+                )
+            student_answer_text = ''.join(parts) or t(selected_medium, 'not_answered')
+            correct_answer_text = f"{sum(int(row.get('earned_marks') or 0) for row in rows)}/{sum(int(row.get('marks') or 0) for row in rows)}"
         elif is_short_answer_question(q):
             student_answer_text = student_answer or t(selected_medium, "not_answered")
             correct_answer_text = correct_answer or t(selected_medium, "not_answered")
@@ -12743,11 +12866,13 @@ def student_homework_detail(homework_id: int):
             answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
+        elif is_image_analysis_worksheet_question(q):
+            answer_html = render_image_analysis_worksheet_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q) or is_image_analysis_worksheet_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     return f"""<!doctype html>
 <html>
@@ -12803,6 +12928,8 @@ def student_homework_submit(homework_id: int):
             is_correct, _, _ = evaluate_tap_correct_image_question(q, request.form)
         elif is_drag_drop_group_container_question(q):
             is_correct, _ = evaluate_drag_drop_group_container_question(q, request.form)
+        elif is_image_analysis_worksheet_question(q):
+            is_correct, _, _, _ = evaluate_image_analysis_worksheet(q, request.form)
         elif is_short_answer_question(q):
             is_correct = (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
         else:
@@ -12869,6 +12996,9 @@ def student_take_test(test_id: int):
             if is_drag_drop_group_container_question(q):
                 ok, _ = evaluate_drag_drop_group_container_question(q, request.form)
                 return ok
+            if is_image_analysis_worksheet_question(q):
+                ok, _, _, _ = evaluate_image_analysis_worksheet(q, request.form)
+                return ok
             if is_short_answer_question(q):
                 return (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
             return (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
@@ -12896,11 +13026,13 @@ def student_take_test(test_id: int):
             answer_html = render_tap_correct_image_input(q)
         elif is_drag_drop_group_container_question(q):
             answer_html = render_drag_drop_group_container_input(q, medium_key)
+        elif is_image_analysis_worksheet_question(q):
+            answer_html = render_image_analysis_worksheet_input(q, medium_key)
         elif is_short_answer_question(q):
             answer_html = f"<input type='text' name='q_{q.id}' placeholder='Type your answer'>"
         else:
             answer_html = f"<label><input type='radio' name='q_{q.id}' value='A'> A. {escape(getattr(q, f'option_a_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='B'> B. {escape(getattr(q, f'option_b_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='C'> C. {escape(getattr(q, f'option_c_{medium_key}'))}</label><br><label><input type='radio' name='q_{q.id}' value='D'> D. {escape(getattr(q, f'option_d_{medium_key}'))}</label>"
-        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q)) else image_html}{answer_html}</div>")
+        q_html_parts.append(f"<div style='margin:16px 0;padding:12px;border:1px solid #ddd;'><p><strong>Q{q.id}.</strong> {escape(getattr(q, f'question_text_{medium_key}'))}</p>{'' if (is_tap_select_image_question(q) or is_tap_correct_image_question(q) or is_drag_drop_group_container_question(q) or is_image_analysis_worksheet_question(q)) else image_html}{answer_html}</div>")
     q_html = "".join(q_html_parts)
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"""<!doctype html>
