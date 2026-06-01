@@ -1977,6 +1977,8 @@ class LessonSlide(db.Model):
     content_si = db.Column(db.Text, nullable=True)
     image_url = db.Column(db.Text, nullable=True)
     video_url = db.Column(db.Text, nullable=True)
+    video_url_si = db.Column(db.Text, nullable=True)
+    video_url_en = db.Column(db.Text, nullable=True)
     audio_url = db.Column(db.Text, nullable=True)
     activity_json = db.Column(db.Text, nullable=True)
     question_count = db.Column(db.Integer, nullable=False, default=0)
@@ -4762,6 +4764,8 @@ def ensure_lesson_engine_tables() -> None:
                 content_si TEXT,
                 image_url TEXT,
                 video_url TEXT,
+                video_url_si TEXT,
+                video_url_en TEXT,
                 audio_url TEXT,
                 activity_json TEXT,
                 question_count INTEGER NOT NULL DEFAULT 0,
@@ -4777,6 +4781,9 @@ def ensure_lesson_engine_tables() -> None:
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_si TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS video_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS video_url_si TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS video_url_en TEXT"))
+    db.session.execute(db.text("UPDATE lesson_slide SET video_url_si = video_url WHERE (video_url_si IS NULL OR video_url_si = '') AND video_url IS NOT NULL AND video_url <> ''"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS audio_url TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS activity_json TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS question_count INTEGER NOT NULL DEFAULT 0"))
@@ -8875,7 +8882,9 @@ def student_lesson_page(lesson_id: int):
             "title": (s.title_si if is_si else s.title_en) or "",
             "content": (s.content_si if is_si else s.content_en) or "",
             "image_url": s.image_url or "",
-            "video_url": s.video_url or "",
+            "video_url": ((s.video_url_si or s.video_url_en) if is_si else (s.video_url_en or s.video_url_si)) or s.video_url or "",
+            "video_url_si": s.video_url_si or s.video_url or "",
+            "video_url_en": s.video_url_en or "",
             "activity_json": s.activity_json or "",
             "activity": activity_payload,
             "image_grid_images": image_grid_images,
@@ -9468,7 +9477,9 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         obj.title_si = (request.form.get("title_si") or "").strip() or None
         obj.content_en = (request.form.get("content_en") or "").strip() or None
         obj.content_si = (request.form.get("content_si") or "").strip() or None
-        obj.video_url = (request.form.get("video_url") or "").strip() or None
+        obj.video_url_si = (request.form.get("video_url_si") or "").strip() or None
+        obj.video_url_en = (request.form.get("video_url_en") or "").strip() or None
+        obj.video_url = obj.video_url_si
         obj.audio_url = (request.form.get("audio_url") or "").strip() or None
         obj.xp_reward = int((request.form.get("xp_reward") or "10"))
         obj.is_required = _parse_bool_form(request.form.get("is_required"), True)
@@ -9499,6 +9510,8 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             obj.content_si = None
             obj.image_url = None
             obj.video_url = None
+            obj.video_url_si = None
+            obj.video_url_en = None
             obj.audio_url = None
             obj.activity_json = None
             if not slide and obj not in db.session:
@@ -9845,7 +9858,8 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       <label>Content EN <textarea name='content_en' rows='4' cols='70'>{escape(slide.content_en) if slide and slide.content_en else ''}</textarea></label><br><br>
       <label>Content SI <textarea name='content_si' rows='4' cols='70'>{escape(slide.content_si) if slide and slide.content_si else ''}</textarea></label><br><br>
       <label>Image URL <input type='url' name='image_url' value='{escape(slide.image_url) if slide and slide.image_url else ''}'></label><br><br>
-      <label>Video URL <input type='url' name='video_url' value='{escape(slide.video_url) if slide and slide.video_url else ''}'></label><br><br>
+      <label>Video URL (Sinhala) <input type='url' name='video_url_si' value='{escape((slide.video_url_si or slide.video_url) if slide and (slide.video_url_si or slide.video_url) else '')}'></label><br><br>
+      <label>Video URL (English) <input type='url' name='video_url_en' value='{escape(slide.video_url_en) if slide and slide.video_url_en else ''}'></label><br><br>
       <label>Audio URL <input type='url' name='audio_url' value='{escape(slide.audio_url) if slide and slide.audio_url else ''}'></label><br><br>
       <fieldset id='manualInterimTestBuilder' style='border:1px solid #bfdbfe;border-radius:12px;padding:14px;max-width:1120px;margin-bottom:18px;background:#eff6ff;'>
         <legend><strong>Interim Test - Manual Questions</strong></legend>
