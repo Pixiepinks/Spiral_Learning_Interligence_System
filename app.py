@@ -2391,6 +2391,80 @@ class ParentNotification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class StudentMessage(db.Model):
+    __tablename__ = "student_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=True)
+    grade = db.Column(db.Integer, nullable=True)
+    subject_id = db.Column(db.Integer, nullable=True)
+    title = db.Column(db.Text, nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    message_type = db.Column(db.String(30), nullable=True, default="general")
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+def ensure_student_messages_table() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS student_messages (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NULL,
+                grade INTEGER NULL,
+                subject_id INTEGER NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                message_type VARCHAR(30) DEFAULT 'general',
+                is_read BOOLEAN DEFAULT FALSE,
+                created_by INTEGER NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.commit()
+
+
+def get_student_message_subject_ids(student_id: int) -> list[int]:
+    try:
+        return [
+            item.subject_id
+            for item in StudentSelectedSubject.query.filter_by(student_id=student_id, is_active=True).all()
+            if item.subject_id is not None
+        ]
+    except Exception:
+        db.session.rollback()
+        return []
+
+
+def student_message_scope_filter(student: Student):
+    filters = [StudentMessage.student_id == student.id]
+    grade_number = None
+    try:
+        grade_number = int(normalize_grade(student.grade))
+    except (TypeError, ValueError):
+        grade_number = None
+    if grade_number is not None:
+        filters.append(db.and_(StudentMessage.student_id.is_(None), StudentMessage.grade == grade_number))
+    subject_ids = get_student_message_subject_ids(student.id)
+    if subject_ids:
+        filters.append(db.and_(StudentMessage.student_id.is_(None), StudentMessage.subject_id.in_(subject_ids)))
+    filters.append(db.and_(StudentMessage.student_id.is_(None), StudentMessage.grade.is_(None), StudentMessage.subject_id.is_(None)))
+    return db.or_(*filters)
+
+
+def get_student_unread_message_count(student: Student) -> int:
+    try:
+        ensure_student_messages_table()
+        return StudentMessage.query.filter(student_message_scope_filter(student), StudentMessage.is_read.is_(False)).count()
+    except Exception:
+        db.session.rollback()
+        return 0
+
+
 def get_homework_summary_for_class(class_id: int):
     assignments = (
         HomeworkAssignment.query.filter_by(class_id=class_id)
@@ -3603,6 +3677,12 @@ def student_dashboard():
     avatar_initials = "S"
     if student and getattr(student, "name", None):
         avatar_initials = "".join([part[0].upper() for part in student.name.split()[:2]])
+    unread_message_count = get_student_unread_message_count(student)
+    unread_message_badge = (
+        f"<span class='notification-badge message-badge'>{unread_message_count if unread_message_count < 100 else '99+'}</span>"
+        if unread_message_count
+        else ""
+    )
 
     expired_now = expire_subscription_if_needed(student)
     expired_message = session.pop("subscription_expired_message", None)
@@ -3965,7 +4045,7 @@ def student_dashboard():
     <a class='nav-link' href='#'><span class='nav-icon'><svg viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='14' rx='2'></rect><path d='m4 7 8 6 8-6'></path></svg></span><span>{'පණිවිඩ' if language=='si' else 'Messages'}</span></a>
     <a class='nav-link' href='#'><span class='nav-icon'><svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'></circle><path d='M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-.9.8-1.8 1.3-1.8 2.8'></path><circle cx='12' cy='17' r='1'></circle></svg></span><span>{'උදව් මධ්‍යස්ථානය' if language=='si' else 'Help Center'}</span></a>
     <a class='side-footer-link' href='/logout'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'></path><path d='m16 17 5-5-5-5M21 12H9'></path></svg></span><span>{text['logout']}</span></a></aside>
-    <main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn header-action-btn' type='button' id='headerSearchBtn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn header-action-btn notification-btn' type='button' id='notificationBtn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17H5.5a1.5 1.5 0 0 1-1.2-2.4l1.1-1.4A6.7 6.7 0 0 0 6.8 9V8a5.2 5.2 0 1 1 10.4 0v1a6.7 6.7 0 0 0 1.4 4.2l1.1 1.4a1.5 1.5 0 0 1-1.2 2.4H15'></path><path d='M10 17a2 2 0 1 0 4 0'></path></svg><span class='notification-badge'>5</span></button><div class='notification-dropdown' id='notificationDropdown'><div>{'නව දැනුම්දීම් නොමැත' if language=='si' else 'No new notifications'}</div></div><button class='header-icon-btn header-action-btn' type='button' id='headerMessageBtn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M4 6h16v9a2 2 0 0 1-2 2H9l-5 4V8a2 2 0 0 1 2-2z'></path></svg></button><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img'></div><div class='student-menu'><button class='student-menu-btn student-mini-profile' type='button' id='studentMenuBtn' aria-haspopup='true' aria-expanded='false'><span class='header-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='header-avatar'>" if profile_image_url else avatar_initials}</span><span class='student-menu-copy'><strong>{escape(student.name)}</strong><small>{f"{escape(str(student.grade))} ශ්‍රේණියේ ශිෂ්‍යයා" if language=='si' else f"Grade {escape(str(student.grade))} Student"}</small></span><svg viewBox='0 0 24 24' class='menu-caret'><path d='m6 9 6 6 6-6'></path></svg></button><div class='student-dropdown' id='studentDropdown'><a href='/student/profile'>{'මගේ පැතිකඩ' if language=='si' else 'My Profile'}</a><a href='/student/account-settings'>{'ගිණුම් සැකසුම්' if language=='si' else 'Account Settings'}</a><button type='button' id='changePhotoMenuBtn'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button><a href='/logout'>{'ඉවත් වන්න' if language=='si' else 'Logout'}</a></div></div></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button type='button' id='changePhotoBtn' class='change-photo-link' onclick='window.openStudentPhotoModal && window.openStudentPhotoModal();'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div></div>
+    <main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn header-action-btn' type='button' id='headerSearchBtn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn header-action-btn notification-btn' type='button' id='notificationBtn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17H5.5a1.5 1.5 0 0 1-1.2-2.4l1.1-1.4A6.7 6.7 0 0 0 6.8 9V8a5.2 5.2 0 1 1 10.4 0v1a6.7 6.7 0 0 0 1.4 4.2l1.1 1.4a1.5 1.5 0 0 1-1.2 2.4H15'></path><path d='M10 17a2 2 0 1 0 4 0'></path></svg><span class='notification-badge'>5</span></button><div class='notification-dropdown' id='notificationDropdown'><div>{'නව දැනුම්දීම් නොමැත' if language=='si' else 'No new notifications'}</div></div><a class='header-icon-btn header-action-btn' href='/student/messages' id='headerMessageBtn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M4 6h16v9a2 2 0 0 1-2 2H9l-5 4V8a2 2 0 0 1 2-2z'></path></svg>{unread_message_badge}</a><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img'></div><div class='student-menu'><button class='student-menu-btn student-mini-profile' type='button' id='studentMenuBtn' aria-haspopup='true' aria-expanded='false'><span class='header-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='header-avatar'>" if profile_image_url else avatar_initials}</span><span class='student-menu-copy'><strong>{escape(student.name)}</strong><small>{f"{escape(str(student.grade))} ශ්‍රේණියේ ශිෂ්‍යයා" if language=='si' else f"Grade {escape(str(student.grade))} Student"}</small></span><svg viewBox='0 0 24 24' class='menu-caret'><path d='m6 9 6 6 6-6'></path></svg></button><div class='student-dropdown' id='studentDropdown'><a href='/student/profile'>{'මගේ පැතිකඩ' if language=='si' else 'My Profile'}</a><a href='/student/account-settings'>{'ගිණුම් සැකසුම්' if language=='si' else 'Account Settings'}</a><button type='button' id='changePhotoMenuBtn'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button><a href='/logout'>{'ඉවත් වන්න' if language=='si' else 'Logout'}</a></div></div></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button type='button' id='changePhotoBtn' class='change-photo-link' onclick='window.openStudentPhotoModal && window.openStudentPhotoModal();'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div></div>
     <div id='photoUploadModal' class='photo-modal' aria-hidden='true'><div class='photo-modal-card'><button type='button' id='closePhotoModal' class='photo-modal-close' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();' aria-label='Close'>×</button><h3>{'පැතිකඩ ඡායාරූපය යාවත්කාලීන කරන්න' if language=='si' else 'Update Profile Photo'}</h3><p class='photo-modal-help'>{'ඔබේ පැතිකඩට හොඳින් ගැළපෙන පැහැදිලි ඡායාරූපයක් තෝරන්න.' if language=='si' else 'Choose a clear, friendly photo that fits your learning profile.'}</p><form id='photoForm' method='post' action='/student/profile-photo' enctype='multipart/form-data'><label for='profilePhotoInput' class='upload-picker'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8'><circle cx='12' cy='8' r='4'></circle><path d='M5 20c.4-3.2 3.1-5.5 7-5.5s6.6 2.3 7 5.5'></path></svg><strong>Choose a profile photo</strong><span>පැතිකඩ ඡායාරූපයක් තෝරන්න</span><small>JPG, PNG, WEBP up to 2MB</small></label><input id='profilePhotoInput' name='profile_photo' type='file' accept='image/jpeg,image/png,image/webp'><div id='filePreviewWrap' class='image-preview'><img id='filePreview' alt='Profile photo preview'></div><input type='hidden' id='cameraImageData' name='camera_image_data'><video id='cameraStream' autoplay playsinline></video><canvas id='cameraCanvas' style='display:none'></canvas><img id='cameraPreview' alt='Preview'><div class='photo-modal-actions'><button type='submit' class='photo-btn primary'>{'සුරකින්න' if language=='si' else 'Save Photo'}</button><button type='button' id='startCameraBtn' class='photo-btn secondary'>{'කැමරාව භාවිතා කරන්න' if language=='si' else 'Use Camera'}</button><button type='button' id='captureBtn' class='photo-btn secondary'>{'ඡායාරූපය ලබාගන්න' if language=='si' else 'Capture'}</button><button type='button' class='photo-btn ghost' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();'>{'අවලංගු කරන්න' if language=='si' else 'Cancel'}</button></div></form></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
     <div class='dashboard-content-inner'><section class='dashboard-main-grid'><div class='dashboard-left-column'><section class='grid'><div class='card kpi-card kpi-blue'><div class='kpi-title'>{text['xp']}</div><div class='kpi-value'>{student.xp}</div><div class='kpi-subtitle'>{'Keep growing!' if language=='en' else 'ඉදිරියටම යමු!'}</div><div class='kpi-icon'>⭐</div></div><div class='card kpi-card kpi-gold'><div class='kpi-title'>{text['level']}</div><div class='kpi-value'>{student.level}</div><div class='kpi-subtitle'>{'Rise to new heights!' if language=='en' else 'ඉහළ මට්ටම් කරා යමු!'}</div><div class='kpi-icon'>🏆</div></div><div class='card kpi-card kpi-pink'><div class='kpi-title'>{text['current_streak']}</div><div class='kpi-value'>{student.current_streak or 0}</div><div class='kpi-subtitle'>{'Stay consistent daily!' if language=='en' else 'දිනපතා අඛණ්ඩව ඉගෙනගන්න!'}</div><div class='kpi-icon'>🔥</div></div><div class='card kpi-card kpi-green'><div class='kpi-title'>{text['latest_result']}</div><div class='kpi-value'>{latest_result.score if latest_result else 0}%</div><div class='kpi-subtitle'>{'You are improving!' if language=='en' else 'ඔබ ප්‍රගතිය කරමින්!'}</div><div class='kpi-icon'>🎯</div></div><div class='card kpi-card kpi-orange'><div class='kpi-title'>{text['progress_to_next_level']}</div><div class='kpi-value'>{student.xp % 100}%</div><div class='kpi-subtitle'>{'Next milestone ahead!' if language=='en' else 'ඊළඟ ඉලක්කය ඉදිරියේ!'}</div><div class='kpi-icon'>📈</div></div><div class='card kpi-card kpi-blue'><div class='kpi-title'>{'Revision Needed' if language=='en' else 'නැවත අධ්‍යයනය අවශ්‍යයි'}</div><div class='kpi-value'>{revision_due_count}</div><div class='kpi-subtitle'>{escape(str(revision_weak_topic))} • ~{revision_estimated_minutes} min</div><div class='kpi-icon'>🧠</div></div></section>
@@ -5945,7 +6025,7 @@ def teacher_create_class():
             <h1>Create Class</h1>
             <form method="post" action="/teacher/create-class">
               <label>Class name: <input type="text" name="class_name" placeholder="Grade 6A" required></label><br><br>
-              <label>Grade: <select name="grade" required>{grade_options_html()}</select></label><br><br>
+              <label>Grade: <select name="grade" required>{''.join([f"<option value='{n}'>Grade {n}</option>" for n in range(1, 11)])}</select></label><br><br>
               <button type="submit">Create Class</button>
             </form>
             <p><a href='/teacher-dashboard'>Back to Dashboard</a></p>
@@ -7267,6 +7347,7 @@ def admin_dashboard():
         <p><a href='/admin/syllabus'>Chapter Content Management</a></p>
         <p><a href='/admin/lesson-builder'>Lesson Builder</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
+        <p><a href='/admin/messages'>Send Student Messages</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
         <p><a href='/admin/schools'>Manage Schools</a></p>
@@ -7474,6 +7555,204 @@ def admin_assign_students(class_id: int):
     """
 
 
+@app.route("/admin/messages", methods=["GET"])
+def admin_messages():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_student_messages_table()
+
+    status = request.args.get("status") or ""
+    status_html = ""
+    if status == "sent":
+        status_html = "<div class='admin-message-alert success'>Message sent successfully.</div>"
+    elif status == "missing":
+        status_html = "<div class='admin-message-alert error'>Please complete the required fields for the selected audience.</div>"
+
+    students = Student.query.order_by(Student.name.asc()).all()
+    subjects = SubjectMaster.query.filter_by(is_active=True).order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
+    student_options = "".join(
+        f"<option value='{student.id}'>{escape(student.name)} — Grade {escape(display_grade(student.grade))} ({escape(student.email)})</option>"
+        for student in students
+    )
+    grade_message_options = "".join([f"<option value='{n}'>Grade {n}</option>" for n in range(1, 11)])
+    subject_options = "".join(
+        f"<option value='{subject.id}'>Grade {escape(display_grade(subject.grade))} — {escape(subject.subject_name_en)}</option>"
+        for subject in subjects
+    )
+    recent_messages = StudentMessage.query.order_by(StudentMessage.created_at.desc(), StudentMessage.id.desc()).limit(10).all()
+
+    def message_scope_label(item: StudentMessage) -> str:
+        if item.student_id:
+            target_student = db.session.get(Student, item.student_id)
+            return f"Student: {escape(target_student.name if target_student else str(item.student_id))}"
+        if item.subject_id:
+            subject = db.session.get(SubjectMaster, item.subject_id)
+            return f"Subject: {escape(subject.subject_name_en if subject else str(item.subject_id))}"
+        if item.grade:
+            return f"Grade {escape(str(item.grade))}"
+        return "All Students"
+
+    recent_rows = "".join(
+        f"""
+        <tr>
+          <td>{message.created_at.strftime('%Y-%m-%d %H:%M')}</td>
+          <td>{message_scope_label(message)}</td>
+          <td><span class='type-pill'>{escape((message.message_type or 'general').replace('_', ' ').title())}</span></td>
+          <td>{escape(message.title)}</td>
+        </tr>
+        """
+        for message in recent_messages
+    )
+
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <title>Student Messages</title>
+        <style>
+          body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a;padding:26px;}}
+          .admin-message-shell{{max-width:1120px;margin:0 auto;}}
+          .admin-message-hero{{background:linear-gradient(135deg,#061a4f,#1d4ed8);color:#fff;border-radius:24px;padding:24px;box-shadow:0 18px 45px rgba(15,23,42,.18);}}
+          .admin-message-hero a{{color:#dbeafe;text-decoration:none;font-weight:700;}}
+          .admin-message-grid{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:18px;margin-top:18px;}}
+          .admin-message-card{{background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.95);border-radius:22px;padding:20px;box-shadow:0 14px 38px rgba(15,23,42,.08);}}
+          label{{display:block;font-weight:800;margin:0 0 7px;color:#1f2a44;}}
+          input,select,textarea{{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:14px;padding:11px 13px;font:inherit;background:#fff;margin-bottom:14px;}}
+          textarea{{min-height:150px;resize:vertical;}}
+          .conditional-field{{display:none;}}
+          .admin-send-btn{{border:0;border-radius:14px;background:linear-gradient(135deg,#2563eb,#0f347a);color:#fff;font-weight:900;padding:12px 18px;cursor:pointer;box-shadow:0 10px 24px rgba(37,99,235,.25);}}
+          .admin-message-alert{{padding:12px 14px;border-radius:14px;margin-top:14px;font-weight:800;}}
+          .admin-message-alert.success{{background:#dcfce7;color:#166534;}}
+          .admin-message-alert.error{{background:#fee2e2;color:#991b1b;}}
+          table{{width:100%;border-collapse:collapse;}}
+          th,td{{border-bottom:1px solid #e2e8f0;text-align:left;padding:10px;font-size:14px;vertical-align:top;}}
+          .type-pill{{display:inline-flex;border-radius:999px;background:#dbeafe;color:#1e3a8a;padding:4px 8px;font-size:12px;font-weight:800;}}
+          @media(max-width:860px){{.admin-message-grid{{grid-template-columns:1fr;}}}}
+        </style>
+      </head>
+      <body>
+        <div class='admin-message-shell'>
+          <section class='admin-message-hero'>
+            <p><a href='/admin-dashboard'>← Back to Admin Dashboard</a></p>
+            <h1>Send Student Messages</h1>
+            <p>Send announcements, reminders, assignments, warnings, and general updates to individual students, grades, subjects, or the whole SLIS student body.</p>
+          </section>
+          {status_html}
+          <section class='admin-message-grid'>
+            <form class='admin-message-card' method='post' action='/admin/messages/send'>
+              <label for='send_to'>Send To</label>
+              <select id='send_to' name='send_to' required>
+                <option value='all'>All Students</option>
+                <option value='grade'>Grade</option>
+                <option value='subject'>Subject</option>
+                <option value='student'>Individual Student</option>
+              </select>
+              <div class='conditional-field' data-scope-field='grade'>
+                <label for='grade'>Grade</label>
+                <select id='grade' name='grade'><option value=''>Select grade</option>{grade_message_options}</select>
+              </div>
+              <div class='conditional-field' data-scope-field='subject'>
+                <label for='subject_id'>Subject</label>
+                <select id='subject_id' name='subject_id'><option value=''>Select subject</option>{subject_options}</select>
+              </div>
+              <div class='conditional-field' data-scope-field='student'>
+                <label for='student_id'>Student</label>
+                <select id='student_id' name='student_id'><option value=''>Search/select student</option>{student_options}</select>
+              </div>
+              <label for='message_type'>Message Type</label>
+              <select id='message_type' name='message_type' required>
+                <option value='general'>General</option>
+                <option value='lesson_reminder'>Lesson Reminder</option>
+                <option value='assignment'>Assignment</option>
+                <option value='announcement'>Announcement</option>
+                <option value='warning'>Warning</option>
+              </select>
+              <label for='title'>Title</label>
+              <input id='title' name='title' required maxlength='240' placeholder='Message title'>
+              <label for='message'>Message Body</label>
+              <textarea id='message' name='message' required placeholder='Write the message students will see...'></textarea>
+              <button class='admin-send-btn' type='submit'>Send Message</button>
+            </form>
+            <div class='admin-message-card'>
+              <h2>Recent Messages</h2>
+              <table><thead><tr><th>Date</th><th>Scope</th><th>Type</th><th>Title</th></tr></thead><tbody>{recent_rows or "<tr><td colspan='4'>No messages sent yet.</td></tr>"}</tbody></table>
+            </div>
+          </section>
+        </div>
+        <script>
+          const sendTo = document.getElementById('send_to');
+          const scopeFields = document.querySelectorAll('[data-scope-field]');
+          function syncScopeFields() {{
+            const value = sendTo.value;
+            scopeFields.forEach(function (field) {{
+              field.style.display = field.dataset.scopeField === value ? 'block' : 'none';
+            }});
+          }}
+          sendTo.addEventListener('change', syncScopeFields);
+          syncScopeFields();
+        </script>
+      </body>
+    </html>
+    """
+
+
+@app.route("/admin/messages/send", methods=["POST"])
+def admin_send_message():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_student_messages_table()
+
+    send_to = (request.form.get("send_to") or "all").strip()
+    title = (request.form.get("title") or "").strip()
+    message_body = (request.form.get("message") or "").strip()
+    message_type = (request.form.get("message_type") or "general").strip() or "general"
+    if message_type not in {"general", "lesson_reminder", "assignment", "announcement", "warning"}:
+        message_type = "general"
+
+    student_id = None
+    grade = None
+    subject_id = None
+    if send_to == "student":
+        try:
+            student_id = int(request.form.get("student_id") or 0)
+        except ValueError:
+            student_id = None
+    elif send_to == "grade":
+        try:
+            grade = int(normalize_grade(request.form.get("grade")))
+        except (TypeError, ValueError):
+            grade = None
+    elif send_to == "subject":
+        try:
+            subject_id = int(request.form.get("subject_id") or 0)
+        except ValueError:
+            subject_id = None
+    elif send_to != "all":
+        return redirect("/admin/messages?status=missing")
+
+    if not title or not message_body or (send_to == "student" and not student_id) or (send_to == "grade" and not grade) or (send_to == "subject" and not subject_id):
+        return redirect("/admin/messages?status=missing")
+
+    db.session.add(
+        StudentMessage(
+            student_id=student_id,
+            grade=grade,
+            subject_id=subject_id,
+            title=title,
+            message=message_body,
+            message_type=message_type,
+            is_read=False,
+            created_by=None,
+        )
+    )
+    db.session.commit()
+    return redirect("/admin/messages?status=sent")
+
+
 @app.route("/admin/premium", methods=["GET"])
 def admin_premium():
     admin_redirect = admin_session_required()
@@ -7629,6 +7908,12 @@ def render_student_dashboard_shell(inner_html, active_nav="dashboard"):
     avatar_initials = "S"
     if getattr(student, "name", None):
         avatar_initials = "".join([part[0].upper() for part in student.name.split()[:2]])
+    unread_message_count = get_student_unread_message_count(student)
+    unread_message_badge = (
+        f"<span class='notification-badge message-badge'>{unread_message_count if unread_message_count < 100 else '99+'}</span>"
+        if unread_message_count
+        else ""
+    )
 
     dashboard_shell_start = f"""
     <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{'ශිෂ්‍ය ඩෑෂ්බෝඩ්' if language == 'si' else 'Student Dashboard'}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
@@ -7651,7 +7936,7 @@ def render_student_dashboard_shell(inner_html, active_nav="dashboard"):
     <a class='nav-link{' active' if active_nav == 'achievements' else ''}' href='/student/achievements'><span class='nav-icon'><svg viewBox='0 0 24 24'><circle cx='12' cy='8' r='4'></circle><path d='m8 14-2 7 6-3 6 3-2-7'></path></svg></span><span>{'ජයග්‍රහණ' if language=='si' else 'Achievements'}</span></a>
     <a class='nav-link{' active' if active_nav == 'settings' else ''}' href='/student/settings'><span class='nav-icon'><svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='3'></circle><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1z'></path></svg></span><span>{'සැකසුම්' if language=='si' else 'Settings'}</span></a>
     </nav>
-    <a class='side-footer-link' href='/logout'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'></path><path d='M16 17l5-5-5-5'></path><path d='M21 12H9'></path></svg></span><span>{'ඉවත් වන්න' if language=='si' else 'Logout'}</span></a></aside><main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn header-action-btn' type='button' id='headerSearchBtn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn header-action-btn notification-btn' type='button' id='notificationBtn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17H5.5a1.5 1.5 0 0 1-1.2-2.4l1.1-1.4A6.7 6.7 0 0 0 6.8 9V8a5.2 5.2 0 1 1 10.4 0v1a6.7 6.7 0 0 0 1.4 4.2l1.1 1.4a1.5 1.5 0 0 1-1.2 2.4H15'></path><path d='M10 17a2 2 0 1 0 4 0'></path></svg><span class='notification-badge'>5</span></button><div class='notification-dropdown' id='notificationDropdown'><div>{'නව දැනුම්දීම් නොමැත' if language=='si' else 'No new notifications'}</div></div><button class='header-icon-btn header-action-btn' type='button' id='headerMessageBtn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M4 6h16v9a2 2 0 0 1-2 2H9l-5 4V8a2 2 0 0 1 2-2z'></path></svg></button><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img'></div><div class='student-menu'><button class='student-menu-btn student-mini-profile' type='button' id='studentMenuBtn' aria-haspopup='true' aria-expanded='false'><span class='header-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='header-avatar'>" if profile_image_url else avatar_initials}</span><span class='student-menu-copy'><strong>{escape(student.name)}</strong><small>{f"{escape(str(student.grade))} ශ්‍රේණියේ ශිෂ්‍යයා" if language=='si' else f"Grade {escape(str(student.grade))} Student"}</small></span><svg viewBox='0 0 24 24' class='menu-caret'><path d='m6 9 6 6 6-6'></path></svg></button><div class='student-dropdown' id='studentDropdown'><a href='/student/profile'>{'මගේ පැතිකඩ' if language=='si' else 'My Profile'}</a><a href='/student/account-settings'>{'ගිණුම් සැකසුම්' if language=='si' else 'Account Settings'}</a><button type='button' id='changePhotoMenuBtn'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button><a href='/logout'>{'ඉවත් වන්න' if language=='si' else 'Logout'}</a></div></div></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button type='button' id='changePhotoBtn' class='change-photo-link' onclick='window.openStudentPhotoModal && window.openStudentPhotoModal();'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div></div>
+    <a class='side-footer-link' href='/logout'><span class='nav-icon'><svg viewBox='0 0 24 24'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'></path><path d='M16 17l5-5-5-5'></path><path d='M21 12H9'></path></svg></span><span>{'ඉවත් වන්න' if language=='si' else 'Logout'}</span></a></aside><main class='main'><div class='dashboard-topbar'><div class='dashboard-topbar-spacer'></div><div class='header-actions'><button class='header-icon-btn header-action-btn' type='button' id='headerSearchBtn' aria-label='Search'><svg viewBox='0 0 24 24'><circle cx='11' cy='11' r='7'></circle><path d='m20 20-3.5-3.5'></path></svg></button><button class='header-icon-btn header-action-btn notification-btn' type='button' id='notificationBtn' aria-label='Notifications'><svg viewBox='0 0 24 24'><path d='M15 17H5.5a1.5 1.5 0 0 1-1.2-2.4l1.1-1.4A6.7 6.7 0 0 0 6.8 9V8a5.2 5.2 0 1 1 10.4 0v1a6.7 6.7 0 0 0 1.4 4.2l1.1 1.4a1.5 1.5 0 0 1-1.2 2.4H15'></path><path d='M10 17a2 2 0 1 0 4 0'></path></svg><span class='notification-badge'>5</span></button><div class='notification-dropdown' id='notificationDropdown'><div>{'නව දැනුම්දීම් නොමැත' if language=='si' else 'No new notifications'}</div></div><a class='header-icon-btn header-action-btn' href='/student/messages' id='headerMessageBtn' aria-label='Messages'><svg viewBox='0 0 24 24'><path d='M4 6h16v9a2 2 0 0 1-2 2H9l-5 4V8a2 2 0 0 1 2-2z'></path></svg>{unread_message_badge}</a><div class='country-flag-wrap' aria-label='Sri Lanka'><img src='/static/images/sl-flag.png' alt='Sri Lanka' class='country-flag-img'></div><div class='student-menu'><button class='student-menu-btn student-mini-profile' type='button' id='studentMenuBtn' aria-haspopup='true' aria-expanded='false'><span class='header-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='header-avatar'>" if profile_image_url else avatar_initials}</span><span class='student-menu-copy'><strong>{escape(student.name)}</strong><small>{f"{escape(str(student.grade))} ශ්‍රේණියේ ශිෂ්‍යයා" if language=='si' else f"Grade {escape(str(student.grade))} Student"}</small></span><svg viewBox='0 0 24 24' class='menu-caret'><path d='m6 9 6 6 6-6'></path></svg></button><div class='student-dropdown' id='studentDropdown'><a href='/student/profile'>{'මගේ පැතිකඩ' if language=='si' else 'My Profile'}</a><a href='/student/account-settings'>{'ගිණුම් සැකසුම්' if language=='si' else 'Account Settings'}</a><button type='button' id='changePhotoMenuBtn'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button><a href='/logout'>{'ඉවත් වන්න' if language=='si' else 'Logout'}</a></div></div></div></div><div class='top'><div class='greeting-left'><div class='student-avatar'>{f"<img src='{escape(profile_image_url)}' alt='Student photo' class='student-avatar'>" if profile_image_url else avatar_initials}</div><div class='greeting-copy'><h2>{'සුභ දිනක්, ' if language=='si' else 'Good Morning, '}{student.name}!</h2><small>{'ඉදිරියට යන්න. ඔබේ අනාගතය අද ගොඩනැගෙයි.' if language=='si' else 'Keep going. Your future is being built today.'}</small><button type='button' id='changePhotoBtn' class='change-photo-link' onclick='window.openStudentPhotoModal && window.openStudentPhotoModal();'>{'ඡායාරූපය වෙනස් කරන්න' if language=='si' else 'Change Photo'}</button></div></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{session.pop('subscription_expired_message', None) or ''}</p>"}
     <div class='dashboard-content-inner'>"""
     dashboard_shell_end = """</div></main></div></body></html>"""
@@ -8096,6 +8381,93 @@ def student_subject_module_page(subject_id: int, module_id: int):
 
 
 
+
+@app.route("/student/messages", methods=["GET"])
+def student_messages_page():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_student_messages_table()
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    open_message_id = request.args.get("open", type=int)
+    open_message = None
+    if open_message_id:
+        open_message = StudentMessage.query.filter(StudentMessage.id == open_message_id, student_message_scope_filter(student)).first()
+        if open_message and not open_message.is_read:
+            open_message.is_read = True
+            db.session.commit()
+
+    messages = (
+        StudentMessage.query.filter(student_message_scope_filter(student))
+        .order_by(StudentMessage.is_read.asc(), StudentMessage.created_at.desc(), StudentMessage.id.desc())
+        .all()
+    )
+    is_si = student.medium == "Sinhala"
+
+    def type_label(message_type: str | None) -> str:
+        return (message_type or "general").replace("_", " ").title()
+
+    def preview_text(value: str, limit: int = 150) -> str:
+        normalized = " ".join((value or "").split())
+        return normalized if len(normalized) <= limit else normalized[: limit - 1].rstrip() + "…"
+
+    cards = []
+    for item in messages:
+        is_open = open_message and item.id == open_message.id
+        body_html = f"<p class='student-message-full'>{escape(item.message)}</p>" if is_open else f"<p>{escape(preview_text(item.message))}</p>"
+        read_action = ""
+        if not item.is_read:
+            read_action = f"<a class='message-read-btn' href='/student/messages?open={item.id}'>{'කියවූ ලෙස සලකන්න' if is_si else 'Mark as read'}</a>"
+        cards.append(
+            f"""
+            <article class='student-message-card {'unread' if not item.is_read else 'read'}'>
+              <div class='student-message-main'>
+                <div class='student-message-title-row'>
+                  <a class='student-message-title' href='/student/messages?open={item.id}'>{escape(item.title)}</a>
+                  <span class='student-message-type'>{escape(type_label(item.message_type))}</span>
+                </div>
+                {body_html}
+                <div class='student-message-meta'>{item.created_at.strftime('%Y-%m-%d %H:%M')} · {'නොකියවූ' if (is_si and not item.is_read) else ('Unread' if not item.is_read else ('කියවා ඇත' if is_si else 'Read'))}</div>
+              </div>
+              <div class='student-message-actions'>{read_action}</div>
+            </article>
+            """
+        )
+
+    empty_html = "" if cards else f"<div class='student-messages-empty'><h3>{'තවම පණිවිඩ නැත' if is_si else 'No messages yet'}</h3><p>{'නව පණිවිඩ මෙහි පෙන්වනු ඇත.' if is_si else 'New messages from SLIS admins will appear here.'}</p></div>"
+    content_html = f"""
+    <style>
+      .student-messages-hero{{background:linear-gradient(135deg,#0f347a,#2563eb);color:#fff;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.16);margin-bottom:18px;}}
+      .student-messages-hero h1{{margin:0 0 6px;font-size:30px;}}
+      .student-messages-hero p{{margin:0;color:#dbeafe;}}
+      .student-message-list{{display:flex;flex-direction:column;gap:14px;}}
+      .student-message-card{{display:flex;justify-content:space-between;gap:16px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.9);border-radius:20px;padding:16px 18px;box-shadow:0 12px 30px rgba(15,23,42,.08);}}
+      .student-message-card.unread{{border-left:5px solid #2563eb;background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(239,246,255,.95));}}
+      .student-message-main{{min-width:0;}}
+      .student-message-title-row{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}}
+      .student-message-title{{font-size:18px;font-weight:900;color:#0f172a;text-decoration:none;}}
+      .student-message-title:hover{{color:#2563eb;}}
+      .student-message-type{{display:inline-flex;border-radius:999px;background:#dbeafe;color:#1e3a8a;padding:5px 10px;font-size:12px;font-weight:900;}}
+      .student-message-card p{{margin:0 0 10px;color:#334155;line-height:1.55;}}
+      .student-message-full{{white-space:pre-wrap;}}
+      .student-message-meta{{font-size:12px;font-weight:800;color:#64748b;}}
+      .student-message-actions{{display:flex;align-items:flex-start;}}
+      .message-read-btn{{white-space:nowrap;display:inline-flex;border-radius:12px;background:#2563eb;color:#fff;text-decoration:none;font-weight:900;padding:9px 12px;box-shadow:0 10px 22px rgba(37,99,235,.2);}}
+      .student-messages-empty{{background:rgba(255,255,255,.9);border-radius:22px;padding:28px;text-align:center;color:#475569;}}
+      @media(max-width:720px){{.student-message-card{{flex-direction:column;}}}}
+    </style>
+    <section class='student-messages-hero'>
+      <h1>{'පණිවිඩ' if is_si else 'Messages'}</h1>
+      <p>{'ඔබට SLIS පරිපාලකයින්ගෙන් ලැබෙන නව දැනුම්දීම් මෙහි බලන්න.' if is_si else 'View updates, reminders, assignments, announcements, and warnings from SLIS admins.'}</p>
+    </section>
+    <section class='student-message-list'>{''.join(cards)}{empty_html}</section>
+    """
+    return render_student_dashboard_shell(content_html, active_nav="messages")
+
 @app.route("/student/live-classes", methods=["GET"])
 @app.route("/student/assignments", methods=["GET"])
 @app.route("/student/quizzes", methods=["GET"])
@@ -8103,7 +8475,6 @@ def student_subject_module_page(subject_id: int, module_id: int):
 @app.route("/student/ai-tutor", methods=["GET"])
 @app.route("/student/progress", methods=["GET"])
 @app.route("/student/calendar", methods=["GET"])
-@app.route("/student/messages", methods=["GET"])
 @app.route("/student/achievements", methods=["GET"])
 @app.route("/student/settings", methods=["GET"])
 def student_shell_pages():
@@ -8119,7 +8490,6 @@ def student_shell_pages():
         "/student/ai-tutor": ("AI Tutor", "ai_tutor"),
         "/student/progress": ("Progress", "progress"),
         "/student/calendar": ("Calendar", "calendar"),
-        "/student/messages": ("Messages", "messages"),
         "/student/achievements": ("Achievements", "achievements"),
         "/student/settings": ("Settings", "settings"),
     }
@@ -11428,6 +11798,16 @@ def update_school_db() -> tuple[str, int]:
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": f"School DB update failed: {exc}"}), 500
+
+
+@app.route("/update-student-messages-db", methods=["GET"])
+def update_student_messages_db():
+    try:
+        ensure_student_messages_table()
+        return jsonify({"success": True, "message": "Student messages table ensured successfully"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Student messages DB update failed: {exc}"}), 500
 
 
 @app.route("/update-gamification-db", methods=["GET"])
