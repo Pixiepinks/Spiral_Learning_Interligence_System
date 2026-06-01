@@ -695,6 +695,9 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS home_display_order INTEGER DEFAULT 0"))
     db.session.execute(db.text("ALTER TABLE question ADD COLUMN IF NOT EXISTS question_type VARCHAR(50) DEFAULT 'mcq'"))
     db.session.execute(db.text("ALTER TABLE question ALTER COLUMN question_type TYPE VARCHAR(50)"))
+    db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS total_marks INTEGER NOT NULL DEFAULT 0"))
+    db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS earned_marks INTEGER NOT NULL DEFAULT 0"))
+    db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS answer_summary_json TEXT"))
     db.session.execute(db.text(
         """
         CREATE TABLE IF NOT EXISTS question_sub_questions (
@@ -2247,6 +2250,9 @@ class ClassTestSubmission(db.Model):
     score = db.Column(db.Float, nullable=False, default=0)
     total_questions = db.Column(db.Integer, nullable=False, default=0)
     correct_answers = db.Column(db.Integer, nullable=False, default=0)
+    total_marks = db.Column(db.Integer, nullable=False, default=0)
+    earned_marks = db.Column(db.Integer, nullable=False, default=0)
+    answer_summary_json = db.Column(db.Text, nullable=True)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -12944,6 +12950,96 @@ def student_homework_submit(homework_id: int):
 
 
 
+
+
+def score_class_test_questions(questions: list["Question"], form, medium_key: str) -> tuple[int, int, int, int, float, list[dict]]:
+    """Score a class test using parent-question counts and mark-based percentages."""
+    questions_correct = 0
+    total_questions = len(questions)
+    earned_marks = 0
+    total_marks = 0
+    summary_rows = []
+    for index, q in enumerate(questions, start=1):
+        question_text = getattr(q, f"question_text_{medium_key}") or q.question_text_en or ""
+        possible = 1
+        earned = 0
+        sub_rows: list[dict] = []
+        question_type = (q.question_type or "mcq").strip().lower()
+
+        if is_matching_pairs_question(q):
+            is_correct, _, _ = evaluate_matching_pairs_question(q, form, medium_key)
+            earned = 1 if is_correct else 0
+        elif is_box_input_question(q):
+            is_correct, _, _ = evaluate_box_question(q, form)
+            earned = 1 if is_correct else 0
+        elif is_tap_select_image_question(q):
+            is_correct, _, _ = evaluate_tap_select_question(q, form)
+            earned = 1 if is_correct else 0
+        elif is_tap_correct_image_question(q):
+            is_correct, _, _ = evaluate_tap_correct_image_question(q, form)
+            earned = 1 if is_correct else 0
+        elif is_drag_drop_group_container_question(q):
+            is_correct, _ = evaluate_drag_drop_group_container_question(q, form)
+            earned = 1 if is_correct else 0
+        elif is_image_analysis_worksheet_question(q):
+            is_correct, worksheet_rows, earned, possible = evaluate_image_analysis_worksheet(q, form)
+            sub_rows = [
+                {
+                    "number": sub_index,
+                    "question_text": row.get(f"question_text_{medium_key}") or row.get("question_text_en") or "",
+                    "student_answer": row.get("student_answer") or "",
+                    "correct_answer": row.get(f"correct_answer_{medium_key}") or row.get("correct_answer_en") or "",
+                    "is_correct": bool(row.get("is_correct")),
+                    "earned_marks": int(row.get("earned_marks") or 0),
+                    "marks": int(row.get("marks") or 0),
+                }
+                for sub_index, row in enumerate(worksheet_rows, start=1)
+            ]
+        elif is_short_answer_question(q):
+            student_answer = (form.get(f"q_{q.id}") or "").strip()
+            correct_answer = (q.correct_answer_text or "").strip()
+            is_correct = bool(correct_answer) and student_answer.casefold() == correct_answer.casefold()
+            earned = 1 if is_correct else 0
+        else:
+            is_correct = (form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
+            earned = 1 if is_correct else 0
+
+        possible = max(int(possible or 0), 0)
+        earned = max(int(earned or 0), 0)
+        total_marks += possible
+        earned_marks += earned
+        parent_is_correct = possible > 0 and earned == possible
+        if parent_is_correct:
+            questions_correct += 1
+        if is_image_analysis_worksheet_question(q) and not parent_is_correct and earned > 0:
+            status = "partial"
+            status_label_en = "Partially correct"
+            status_label_si = "අර්ධ වශයෙන් නිවැරදි"
+        elif parent_is_correct:
+            status = "correct"
+            status_label_en = "Correct"
+            status_label_si = "නිවැරදි"
+        else:
+            status = "wrong"
+            status_label_en = "Wrong"
+            status_label_si = "වැරදි"
+        summary_rows.append(
+            {
+                "number": index,
+                "question_id": q.id,
+                "question_type": question_type,
+                "question_text": question_text,
+                "status": status,
+                "status_label_en": status_label_en,
+                "status_label_si": status_label_si,
+                "earned_marks": earned,
+                "marks": possible,
+                "sub_questions": sub_rows,
+            }
+        )
+    percentage = round((earned_marks / total_marks) * 100, 2) if total_marks else 0
+    return questions_correct, total_questions, earned_marks, total_marks, percentage, summary_rows
+
 @app.route("/student/tests", methods=["GET"])
 def student_tests_list():
     student_id = session.get("student_id")
@@ -12980,36 +13076,25 @@ def student_take_test(test_id: int):
     questions = get_questions_for_homework(test.grade, test.subject, test.topic_en, test.topic_si, test.difficulty_level)
     if request.method == "POST":
         medium_key = "si" if student.medium == "Sinhala" else "en"
-        def _is_correct(q):
-            if is_matching_pairs_question(q):
-                ok, _, _ = evaluate_matching_pairs_question(q, request.form, medium_key)
-                return ok
-            if is_box_input_question(q):
-                ok, _, _ = evaluate_box_question(q, request.form)
-                return ok
-            if is_tap_select_image_question(q):
-                ok, _, _ = evaluate_tap_select_question(q, request.form)
-                return ok
-            if is_tap_correct_image_question(q):
-                ok, _, _ = evaluate_tap_correct_image_question(q, request.form)
-                return ok
-            if is_drag_drop_group_container_question(q):
-                ok, _ = evaluate_drag_drop_group_container_question(q, request.form)
-                return ok
-            if is_image_analysis_worksheet_question(q):
-                ok, _, _, _ = evaluate_image_analysis_worksheet(q, request.form)
-                return ok
-            if is_short_answer_question(q):
-                return (request.form.get(f"q_{q.id}") or '').strip().casefold() == (q.correct_answer_text or '').strip().casefold()
-            return (request.form.get(f"q_{q.id}") or "").strip().upper() == (q.correct_option or "").strip().upper()
-        correct_answers = sum(1 for q in questions if _is_correct(q))
-        total_questions = len(questions)
-        score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0
+        correct_answers, total_questions, earned_marks, total_marks, score, summary_rows = score_class_test_questions(
+            questions, request.form, medium_key
+        )
         existing = ClassTestSubmission.query.filter_by(class_test_id=test.id, student_id=student.id).first()
         if existing:
             db.session.delete(existing)
             db.session.flush()
-        db.session.add(ClassTestSubmission(class_test_id=test.id, student_id=student.id, score=score, total_questions=total_questions, correct_answers=correct_answers))
+        db.session.add(
+            ClassTestSubmission(
+                class_test_id=test.id,
+                student_id=student.id,
+                score=score,
+                total_questions=total_questions,
+                correct_answers=correct_answers,
+                earned_marks=earned_marks,
+                total_marks=total_marks,
+                answer_summary_json=json.dumps(summary_rows, ensure_ascii=False),
+            )
+        )
         db.session.commit()
         return redirect(url_for("student_test_result_summary", test_id=test.id))
     medium_key = "si" if student.medium == "Sinhala" else "en"
@@ -13076,7 +13161,72 @@ def student_test_result_summary(test_id: int):
     submission = ClassTestSubmission.query.filter_by(class_test_id=test_id, student_id=student_id).first()
     if not submission:
         return "<h2>Result not available</h2><p><a href='/student/tests'>Back to tests</a></p>", 404
-    return f"<!doctype html><html><body><h1>{escape(test.title)} - Result</h1><p>Score: {submission.score}% ({submission.correct_answers}/{submission.total_questions})</p><p><a href='/student/tests'>Back to Tests</a></p></body></html>"
+    student = db.session.get(Student, student_id)
+    medium_key = "si" if (student and student.medium == "Sinhala") else "en"
+    earned_marks = int(submission.earned_marks or 0)
+    total_marks = int(submission.total_marks or 0)
+    if not total_marks:
+        earned_marks = int(submission.correct_answers or 0)
+        total_marks = int(submission.total_questions or 0)
+    summary_rows = []
+    if submission.answer_summary_json:
+        try:
+            summary_rows = json.loads(submission.answer_summary_json)
+        except json.JSONDecodeError:
+            summary_rows = []
+    status_style = {
+        "correct": ("#16a34a", "#dcfce7"),
+        "wrong": ("#dc2626", "#fee2e2"),
+        "partial": ("#d97706", "#fef3c7"),
+    }
+    question_cards = []
+    for row in summary_rows:
+        status = row.get("status") or "wrong"
+        color, bg = status_style.get(status, status_style["wrong"])
+        status_label = row.get("status_label_si" if medium_key == "si" else "status_label_en") or status.title()
+        sub_items = []
+        for sub in row.get("sub_questions") or []:
+            sub_ok = bool(sub.get("is_correct"))
+            sub_color = "#16a34a" if sub_ok else "#dc2626"
+            sub_label = "නිවැරදි" if sub_ok else "වැරදි"
+            sub_items.append(
+                f"<li style='margin:8px 0;padding:8px;border-left:4px solid {sub_color};background:#fff;'>"
+                f"<strong>{int(sub.get('number') or 0)}. {escape(sub.get('question_text') or '')}</strong> "
+                f"<span style='color:{sub_color};font-weight:700;'>({sub_label})</span><br>"
+                f"<span>පිළිතුර: {escape(sub.get('student_answer') or 'පිළිතුර ලබා නැත')}</span><br>"
+                f"<span>නිවැරදි පිළිතුර: {escape(sub.get('correct_answer') or '')}</span><br>"
+                f"<span>ලකුණු: {int(sub.get('earned_marks') or 0)}/{int(sub.get('marks') or 0)}</span>"
+                "</li>"
+            )
+        sub_html = f"<ol style='margin:10px 0 0 18px;padding:0;'>{''.join(sub_items)}</ol>" if sub_items else ""
+        question_cards.append(
+            f"<section style='border:1px solid {color};background:{bg};border-radius:12px;margin:12px 0;padding:12px;'>"
+            f"<h3 style='margin:0 0 8px;'>Q{int(row.get('number') or 0)} "
+            f"<span style='color:{color};font-size:0.9em;'>• {escape(status_label)}</span></h3>"
+            f"<p style='margin:0 0 8px;'>{escape(row.get('question_text') or '')}</p>"
+            f"<p style='margin:0;'><strong>ලකුණු:</strong> {int(row.get('earned_marks') or 0)}/{int(row.get('marks') or 0)}</p>"
+            f"{sub_html}</section>"
+        )
+    questions_correct_label = "ප්‍රශ්න නිවැරදි"
+    marks_earned_label = "ලබාගත් ලකුණු"
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>{escape(test.title)} - Result</title>
+  </head>
+  <body>
+    <h1>{escape(test.title)} - Result</h1>
+    <section style='border:1px solid #cbd5e1;border-radius:12px;padding:16px;max-width:720px;background:#f8fafc;'>
+      <h2>ලකුණු සාරාංශය</h2>
+      <p><strong>{questions_correct_label}:</strong> {int(submission.correct_answers or 0)}/{int(submission.total_questions or 0)}</p>
+      <p><strong>{marks_earned_label}:</strong> {earned_marks}/{total_marks}</p>
+      <p><strong>Score:</strong> {submission.score}%</p>
+    </section>
+    {''.join(question_cards)}
+    <p><a href='/student/tests'>Back to Tests</a></p>
+  </body>
+</html>"""
 
 @app.route("/teacher/test/<int:test_id>", methods=["GET"])
 def teacher_test_results(test_id: int):
@@ -13098,6 +13248,9 @@ def teacher_test_results(test_id: int):
 def update_class_test_db() -> tuple:
     try:
         db.create_all()
+        db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS total_marks INTEGER NOT NULL DEFAULT 0"))
+        db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS earned_marks INTEGER NOT NULL DEFAULT 0"))
+        db.session.execute(db.text("ALTER TABLE class_test_submission ADD COLUMN IF NOT EXISTS answer_summary_json TEXT"))
         db.session.commit()
         return jsonify({"success": True, "message": "Class test tables ensured successfully"}), 200
     except Exception as exc:
