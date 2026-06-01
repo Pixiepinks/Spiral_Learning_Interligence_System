@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session, url_for, get_flashed_messages
+from flask import Flask, Response, flash, jsonify, redirect, request, send_from_directory, session, url_for, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -728,7 +728,11 @@ class Student(db.Model):
     subscription_end_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     class_id = db.Column(db.Integer, nullable=True)
-    school_id = db.Column(db.Integer, nullable=False)
+    school_id = db.Column(db.Integer, nullable=True)
+    batch_id = db.Column(db.Integer, nullable=True)
+    group_id = db.Column(db.Integer, nullable=True)
+    subscription_status = db.Column(db.String(30), nullable=False, default="active")
+    subscription_valid_until = db.Column(db.Date, nullable=True)
     profile_image_url = db.Column(db.Text, nullable=True)
 
 
@@ -772,6 +776,12 @@ def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS school_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS batch_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS group_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ALTER COLUMN school_id DROP NOT NULL"))
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_si_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_module ADD COLUMN IF NOT EXISTS image_en_url TEXT"))
     db.session.execute(db.text("ALTER TABLE syllabus_chapter ADD COLUMN IF NOT EXISTS chapter_image_url TEXT"))
@@ -1963,6 +1973,61 @@ class Lesson(db.Model):
     estimated_minutes = db.Column(db.Integer, nullable=False, default=10)
     xp_reward = db.Column(db.Integer, nullable=False, default=10)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+
+class LiveClass(db.Model):
+    __tablename__ = "live_classes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title_en = db.Column(db.Text, nullable=False)
+    title_si = db.Column(db.Text, nullable=True)
+    description_en = db.Column(db.Text, nullable=True)
+    description_si = db.Column(db.Text, nullable=True)
+    grade = db.Column(db.Integer, nullable=True)
+    subject_id = db.Column(db.Integer, nullable=True)
+    module_id = db.Column(db.Integer, nullable=True)
+    chapter_id = db.Column(db.Integer, nullable=True)
+    lesson_id = db.Column(db.Integer, nullable=True)
+    teacher_name = db.Column(db.Text, nullable=True)
+    start_datetime = db.Column(db.DateTime, nullable=False)
+    end_datetime = db.Column(db.DateTime, nullable=False)
+    live_provider = db.Column(db.String(30), nullable=False, default="google_meet")
+    live_url_si = db.Column(db.Text, nullable=True)
+    live_url_en = db.Column(db.Text, nullable=True)
+    recording_url_si = db.Column(db.Text, nullable=True)
+    recording_url_en = db.Column(db.Text, nullable=True)
+    notes_url = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="upcoming")
+    audience_type = db.Column(db.String(40), nullable=False, default="all")
+    audience_grade = db.Column(db.Integer, nullable=True)
+    audience_school_id = db.Column(db.Integer, nullable=True)
+    audience_subject_id = db.Column(db.Integer, nullable=True)
+    audience_batch_id = db.Column(db.Integer, nullable=True)
+    audience_group_id = db.Column(db.Integer, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class LiveClassStudent(db.Model):
+    __tablename__ = "live_class_students"
+
+    id = db.Column(db.Integer, primary_key=True)
+    live_class_id = db.Column(db.Integer, db.ForeignKey("live_classes.id", ondelete="CASCADE"), nullable=False)
+    student_id = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class LiveClassAttendance(db.Model):
+    __tablename__ = "live_class_attendance"
+
+    id = db.Column(db.Integer, primary_key=True)
+    live_class_id = db.Column(db.Integer, db.ForeignKey("live_classes.id", ondelete="CASCADE"), nullable=False)
+    student_id = db.Column(db.Integer, nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    access_status = db.Column(db.String(30), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -3786,6 +3851,34 @@ def student_dashboard():
         ).first()
         is not None
     )
+    live_schedule_rows = ""
+    try:
+        today_end = today_start + timedelta(days=1)
+        todays_live_classes = [
+            item for item in get_visible_live_classes_for_student(student)
+            if today_start <= item.start_datetime < today_end
+        ]
+        now_for_schedule = datetime.utcnow()
+        schedule_bits = []
+        for item in todays_live_classes:
+            status = live_class_effective_status(item, now_for_schedule)
+            title = item.title_si if language == "si" and item.title_si else item.title_en
+            subject = live_class_subject_name(item, student.medium)
+            can_join = (item.start_datetime - timedelta(minutes=15)) <= now_for_schedule <= item.end_datetime and status != "cancelled"
+            has_recording = bool(preferred_recording_url(item, student)) and status == "completed"
+            action = ""
+            if can_join:
+                action = f"<a class='schedule-action' href='/student/live-classes/{item.id}/join'>{'එකතු වන්න' if language=='si' else 'Join'}</a>"
+            elif has_recording:
+                action = f"<a class='schedule-action' href='/student/live-classes/{item.id}/recording'>{'නරඹන්න' if language=='si' else 'Watch'}</a>"
+            else:
+                action = f"<a class='schedule-action' href='/student/live-classes'>{'බලන්න' if language=='si' else 'View'}</a>"
+            schedule_bits.append(f"<li class='schedule-item'><span class='schedule-dot' style='background:#10b981'></span><div class='schedule-time'>{item.start_datetime.strftime('%I:%M %p')}</div><div class='schedule-icon schedule-icon-live'>📡</div><div><p class='schedule-content-title'>{escape(title)}</p><p class='schedule-content-subtitle'>{escape(subject)}</p></div>{action}</li>")
+        live_schedule_rows = "".join(schedule_bits)
+    except Exception:
+        db.session.rollback()
+        live_schedule_rows = ""
+
     level_translations = {
         "Foundation Weak": "පදනම දුර්වල",
         "Basic Learner": "මූලික ඉගෙනුමකරු",
@@ -4049,7 +4142,7 @@ def student_dashboard():
     <div id='photoUploadModal' class='photo-modal' aria-hidden='true'><div class='photo-modal-card'><button type='button' id='closePhotoModal' class='photo-modal-close' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();' aria-label='Close'>×</button><h3>{'පැතිකඩ ඡායාරූපය යාවත්කාලීන කරන්න' if language=='si' else 'Update Profile Photo'}</h3><p class='photo-modal-help'>{'ඔබේ පැතිකඩට හොඳින් ගැළපෙන පැහැදිලි ඡායාරූපයක් තෝරන්න.' if language=='si' else 'Choose a clear, friendly photo that fits your learning profile.'}</p><form id='photoForm' method='post' action='/student/profile-photo' enctype='multipart/form-data'><label for='profilePhotoInput' class='upload-picker'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8'><circle cx='12' cy='8' r='4'></circle><path d='M5 20c.4-3.2 3.1-5.5 7-5.5s6.6 2.3 7 5.5'></path></svg><strong>Choose a profile photo</strong><span>පැතිකඩ ඡායාරූපයක් තෝරන්න</span><small>JPG, PNG, WEBP up to 2MB</small></label><input id='profilePhotoInput' name='profile_photo' type='file' accept='image/jpeg,image/png,image/webp'><div id='filePreviewWrap' class='image-preview'><img id='filePreview' alt='Profile photo preview'></div><input type='hidden' id='cameraImageData' name='camera_image_data'><video id='cameraStream' autoplay playsinline></video><canvas id='cameraCanvas' style='display:none'></canvas><img id='cameraPreview' alt='Preview'><div class='photo-modal-actions'><button type='submit' class='photo-btn primary'>{'සුරකින්න' if language=='si' else 'Save Photo'}</button><button type='button' id='startCameraBtn' class='photo-btn secondary'>{'කැමරාව භාවිතා කරන්න' if language=='si' else 'Use Camera'}</button><button type='button' id='captureBtn' class='photo-btn secondary'>{'ඡායාරූපය ලබාගන්න' if language=='si' else 'Capture'}</button><button type='button' class='photo-btn ghost' onclick='window.closeStudentPhotoModal && window.closeStudentPhotoModal();'>{'අවලංගු කරන්න' if language=='si' else 'Cancel'}</button></div></form></div></div>
     {f"<p style='padding:10px;border-radius:8px;background:#fff3cd;color:#7a4f00;border:1px solid #ffe69c;'>{expired_message}</p>" if expired_message else ""}
     <div class='dashboard-content-inner'><section class='dashboard-main-grid'><div class='dashboard-left-column'><section class='grid'><div class='card kpi-card kpi-blue'><div class='kpi-title'>{text['xp']}</div><div class='kpi-value'>{student.xp}</div><div class='kpi-subtitle'>{'Keep growing!' if language=='en' else 'ඉදිරියටම යමු!'}</div><div class='kpi-icon'>⭐</div></div><div class='card kpi-card kpi-gold'><div class='kpi-title'>{text['level']}</div><div class='kpi-value'>{student.level}</div><div class='kpi-subtitle'>{'Rise to new heights!' if language=='en' else 'ඉහළ මට්ටම් කරා යමු!'}</div><div class='kpi-icon'>🏆</div></div><div class='card kpi-card kpi-pink'><div class='kpi-title'>{text['current_streak']}</div><div class='kpi-value'>{student.current_streak or 0}</div><div class='kpi-subtitle'>{'Stay consistent daily!' if language=='en' else 'දිනපතා අඛණ්ඩව ඉගෙනගන්න!'}</div><div class='kpi-icon'>🔥</div></div><div class='card kpi-card kpi-green'><div class='kpi-title'>{text['latest_result']}</div><div class='kpi-value'>{latest_result.score if latest_result else 0}%</div><div class='kpi-subtitle'>{'You are improving!' if language=='en' else 'ඔබ ප්‍රගතිය කරමින්!'}</div><div class='kpi-icon'>🎯</div></div><div class='card kpi-card kpi-orange'><div class='kpi-title'>{text['progress_to_next_level']}</div><div class='kpi-value'>{student.xp % 100}%</div><div class='kpi-subtitle'>{'Next milestone ahead!' if language=='en' else 'ඊළඟ ඉලක්කය ඉදිරියේ!'}</div><div class='kpi-icon'>📈</div></div><div class='card kpi-card kpi-blue'><div class='kpi-title'>{'Revision Needed' if language=='en' else 'නැවත අධ්‍යයනය අවශ්‍යයි'}</div><div class='kpi-value'>{revision_due_count}</div><div class='kpi-subtitle'>{escape(str(revision_weak_topic))} • ~{revision_estimated_minutes} min</div><div class='kpi-icon'>🧠</div></div></section>
-    <section class='continue-learning-section'><div class='continue-learning-header'><div class='continue-learning-title-wrap'><h3 class='continue-learning-title'>{'ඉදිරියට ඉගෙන ගන්න' if language=='si' else 'Continue Learning'}</h3><p class='continue-learning-subtitle'>{'ඔබ නතර කළ තැනින් නැවත ආරම්භ කරන්න' if language=='si' else 'Pick up where you left off'}</p></div><button type='button' class='continue-learning-view-all'>{'සියල්ල බලන්න' if language=='si' else 'View All'}</button></div><div class='continue-learning-grid'>{continue_html}</div></section><section class='student-insights-row'><div class='insight-card subjects-overview-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>විෂය සාරාංශය</h3><p class='insight-card-subtitle'>මෙම වාරයේ ක්‍රියාකාරීත්වය</p></div></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#1d4ed8'>⚛</span><span class='subject-name'>Physics</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:85%;background:#22c55e'></span></span><span class='subject-percent'>85%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#2563eb'>∑</span><span class='subject-name'>Mathematics</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:78%;background:#34d399'></span></span><span class='subject-percent'>78%</span></div><div class='subject-row'><span class='subject-icon' style='background:#fee2e2;color:#dc2626'>🧪</span><span class='subject-name'>Chemistry</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:72%;background:#f97316'></span></span><span class='subject-percent'>72%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dcfce7;color:#16a34a'>🧬</span><span class='subject-name'>Biology</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:82%;background:#22c55e'></span></span><span class='subject-percent'>82%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ffedd5;color:#ea580c'>A</span><span class='subject-name'>English</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:74%;background:#fb923c'></span></span><span class='subject-percent'>74%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ede9fe;color:#7c3aed'>⌨</span><span class='subject-name'>ICT</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:80%;background:#3b82f6'></span></span><span class='subject-percent'>80%</span></div><a class='subject-report-link' href='/student/results'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='insight-card learning-analytics-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>ඉගෙනුම් විශ්ලේෂණය</h3><p class='insight-card-subtitle'>ඔබේ ඉගෙනුම් ක්‍රියාකාරකම්</p></div><span class='analytics-pill'>මෙම සතිය</span></div><div class='analytics-chart-wrap'><svg class='analytics-chart' viewBox='0 0 520 230' role='img' aria-label='Learning analytics chart'><defs><linearGradient id='analyticsAreaGradient' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#60a5fa' stop-opacity='.36'></stop><stop offset='100%' stop-color='#60a5fa' stop-opacity='.06'></stop></linearGradient></defs><line class='grid-line' x1='44' y1='26' x2='492' y2='26'></line><line class='grid-line' x1='44' y1='69' x2='492' y2='69'></line><line class='grid-line' x1='44' y1='112' x2='492' y2='112'></line><line class='grid-line' x1='44' y1='155' x2='492' y2='155'></line><line class='grid-line' x1='44' y1='198' x2='492' y2='198'></line><text class='axis-label' x='18' y='202'>0h</text><text class='axis-label' x='18' y='159'>2h</text><text class='axis-label' x='18' y='116'>4h</text><text class='axis-label' x='18' y='73'>6h</text><text class='axis-label' x='18' y='30'>8h</text><path class='area-fill' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126 L492 198 L44 198 Z'></path><path class='line-path' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126'></path><line class='focus-line' x1='374' y1='50' x2='374' y2='198'></line><text class='focus-text' x='354' y='42'>6h 35m</text><circle class='point' cx='74' cy='145' r='3.8'></circle><circle class='point' cx='104' cy='126' r='3.8'></circle><circle class='point' cx='134' cy='129' r='3.8'></circle><circle class='point' cx='164' cy='122' r='3.8'></circle><circle class='point' cx='194' cy='96' r='3.8'></circle><circle class='point' cx='224' cy='102' r='3.8'></circle><circle class='point' cx='254' cy='126' r='3.8'></circle><circle class='point' cx='284' cy='132' r='3.8'></circle><circle class='point' cx='314' cy='116' r='3.8'></circle><circle class='point' cx='344' cy='82' r='3.8'></circle><circle class='point' cx='374' cy='72' r='5.2'></circle><circle class='point' cx='404' cy='83' r='3.8'></circle><circle class='point' cx='434' cy='102' r='3.8'></circle><circle class='point' cx='464' cy='98' r='3.8'></circle><circle class='point' cx='492' cy='126' r='3.8'></circle><text class='axis-label' x='64' y='216'>Mon</text><text class='axis-label' x='138' y='216'>Tue</text><text class='axis-label' x='210' y='216'>Wed</text><text class='axis-label' x='282' y='216'>Thu</text><text class='axis-label' x='360' y='216'>Fri</text><text class='axis-label' x='430' y='216'>Sat</text><text class='axis-label' x='486' y='216' text-anchor='end'>Sun</text></svg></div><div class='learning-stat-grid'><div class='learning-stat-chip'><span class='learning-stat-icon'>🕒</span><span class='learning-stat-copy'><small>Study Time</small><strong>26h 45m</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>📖</span><span class='learning-stat-copy'><small>Lessons Completed</small><strong>28</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>✅</span><span class='learning-stat-copy'><small>Quizzes Taken</small><strong>15</strong></span></div></div></div></section><div class='card'><h3>{text['topic_trend']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['last_score']}</th><th>{text['previous_score']}</th><th>{text['trend']}</th></tr></thead><tbody>{''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4'>No topic trend data available.</td></tr>"}</tbody></table></div><div class='card' style='margin-top:10px'><h3>{text['result_history']}</h3><table><thead><tr><th>{text['date']}</th><th>{text['score']}</th><th>{text['level']}</th><th>{text['correct_answers']}</th><th>{text['medium']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='5'>No results found.</td></tr>"}</tbody></table></div></div><aside class='dashboard-right-column'><div class='schedule-card today-schedule-card'><div class='schedule-card-header'><div><h3 class='schedule-card-title'>{'අද දින කාලසටහන' if language=='si' else "Today's Schedule"}</h3><p class='schedule-card-subtitle'>{datetime.now().strftime('%A, %d %b %Y')}</p></div><a class='schedule-view-link' href='/student/tests'>{'දිනදර්ශනය බලන්න' if language=='si' else 'View Calendar'}</a></div><ul class='schedule-list'><li class='schedule-item'><span class='schedule-dot' style='background:#2563eb'></span><div class='schedule-time'>08:00 AM</div><div class='schedule-icon schedule-icon-weekly'>📝</div><div><p class='schedule-content-title'>{'Weekly Test' if language=='en' else 'සතිපතා පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'Mathematics' if language=='en' else 'ගණිතය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#8b5cf6'></span><div class='schedule-time'>09:30 AM</div><div class='schedule-icon schedule-icon-recorded'>🎬</div><div><p class='schedule-content-title'>{'Recorded Lesson' if language=='en' else 'පටිගත පාඩම'}</p><p class='schedule-content-subtitle'>{'Science' if language=='en' else 'විද්‍යාව'}</p></div><button class='schedule-action' type='button'>{'Watch' if language=='en' else 'නරඹන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#10b981'></span><div class='schedule-time'>11:00 AM</div><div class='schedule-icon schedule-icon-live'>📡</div><div><p class='schedule-content-title'>{'Live Class' if language=='en' else 'සජීවී පන්තිය'}</p><p class='schedule-content-subtitle'>{'English' if language=='en' else 'ඉංග්‍රීසි'}</p></div><button class='schedule-action' type='button'>{'Join' if language=='en' else 'එකතු වන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#f59e0b'></span><div class='schedule-time'>02:00 PM</div><div class='schedule-icon schedule-icon-chapter'>📘</div><div><p class='schedule-content-title'>{'Chapter Test' if language=='en' else 'අධ්‍යාය පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'ICT' if language=='en' else 'තොරතුරු තාක්ෂණය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#ef4444'></span><div class='schedule-time'>04:00 PM</div><div class='schedule-icon schedule-icon-activity'>🎯</div><div><p class='schedule-content-title'>{'Activity' if language=='en' else 'ක්‍රියාකාරකම'}</p><p class='schedule-content-subtitle'>{'Sinhala' if language=='en' else 'සිංහල'}</p></div><button class='schedule-action' type='button'>{'Open' if language=='en' else 'විවෘත'}</button></li></ul></div><div class='progress-summary-card'><div class='progress-summary-header'><h3>ප්‍රගති සාරාංශය</h3><span class='progress-term-pill'>මෙම වාරය</span></div><div class='progress-donut-wrap'><div class='progress-donut'><div class='progress-donut-center'><strong>78%</strong><span>Overall</span></div></div><div class='progress-legend'><div class='progress-legend-row'><span class='progress-dot' style='background:#56c983'></span><span>Completed</span><strong>78%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#3b82f6'></span><span>In Progress</span><strong>15%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#d9dee7'></span><span>Not Started</span><strong>7%</strong></div></div></div><a class='progress-detail-link' href='/student/learning-path'>විස්තරාත්මක ප්‍රගතිය බලන්න</a></div>{recommended_practice_card}<div class='practice-summary-card'><div class='practice-summary-header'><div><h3>අවසන් අභ්‍යාස සාරාංශය</h3><p>ඔබේ අලුත්ම පුහුණු ක්‍රියාකාරකම්</p></div><span class='practice-summary-pill'>අලුත්ම 5</span></div><div class='practice-summary-list'>{practice_summary_rows if practice_summary_rows else "<div class='practice-summary-empty'>තවම අභ්‍යාස උත්සාහ නොමැත.</div>"}</div><a class='practice-summary-link' href='/student/learning-path'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='card'><h3>{text['topic_performance']}</h3><table><thead><tr><th>Topic</th><th>Correct/Total</th><th>%</th><th>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4'>No topic performance available.</td></tr>"}</tbody></table></div></aside></section></div></main></div>
+    <section class='continue-learning-section'><div class='continue-learning-header'><div class='continue-learning-title-wrap'><h3 class='continue-learning-title'>{'ඉදිරියට ඉගෙන ගන්න' if language=='si' else 'Continue Learning'}</h3><p class='continue-learning-subtitle'>{'ඔබ නතර කළ තැනින් නැවත ආරම්භ කරන්න' if language=='si' else 'Pick up where you left off'}</p></div><button type='button' class='continue-learning-view-all'>{'සියල්ල බලන්න' if language=='si' else 'View All'}</button></div><div class='continue-learning-grid'>{continue_html}</div></section><section class='student-insights-row'><div class='insight-card subjects-overview-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>විෂය සාරාංශය</h3><p class='insight-card-subtitle'>මෙම වාරයේ ක්‍රියාකාරීත්වය</p></div></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#1d4ed8'>⚛</span><span class='subject-name'>Physics</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:85%;background:#22c55e'></span></span><span class='subject-percent'>85%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dbeafe;color:#2563eb'>∑</span><span class='subject-name'>Mathematics</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:78%;background:#34d399'></span></span><span class='subject-percent'>78%</span></div><div class='subject-row'><span class='subject-icon' style='background:#fee2e2;color:#dc2626'>🧪</span><span class='subject-name'>Chemistry</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:72%;background:#f97316'></span></span><span class='subject-percent'>72%</span></div><div class='subject-row'><span class='subject-icon' style='background:#dcfce7;color:#16a34a'>🧬</span><span class='subject-name'>Biology</span><span class='subject-grade'>A</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:82%;background:#22c55e'></span></span><span class='subject-percent'>82%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ffedd5;color:#ea580c'>A</span><span class='subject-name'>English</span><span class='subject-grade'>B+</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:74%;background:#fb923c'></span></span><span class='subject-percent'>74%</span></div><div class='subject-row'><span class='subject-icon' style='background:#ede9fe;color:#7c3aed'>⌨</span><span class='subject-name'>ICT</span><span class='subject-grade'>A-</span><span class='subject-progress-track'><span class='subject-progress-fill' style='width:80%;background:#3b82f6'></span></span><span class='subject-percent'>80%</span></div><a class='subject-report-link' href='/student/results'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='insight-card learning-analytics-card'><div class='insight-card-header'><div><h3 class='insight-card-title'>ඉගෙනුම් විශ්ලේෂණය</h3><p class='insight-card-subtitle'>ඔබේ ඉගෙනුම් ක්‍රියාකාරකම්</p></div><span class='analytics-pill'>මෙම සතිය</span></div><div class='analytics-chart-wrap'><svg class='analytics-chart' viewBox='0 0 520 230' role='img' aria-label='Learning analytics chart'><defs><linearGradient id='analyticsAreaGradient' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#60a5fa' stop-opacity='.36'></stop><stop offset='100%' stop-color='#60a5fa' stop-opacity='.06'></stop></linearGradient></defs><line class='grid-line' x1='44' y1='26' x2='492' y2='26'></line><line class='grid-line' x1='44' y1='69' x2='492' y2='69'></line><line class='grid-line' x1='44' y1='112' x2='492' y2='112'></line><line class='grid-line' x1='44' y1='155' x2='492' y2='155'></line><line class='grid-line' x1='44' y1='198' x2='492' y2='198'></line><text class='axis-label' x='18' y='202'>0h</text><text class='axis-label' x='18' y='159'>2h</text><text class='axis-label' x='18' y='116'>4h</text><text class='axis-label' x='18' y='73'>6h</text><text class='axis-label' x='18' y='30'>8h</text><path class='area-fill' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126 L492 198 L44 198 Z'></path><path class='line-path' d='M44 198 L74 145 L104 126 L134 129 L164 122 L194 96 L224 102 L254 126 L284 132 L314 116 L344 82 L374 72 L404 83 L434 102 L464 98 L492 126'></path><line class='focus-line' x1='374' y1='50' x2='374' y2='198'></line><text class='focus-text' x='354' y='42'>6h 35m</text><circle class='point' cx='74' cy='145' r='3.8'></circle><circle class='point' cx='104' cy='126' r='3.8'></circle><circle class='point' cx='134' cy='129' r='3.8'></circle><circle class='point' cx='164' cy='122' r='3.8'></circle><circle class='point' cx='194' cy='96' r='3.8'></circle><circle class='point' cx='224' cy='102' r='3.8'></circle><circle class='point' cx='254' cy='126' r='3.8'></circle><circle class='point' cx='284' cy='132' r='3.8'></circle><circle class='point' cx='314' cy='116' r='3.8'></circle><circle class='point' cx='344' cy='82' r='3.8'></circle><circle class='point' cx='374' cy='72' r='5.2'></circle><circle class='point' cx='404' cy='83' r='3.8'></circle><circle class='point' cx='434' cy='102' r='3.8'></circle><circle class='point' cx='464' cy='98' r='3.8'></circle><circle class='point' cx='492' cy='126' r='3.8'></circle><text class='axis-label' x='64' y='216'>Mon</text><text class='axis-label' x='138' y='216'>Tue</text><text class='axis-label' x='210' y='216'>Wed</text><text class='axis-label' x='282' y='216'>Thu</text><text class='axis-label' x='360' y='216'>Fri</text><text class='axis-label' x='430' y='216'>Sat</text><text class='axis-label' x='486' y='216' text-anchor='end'>Sun</text></svg></div><div class='learning-stat-grid'><div class='learning-stat-chip'><span class='learning-stat-icon'>🕒</span><span class='learning-stat-copy'><small>Study Time</small><strong>26h 45m</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>📖</span><span class='learning-stat-copy'><small>Lessons Completed</small><strong>28</strong></span></div><div class='learning-stat-chip'><span class='learning-stat-icon'>✅</span><span class='learning-stat-copy'><small>Quizzes Taken</small><strong>15</strong></span></div></div></div></section><div class='card'><h3>{text['topic_trend']}</h3><table><thead><tr><th>{'මාතෘකාව' if language=='si' else 'Topic'}</th><th>{text['last_score']}</th><th>{text['previous_score']}</th><th>{text['trend']}</th></tr></thead><tbody>{''.join(topic_trend_rows) if topic_trend_rows else "<tr><td colspan='4'>No topic trend data available.</td></tr>"}</tbody></table></div><div class='card' style='margin-top:10px'><h3>{text['result_history']}</h3><table><thead><tr><th>{text['date']}</th><th>{text['score']}</th><th>{text['level']}</th><th>{text['correct_answers']}</th><th>{text['medium']}</th></tr></thead><tbody>{history_rows if history_rows else "<tr><td colspan='5'>No results found.</td></tr>"}</tbody></table></div></div><aside class='dashboard-right-column'><div class='schedule-card today-schedule-card'><div class='schedule-card-header'><div><h3 class='schedule-card-title'>{'අද දින කාලසටහන' if language=='si' else "Today's Schedule"}</h3><p class='schedule-card-subtitle'>{datetime.now().strftime('%A, %d %b %Y')}</p></div><a class='schedule-view-link' href='/student/tests'>{'දිනදර්ශනය බලන්න' if language=='si' else 'View Calendar'}</a></div><ul class='schedule-list'>{live_schedule_rows}<li class='schedule-item'><span class='schedule-dot' style='background:#2563eb'></span><div class='schedule-time'>08:00 AM</div><div class='schedule-icon schedule-icon-weekly'>📝</div><div><p class='schedule-content-title'>{'Weekly Test' if language=='en' else 'සතිපතා පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'Mathematics' if language=='en' else 'ගණිතය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#8b5cf6'></span><div class='schedule-time'>09:30 AM</div><div class='schedule-icon schedule-icon-recorded'>🎬</div><div><p class='schedule-content-title'>{'Recorded Lesson' if language=='en' else 'පටිගත පාඩම'}</p><p class='schedule-content-subtitle'>{'Science' if language=='en' else 'විද්‍යාව'}</p></div><button class='schedule-action' type='button'>{'Watch' if language=='en' else 'නරඹන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#10b981'></span><div class='schedule-time'>11:00 AM</div><div class='schedule-icon schedule-icon-live'>📡</div><div><p class='schedule-content-title'>{'Live Class' if language=='en' else 'සජීවී පන්තිය'}</p><p class='schedule-content-subtitle'>{'English' if language=='en' else 'ඉංග්‍රීසි'}</p></div><button class='schedule-action' type='button'>{'Join' if language=='en' else 'එකතු වන්න'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#f59e0b'></span><div class='schedule-time'>02:00 PM</div><div class='schedule-icon schedule-icon-chapter'>📘</div><div><p class='schedule-content-title'>{'Chapter Test' if language=='en' else 'අධ්‍යාය පරීක්ෂණය'}</p><p class='schedule-content-subtitle'>{'ICT' if language=='en' else 'තොරතුරු තාක්ෂණය'}</p></div><button class='schedule-action' type='button'>{'Start' if language=='en' else 'ආරම්භ'}</button></li><li class='schedule-item'><span class='schedule-dot' style='background:#ef4444'></span><div class='schedule-time'>04:00 PM</div><div class='schedule-icon schedule-icon-activity'>🎯</div><div><p class='schedule-content-title'>{'Activity' if language=='en' else 'ක්‍රියාකාරකම'}</p><p class='schedule-content-subtitle'>{'Sinhala' if language=='en' else 'සිංහල'}</p></div><button class='schedule-action' type='button'>{'Open' if language=='en' else 'විවෘත'}</button></li></ul></div><div class='progress-summary-card'><div class='progress-summary-header'><h3>ප්‍රගති සාරාංශය</h3><span class='progress-term-pill'>මෙම වාරය</span></div><div class='progress-donut-wrap'><div class='progress-donut'><div class='progress-donut-center'><strong>78%</strong><span>Overall</span></div></div><div class='progress-legend'><div class='progress-legend-row'><span class='progress-dot' style='background:#56c983'></span><span>Completed</span><strong>78%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#3b82f6'></span><span>In Progress</span><strong>15%</strong></div><div class='progress-legend-row'><span class='progress-dot' style='background:#d9dee7'></span><span>Not Started</span><strong>7%</strong></div></div></div><a class='progress-detail-link' href='/student/learning-path'>විස්තරාත්මක ප්‍රගතිය බලන්න</a></div>{recommended_practice_card}<div class='practice-summary-card'><div class='practice-summary-header'><div><h3>අවසන් අභ්‍යාස සාරාංශය</h3><p>ඔබේ අලුත්ම පුහුණු ක්‍රියාකාරකම්</p></div><span class='practice-summary-pill'>අලුත්ම 5</span></div><div class='practice-summary-list'>{practice_summary_rows if practice_summary_rows else "<div class='practice-summary-empty'>තවම අභ්‍යාස උත්සාහ නොමැත.</div>"}</div><a class='practice-summary-link' href='/student/learning-path'>සම්පූර්ණ වාර්තාව බලන්න</a></div><div class='card'><h3>{text['topic_performance']}</h3><table><thead><tr><th>Topic</th><th>Correct/Total</th><th>%</th><th>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4'>No topic performance available.</td></tr>"}</tbody></table></div></aside></section></div></main></div>
     <script>
 (function () {{
   const modal = document.getElementById("photoUploadModal");
@@ -6540,6 +6633,197 @@ def admin_session_required():
     return None
 
 
+def _safe_int(value):
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _student_grade_int(student: Student) -> int | None:
+    return _safe_int(normalize_grade(getattr(student, "grade", None)))
+
+
+def _student_subject_ids(student_id: int) -> set[int]:
+    return {row.subject_id for row in StudentSelectedSubject.query.filter_by(student_id=student_id, is_active=True).all()}
+
+
+def live_class_subject_name(live_class: LiveClass, medium: str = "English") -> str:
+    if not live_class.subject_id:
+        return "-"
+    subject = db.session.get(SubjectMaster, live_class.subject_id)
+    if not subject:
+        return "-"
+    return subject.subject_name_si if medium == "Sinhala" and subject.subject_name_si else subject.subject_name_en
+
+
+def live_class_chapter_lesson_label(live_class: LiveClass, medium: str = "English") -> str:
+    parts = []
+    if live_class.chapter_id:
+        chapter = db.session.get(SyllabusChapter, live_class.chapter_id)
+        if chapter:
+            parts.append(chapter.chapter_name_si if medium == "Sinhala" and chapter.chapter_name_si else chapter.chapter_name_en)
+    if live_class.lesson_id:
+        lesson = db.session.get(Lesson, live_class.lesson_id)
+        if lesson:
+            parts.append(lesson.lesson_title_si if medium == "Sinhala" and lesson.lesson_title_si else lesson.lesson_title_en)
+    return " • ".join(parts)
+
+
+def student_can_see_live_class(student: Student, live_class: LiveClass) -> bool:
+    audience = (live_class.audience_type or "all").strip()
+    if audience == "all":
+        return True
+    if audience == "grade":
+        return live_class.audience_grade == _student_grade_int(student)
+    if audience == "school":
+        return bool(live_class.audience_school_id) and live_class.audience_school_id == getattr(student, "school_id", None)
+    if audience == "subject":
+        return bool(live_class.audience_subject_id) and live_class.audience_subject_id in _student_subject_ids(student.id)
+    if audience == "batch":
+        return bool(live_class.audience_batch_id) and live_class.audience_batch_id == getattr(student, "batch_id", None)
+    if audience == "group":
+        return bool(live_class.audience_group_id) and live_class.audience_group_id == getattr(student, "group_id", None)
+    if audience in {"individual", "selected_students"}:
+        return LiveClassStudent.query.filter_by(live_class_id=live_class.id, student_id=student.id).first() is not None
+    return False
+
+
+def get_visible_live_classes_for_student(student: Student):
+    rows = LiveClass.query.filter_by(is_active=True).order_by(LiveClass.start_datetime.asc(), LiveClass.id.asc()).all()
+    return [row for row in rows if student_can_see_live_class(student, row)]
+
+
+def live_class_effective_status(live_class: LiveClass, now: datetime | None = None) -> str:
+    if live_class.status in {"cancelled", "completed"}:
+        return live_class.status
+    now = now or datetime.utcnow()
+    if live_class.start_datetime <= now <= live_class.end_datetime:
+        return "live"
+    if now > live_class.end_datetime:
+        return "completed"
+    return "upcoming"
+
+
+def student_subscription_allows_live(student: Student) -> bool:
+    status = (getattr(student, "subscription_status", None) or "active").strip()
+    if status in {"active", "grace_period"}:
+        return True
+    if getattr(student, "is_premium", False) and (not student.subscription_end_date or student.subscription_end_date >= date.today()):
+        return True
+    return False
+
+
+def preferred_live_url(live_class: LiveClass, student: Student) -> str:
+    is_si = getattr(student, "medium", None) == "Sinhala"
+    primary = live_class.live_url_si if is_si else live_class.live_url_en
+    fallback = live_class.live_url_en if is_si else live_class.live_url_si
+    return (primary or fallback or "").strip()
+
+
+def preferred_recording_url(live_class: LiveClass, student: Student) -> str:
+    is_si = getattr(student, "medium", None) == "Sinhala"
+    primary = live_class.recording_url_si if is_si else live_class.recording_url_en
+    fallback = live_class.recording_url_en if is_si else live_class.recording_url_si
+    return (primary or fallback or "").strip()
+
+
+def log_live_class_access(live_class_id: int, student_id: int, access_status: str) -> None:
+    db.session.add(LiveClassAttendance(live_class_id=live_class_id, student_id=student_id, access_status=access_status))
+    db.session.commit()
+
+
+def live_class_block_page(message: str, show_subscription_actions: bool = False):
+    actions = ""
+    if show_subscription_actions:
+        actions = "<div class='live-block-actions'><a href='/student/subscription' class='live-btn live-btn-primary'>Renew Subscription</a><a href='/student/messages' class='live-btn live-btn-secondary'>Contact Support</a></div>"
+    return render_student_dashboard_shell(f"""
+    <style>.live-block-card{{max-width:720px;margin:40px auto;padding:28px;border-radius:24px;background:linear-gradient(135deg,#071a44,#123f91);color:#fff;box-shadow:0 24px 60px rgba(15,23,42,.25)}}.live-block-card h1{{margin:0 0 10px}}.live-block-card p{{color:#dbeafe;font-size:16px}}.live-block-actions{{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}}.live-btn{{display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;border-radius:999px;font-weight:800;text-decoration:none}}.live-btn-primary{{background:#22c55e;color:#052e16}}.live-btn-secondary{{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25)}}</style>
+    <section class='live-block-card'><h1>Live class access</h1><p>{escape(message)}</p>{actions}<p><a href='/student/live-classes' style='color:#bfdbfe'>Back to Live Classes</a></p></section>
+    """, active_nav="live_classes")
+
+
+def parse_live_datetime(raw: str | None):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        return None
+
+
+def selected_live_class_student_ids(form) -> list[int]:
+    ids = form.getlist("selected_student_ids")
+    single = form.get("student_id")
+    if single:
+        ids.append(single)
+    clean, seen = [], set()
+    for raw in ids:
+        sid = _safe_int(raw)
+        if sid and sid not in seen:
+            clean.append(sid); seen.add(sid)
+    return clean
+
+
+def validate_live_class_form(form) -> tuple[list[str], dict]:
+    data = {
+        "title_en": (form.get("title_en") or "").strip(),
+        "title_si": (form.get("title_si") or "").strip(),
+        "description_en": (form.get("description_en") or "").strip(),
+        "description_si": (form.get("description_si") or "").strip(),
+        "teacher_name": (form.get("teacher_name") or "").strip(),
+        "grade": _safe_int(form.get("grade")),
+        "subject_id": _safe_int(form.get("subject_id")),
+        "module_id": _safe_int(form.get("module_id")),
+        "chapter_id": _safe_int(form.get("chapter_id")),
+        "lesson_id": _safe_int(form.get("lesson_id")),
+        "start_datetime": parse_live_datetime(form.get("start_datetime")),
+        "end_datetime": parse_live_datetime(form.get("end_datetime")),
+        "live_provider": (form.get("live_provider") or "google_meet").strip(),
+        "live_url_si": (form.get("live_url_si") or "").strip(),
+        "live_url_en": (form.get("live_url_en") or "").strip(),
+        "recording_url_si": (form.get("recording_url_si") or "").strip(),
+        "recording_url_en": (form.get("recording_url_en") or "").strip(),
+        "notes_url": (form.get("notes_url") or "").strip(),
+        "status": (form.get("status") or "upcoming").strip(),
+        "audience_type": (form.get("audience_type") or "all").strip(),
+        "audience_grade": _safe_int(form.get("audience_grade")),
+        "audience_school_id": _safe_int(form.get("audience_school_id")),
+        "audience_subject_id": _safe_int(form.get("audience_subject_id")),
+        "audience_batch_id": _safe_int(form.get("audience_batch_id")),
+        "audience_group_id": _safe_int(form.get("audience_group_id")),
+        "is_active": form.get("is_active") == "on",
+    }
+    errors = []
+    if not data["title_en"]:
+        errors.append("Title EN is required.")
+    if not data["start_datetime"]:
+        errors.append("Start DateTime is required.")
+    if not data["end_datetime"]:
+        errors.append("End DateTime is required.")
+    if data["start_datetime"] and data["end_datetime"] and data["end_datetime"] <= data["start_datetime"]:
+        errors.append("End DateTime must be after Start DateTime.")
+    if not data["live_url_si"] and not data["live_url_en"]:
+        errors.append("At least one live URL is required.")
+    required_by_audience = {
+        "grade": ("audience_grade", "Audience grade is required."),
+        "school": ("audience_school_id", "Audience school is required."),
+        "subject": ("audience_subject_id", "Audience subject is required."),
+        "batch": ("audience_batch_id", "Audience batch/class is required."),
+        "group": ("audience_group_id", "Audience group is required."),
+    }
+    if data["audience_type"] in required_by_audience:
+        key, msg = required_by_audience[data["audience_type"]]
+        if not data[key]:
+            errors.append(msg)
+    if data["audience_type"] in {"individual", "selected_students"} and not selected_live_class_student_ids(form):
+        errors.append("Select at least one student for this audience.")
+    return errors, data
+
+
 def school_admin_session_required():
     if session.get("school_admin_logged_in") is not True:
         return redirect(url_for("login"))
@@ -7272,6 +7556,235 @@ def admin_login():
     return redirect(url_for("admin_dashboard"))
 
 
+
+
+def live_class_form_html(live_class: LiveClass | None = None, errors: list[str] | None = None) -> str:
+    live_class = live_class or LiveClass(start_datetime=datetime.utcnow(), end_datetime=datetime.utcnow() + timedelta(hours=1), title_en="")
+    errors_html = "" if not errors else "<div style='background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;margin:10px 0;'><ul>" + "".join(f"<li>{escape(e)}</li>" for e in errors) + "</ul></div>"
+    grades = "<option value=''>Select grade</option>" + grade_options_html(str(live_class.grade or ""))
+    audience_grades = "<option value=''>Select grade</option>" + grade_options_html(str(live_class.audience_grade or ""))
+    subjects = SubjectMaster.query.order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
+    subject_opts = "<option value=''>Select subject</option>" + "".join(f"<option value='{s.id}' {'selected' if live_class.subject_id == s.id else ''}>Grade {escape(str(s.grade))} - {escape(s.subject_name_en)}</option>" for s in subjects)
+    audience_subject_opts = "<option value=''>Select subject</option>" + "".join(f"<option value='{s.id}' {'selected' if live_class.audience_subject_id == s.id else ''}>Grade {escape(str(s.grade))} - {escape(s.subject_name_en)}</option>" for s in subjects)
+    modules = SyllabusModule.query.order_by(SyllabusModule.module_name_en.asc()).all()
+    module_opts = "<option value=''>Select module</option>" + "".join(f"<option value='{m.id}' {'selected' if live_class.module_id == m.id else ''}>{escape(m.module_name_en)}</option>" for m in modules)
+    chapters = SyllabusChapter.query.order_by(SyllabusChapter.chapter_name_en.asc()).all()
+    chapter_opts = "<option value=''>Select chapter</option>" + "".join(f"<option value='{c.id}' {'selected' if live_class.chapter_id == c.id else ''}>{escape(c.chapter_name_en)}</option>" for c in chapters)
+    lessons = Lesson.query.order_by(Lesson.lesson_title_en.asc()).all()
+    lesson_opts = "<option value=''>Select lesson</option>" + "".join(f"<option value='{l.id}' {'selected' if live_class.lesson_id == l.id else ''}>{escape(l.lesson_title_en)}</option>" for l in lessons)
+    schools = School.query.order_by(School.school_name.asc()).all()
+    school_opts = "<option value=''>Select school</option>" + "".join(f"<option value='{s.id}' {'selected' if live_class.audience_school_id == s.id else ''}>{escape(s.school_name)}</option>" for s in schools)
+    classes = Class.query.order_by(Class.class_name.asc()).all()
+    batch_opts = "<option value=''>Select batch/class</option>" + "".join(f"<option value='{c.id}' {'selected' if live_class.audience_batch_id == c.id else ''}>{escape(c.class_name)} (Grade {escape(str(c.grade))})</option>" for c in classes)
+    group_ids = [gid for (gid,) in db.session.query(Student.group_id).filter(Student.group_id.isnot(None)).distinct().order_by(Student.group_id.asc()).all()]
+    group_opts = "<option value=''>Select group</option>" + "".join(f"<option value='{gid}' {'selected' if live_class.audience_group_id == gid else ''}>Group {gid}</option>" for gid in group_ids)
+    selected_ids = {row.student_id for row in LiveClassStudent.query.filter_by(live_class_id=live_class.id).all()} if getattr(live_class, "id", None) else set()
+    students = Student.query.order_by(Student.name.asc()).limit(500).all()
+    student_opts = "".join(f"<option value='{st.id}' {'selected' if st.id in selected_ids else ''}>{escape(st.name)} - Grade {escape(str(st.grade))} ({escape(st.email)})</option>" for st in students)
+    dt = lambda value: value.strftime("%Y-%m-%dT%H:%M") if value else ""
+    provider_options = [("google_meet","Google Meet"),("zoom","Zoom"),("youtube_live","YouTube Live"),("other","Other")]
+    status_options = ["upcoming","live","completed","cancelled"]
+    audience_options = [("all","All Students"),("grade","By Grade"),("school","By School"),("subject","By Subject"),("batch","By Batch/Class"),("group","By Student Group"),("individual","Individual Student"),("selected_students","Selected Students")]
+    return f"""
+    <h1>{'Edit' if getattr(live_class, 'id', None) else 'Add'} Live Class</h1><p><a href='/admin/live-classes'>Back to Live Classes</a></p>{errors_html}
+    <form method='post' id='liveClassForm'>
+      <fieldset><legend>Basic</legend>
+        <label>Title EN <input name='title_en' value='{escape(live_class.title_en or '')}' required></label><br><br>
+        <label>Title SI <input name='title_si' value='{escape(live_class.title_si or '')}'></label><br><br>
+        <label>Description EN <textarea name='description_en'>{escape(live_class.description_en or '')}</textarea></label><br><br>
+        <label>Description SI <textarea name='description_si'>{escape(live_class.description_si or '')}</textarea></label><br><br>
+        <label>Teacher Name <input name='teacher_name' value='{escape(live_class.teacher_name or '')}'></label><br><br>
+        <label>Grade <select name='grade'>{grades}</select></label><br><br>
+        <label>Subject <select name='subject_id'>{subject_opts}</select></label><br><br>
+        <label>Module <select name='module_id'>{module_opts}</select></label><br><br>
+        <label>Chapter <select name='chapter_id'>{chapter_opts}</select></label><br><br>
+        <label>Lesson <select name='lesson_id'>{lesson_opts}</select></label><br><br>
+        <label>Start DateTime <input type='datetime-local' name='start_datetime' value='{dt(live_class.start_datetime)}' required></label><br><br>
+        <label>End DateTime <input type='datetime-local' name='end_datetime' value='{dt(live_class.end_datetime)}' required></label><br><br>
+        <label>Status <select name='status'>{''.join(f"<option value='{v}' {'selected' if live_class.status == v else ''}>{v.title()}</option>" for v in status_options)}</select></label><br><br>
+        <label><input type='checkbox' name='is_active' {'checked' if live_class.is_active is not False else ''}> Active</label>
+      </fieldset><br>
+      <fieldset><legend>Live details</legend>
+        <label>Live Provider <select name='live_provider'>{''.join(f"<option value='{v}' {'selected' if (live_class.live_provider or 'google_meet') == v else ''}>{label}</option>" for v,label in provider_options)}</select></label><br><br>
+        <label>Live URL Sinhala <input name='live_url_si' value='{escape(live_class.live_url_si or '')}'></label><br><br>
+        <label>Live URL English <input name='live_url_en' value='{escape(live_class.live_url_en or '')}'></label><br><br>
+        <label>Recording URL Sinhala <input name='recording_url_si' value='{escape(live_class.recording_url_si or '')}'></label><br><br>
+        <label>Recording URL English <input name='recording_url_en' value='{escape(live_class.recording_url_en or '')}'></label><br><br>
+        <label>Notes URL <input name='notes_url' value='{escape(live_class.notes_url or '')}'></label>
+      </fieldset><br>
+      <fieldset><legend>Audience targeting</legend>
+        <label>Who can attend? <select name='audience_type' id='audienceType'>{''.join(f"<option value='{v}' {'selected' if (live_class.audience_type or 'all') == v else ''}>{label}</option>" for v,label in audience_options)}</select></label><br><br>
+        <div class='audience-field' data-for='grade'><label>Grade <select name='audience_grade'>{audience_grades}</select></label></div>
+        <div class='audience-field' data-for='school'><label>School <select name='audience_school_id'>{school_opts}</select></label></div>
+        <div class='audience-field' data-for='subject'><label>Subject <select name='audience_subject_id'>{audience_subject_opts}</select></label></div>
+        <div class='audience-field' data-for='batch'><label>Batch/Class <select name='audience_batch_id'>{batch_opts}</select></label></div>
+        <div class='audience-field' data-for='group'><label>Group <select name='audience_group_id'>{group_opts}</select></label></div>
+        <div class='audience-field' data-for='individual selected_students'><label>Students <select name='selected_student_ids' multiple size='10' style='min-width:420px'>{student_opts}</select></label><p>Use Ctrl/Cmd to select multiple students. For Individual Student select one.</p></div>
+      </fieldset><br><button type='submit'>Save Live Class</button>
+    </form>
+    <script>function syncAudience(){{const type=document.getElementById('audienceType').value;document.querySelectorAll('.audience-field').forEach(el=>{{el.style.display=el.dataset.for.split(' ').includes(type)?'block':'none';}})}}document.getElementById('audienceType').addEventListener('change',syncAudience);syncAudience();</script>
+    """
+
+
+@app.route("/admin/live-classes", methods=["GET"])
+def admin_live_classes():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    messages = "".join(f"<div style='background:#dcfce7;color:#166534;padding:8px;margin:8px 0;'>{escape(msg)}</div>" for _cat, msg in get_flashed_messages(with_categories=True))
+    rows = []
+    for item in LiveClass.query.order_by(LiveClass.start_datetime.desc(), LiveClass.id.desc()).all():
+        rows.append(f"<tr><td>{escape(item.title_en)}</td><td>{item.grade or '-'}</td><td>{escape(live_class_subject_name(item))}</td><td>{escape(item.teacher_name or '-')}</td><td>{item.start_datetime.strftime('%Y-%m-%d %H:%M')} - {item.end_datetime.strftime('%H:%M')}</td><td>{escape(item.status)}</td><td>{escape(item.audience_type)}</td><td>{'Active' if item.is_active else 'Inactive'}</td><td><a href='/admin/live-classes/{item.id}/edit'>Edit</a> | <a href='/admin/live-classes/{item.id}/attendance'>Attendance</a> | <form method='post' action='/admin/live-classes/{item.id}/delete' style='display:inline' onsubmit='return confirm(&quot;Delete this live class?&quot;)'><button type='submit'>Delete</button></form></td></tr>")
+    return f"<h1>Live Classes</h1><p><a href='/admin-dashboard'>Back</a> | <a href='/admin/live-classes/add'>Add Live Class</a></p>{messages}<table border='1' cellpadding='6'><tr><th>Title</th><th>Grade</th><th>Subject</th><th>Teacher</th><th>Date/time</th><th>Status</th><th>Audience type</th><th>Active</th><th>Actions</th></tr>{''.join(rows) or '<tr><td colspan=9>No live classes found.</td></tr>'}</table>"
+
+
+@app.route("/admin/live-classes/add", methods=["GET", "POST"])
+def admin_live_class_add():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    if request.method == "POST":
+        errors, data = validate_live_class_form(request.form)
+        if not errors:
+            live_class = LiveClass(**data)
+            db.session.add(live_class); db.session.flush()
+            for sid in selected_live_class_student_ids(request.form):
+                db.session.add(LiveClassStudent(live_class_id=live_class.id, student_id=sid))
+            db.session.commit(); flash("Live class created successfully", "success")
+            return redirect(url_for("admin_live_classes"))
+        temp = LiveClass(**{k:v for k,v in data.items() if hasattr(LiveClass, k)})
+        return live_class_form_html(temp, errors), 400
+    return live_class_form_html()
+
+
+@app.route("/admin/live-classes/<int:live_class_id>/edit", methods=["GET", "POST"])
+def admin_live_class_edit(live_class_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    live_class = db.session.get(LiveClass, live_class_id)
+    if not live_class:
+        return "<h2>Live class not found.</h2>", 404
+    if request.method == "POST":
+        errors, data = validate_live_class_form(request.form)
+        if not errors:
+            for key, value in data.items():
+                setattr(live_class, key, value)
+            live_class.updated_at = datetime.utcnow()
+            LiveClassStudent.query.filter_by(live_class_id=live_class.id).delete()
+            if live_class.audience_type in {"individual", "selected_students"}:
+                for sid in selected_live_class_student_ids(request.form):
+                    db.session.add(LiveClassStudent(live_class_id=live_class.id, student_id=sid))
+            db.session.commit(); flash("Live class updated successfully", "success")
+            return redirect(url_for("admin_live_classes"))
+        return live_class_form_html(live_class, errors), 400
+    return live_class_form_html(live_class)
+
+
+@app.route("/admin/live-classes/<int:live_class_id>/delete", methods=["POST"])
+def admin_live_class_delete(live_class_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    live_class = db.session.get(LiveClass, live_class_id)
+    if live_class:
+        db.session.delete(live_class); db.session.commit(); flash("Live class deleted successfully", "success")
+    return redirect(url_for("admin_live_classes"))
+
+
+@app.route("/admin/live-classes/<int:live_class_id>/attendance", methods=["GET"])
+def admin_live_class_attendance(live_class_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    live_class = db.session.get(LiveClass, live_class_id)
+    if not live_class:
+        return "<h2>Live class not found.</h2>", 404
+    reason = {"allowed":"Allowed", "blocked_subscription":"Subscription inactive", "blocked_audience":"Not assigned to student", "blocked_time":"Outside allowed join time"}
+    rows = []
+    logs = LiveClassAttendance.query.filter_by(live_class_id=live_class_id).order_by(LiveClassAttendance.joined_at.desc()).all()
+    for log in logs:
+        st = db.session.get(Student, log.student_id)
+        rows.append(f"<tr><td>{escape(st.name if st else 'Unknown')}</td><td>{escape(str(st.grade if st else '-'))}</td><td>{log.joined_at.strftime('%Y-%m-%d %H:%M:%S')}</td><td>{escape(log.access_status or '-')}</td><td>{escape(getattr(st, 'subscription_status', '-') if st else '-')}</td><td>{escape(reason.get(log.access_status, log.access_status or '-'))}</td></tr>")
+    return f"<h1>Attendance: {escape(live_class.title_en)}</h1><p><a href='/admin/live-classes'>Back</a></p><table border='1' cellpadding='6'><tr><th>Student name</th><th>Grade</th><th>Join time</th><th>Access status</th><th>Subscription status</th><th>Allowed/blocked reason</th></tr>{''.join(rows) or '<tr><td colspan=6>No attendance logs yet.</td></tr>'}</table>"
+
+
+@app.route("/student/live-classes", methods=["GET"])
+def student_live_classes():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None); return redirect(url_for("login"))
+    language = "si" if student.medium == "Sinhala" else "en"
+    now = datetime.utcnow()
+    classes = get_visible_live_classes_for_student(student)
+    def card(item):
+        status = live_class_effective_status(item, now)
+        title = item.title_si if language == "si" and item.title_si else item.title_en
+        subject = live_class_subject_name(item, student.medium)
+        chapter_lesson = live_class_chapter_lesson_label(item, student.medium)
+        recording_button = f"<a class='live-card-btn secondary' href='/student/live-classes/{item.id}/recording'>Watch Recording</a>" if preferred_recording_url(item, student) and status == "completed" else ""
+        notes_button = f"<a class='live-card-btn ghost' href='{escape(item.notes_url)}' target='_blank' rel='noopener'>Download Notes</a>" if item.notes_url else ""
+        join_button = "" if status in {"completed", "cancelled"} else f"<a class='live-card-btn primary' href='/student/live-classes/{item.id}/join'>Join Class</a>"
+        return f"<article class='live-class-card'><div class='live-card-top'><span>{escape(subject)}</span><b class='status {status}'>{'Live Now' if status=='live' else status.title()}</b></div><h3>{escape(title)}</h3><p>{escape(chapter_lesson or 'Live learning session')}</p><div class='live-meta'>👩‍🏫 {escape(item.teacher_name or 'SLIS Teacher')}<br>🗓 {item.start_datetime.strftime('%Y-%m-%d %I:%M %p')} - {item.end_datetime.strftime('%I:%M %p')}</div><div class='live-actions'>{join_button}{recording_button}{notes_button}</div></article>"
+    live_now = [c for c in classes if live_class_effective_status(c, now) == "live"]
+    upcoming = [c for c in classes if live_class_effective_status(c, now) == "upcoming"]
+    recorded = [c for c in classes if live_class_effective_status(c, now) == "completed"]
+    html = f"""
+    <style>.live-page{{padding:20px 0 40px}}.live-hero{{border-radius:28px;padding:28px;background:linear-gradient(135deg,#061a4f,#0f347a 55%,#123f91);color:#fff;box-shadow:0 22px 55px rgba(15,23,42,.18);margin-bottom:22px}}.live-hero h1{{margin:0;font-size:32px}}.live-section{{margin:22px 0}}.live-section h2{{margin:0 0 12px;color:#0f172a}}.live-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}}.live-class-card{{border-radius:22px;padding:18px;background:linear-gradient(145deg,rgba(8,29,76,.92),rgba(18,63,145,.86));color:#eaf2ff;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.live-card-top{{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#bfdbfe;font-size:13px}}.status{{border-radius:999px;padding:4px 9px;background:#334155;color:#fff;font-size:11px}}.status.live{{background:#16a34a}}.status.upcoming{{background:#2563eb}}.status.completed{{background:#7c3aed}}.status.cancelled{{background:#dc2626}}.live-class-card h3{{margin:12px 0 6px;color:#fff}}.live-class-card p,.live-meta{{color:#dbeafe;line-height:1.5}}.live-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.live-card-btn{{border-radius:999px;padding:9px 12px;text-decoration:none;font-weight:800;font-size:13px}}.primary{{background:#22c55e;color:#052e16}}.secondary{{background:#f8fafc;color:#1d4ed8}}.ghost{{border:1px solid rgba(255,255,255,.28);color:#fff}}.empty-live{{padding:18px;border-radius:18px;background:rgba(255,255,255,.75);color:#64748b}}</style>
+    <main class='live-page'><section class='live-hero'><h1>{'සජීවී පන්ති' if language=='si' else 'Live Classes'}</h1><p>{'ඔබට පැවරුණු සජීවී හා පටිගත පන්ති මෙතැනින් බලන්න.' if language=='si' else 'Join assigned live lessons, review recordings, and download notes.'}</p></section>
+    <section class='live-section'><h2>Live Now</h2><div class='live-grid'>{''.join(card(c) for c in live_now) or '<div class="empty-live">No classes are live right now.</div>'}</div></section>
+    <section class='live-section'><h2>Upcoming Classes</h2><div class='live-grid'>{''.join(card(c) for c in upcoming) or '<div class="empty-live">No upcoming classes assigned.</div>'}</div></section>
+    <section class='live-section'><h2>Recorded Classes</h2><div class='live-grid'>{''.join(card(c) for c in recorded) or '<div class="empty-live">No recordings available yet.</div>'}</div></section></main>
+    """
+    return render_student_dashboard_shell(html, active_nav="live_classes")
+
+
+@app.route("/student/live-classes/<int:live_class_id>/join", methods=["GET"])
+def student_live_class_join(live_class_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    live_class = db.session.get(LiveClass, live_class_id)
+    if not student or not live_class or not live_class.is_active:
+        return live_class_block_page("This live class is not assigned to your account."), 404
+    if not student_subscription_allows_live(student):
+        log_live_class_access(live_class.id, student.id, "blocked_subscription")
+        return live_class_block_page("Your subscription is inactive. Please renew your subscription to join live classes.", True)
+    if not student_can_see_live_class(student, live_class):
+        log_live_class_access(live_class.id, student.id, "blocked_audience")
+        return live_class_block_page("This live class is not assigned to your account.")
+    now = datetime.utcnow()
+    if now < (live_class.start_datetime - timedelta(minutes=15)) or now > live_class.end_datetime:
+        log_live_class_access(live_class.id, student.id, "blocked_time")
+        return live_class_block_page("This class is not open yet. You can join 15 minutes before the start time.")
+    url = preferred_live_url(live_class, student)
+    if not url:
+        log_live_class_access(live_class.id, student.id, "blocked_time")
+        return live_class_block_page("The live link is not available yet. Please check again later.")
+    log_live_class_access(live_class.id, student.id, "allowed")
+    return redirect(url)
+
+
+@app.route("/student/live-classes/<int:live_class_id>/recording", methods=["GET"])
+def student_live_class_recording(live_class_id: int):
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    student = db.session.get(Student, student_id)
+    live_class = db.session.get(LiveClass, live_class_id)
+    if not student or not live_class or not live_class.is_active or not student_can_see_live_class(student, live_class):
+        return live_class_block_page("This live class is not assigned to your account."), 404
+    if not student_subscription_allows_live(student):
+        return live_class_block_page("Your subscription is inactive. Please renew your subscription to join live classes.", True)
+    url = preferred_recording_url(live_class, student)
+    if not url or live_class_effective_status(live_class) != "completed":
+        return live_class_block_page("The recording is not available yet.")
+    return redirect(url)
+
 @app.route("/admin-dashboard", methods=["GET"])
 def admin_dashboard():
     admin_redirect = admin_session_required()
@@ -7346,6 +7859,7 @@ def admin_dashboard():
         <p><a href='/admin/syllabus'>Syllabus Management</a></p><p><a href='/admin/subjects'>Subject Management</a></p>
         <p><a href='/admin/syllabus'>Chapter Content Management</a></p>
         <p><a href='/admin/lesson-builder'>Lesson Builder</a></p>
+        <p><a href='/admin/live-classes'>Live Class Manager</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/messages'>Send Student Messages</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
