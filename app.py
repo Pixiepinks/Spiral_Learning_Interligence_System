@@ -1958,6 +1958,8 @@ class Lesson(db.Model):
     lesson_title_si = db.Column(db.String(200), nullable=False)
     lesson_type = db.Column(db.String(50), nullable=False, default="standard")
     thumbnail_url = db.Column(db.Text, nullable=True)
+    description_en = db.Column(db.Text, nullable=True)
+    description_si = db.Column(db.Text, nullable=True)
     estimated_minutes = db.Column(db.Integer, nullable=False, default=10)
     xp_reward = db.Column(db.Integer, nullable=False, default=10)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -4742,6 +4744,8 @@ def ensure_lesson_engine_tables() -> None:
                 lesson_title_si VARCHAR(200) NOT NULL,
                 lesson_type VARCHAR(50) NOT NULL DEFAULT 'standard',
                 thumbnail_url TEXT,
+                description_en TEXT,
+                description_si TEXT,
                 estimated_minutes INTEGER NOT NULL DEFAULT 10,
                 xp_reward INTEGER NOT NULL DEFAULT 10,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -4777,6 +4781,8 @@ def ensure_lesson_engine_tables() -> None:
             """
         )
     )
+    db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS description_en TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS description_si TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_en TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_si TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS image_url TEXT"))
@@ -9271,13 +9277,16 @@ def admin_lesson_builder():
 
     subjects = get_subjects_for_grade(grade, active_only=True) if grade else []
     rows = "".join(
-        f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
+        f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/lesson/{lesson.id}/edit'>Edit Lesson</a> | <a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
         for lesson, chapter, module, term, _ in lessons
     )
+    success_message = session.pop("lesson_builder_success", "")
+    success_html = f"<p style='padding:10px;border-radius:8px;background:#dcfce7;color:#166534;border:1px solid #86efac;'>{escape(success_message)}</p>" if success_message else ""
     subject_options = "".join([f"<option value='{s.id}' {'selected' if subject_id == s.id else ''}>{escape(s.subject_name_en)}</option>" for s in subjects])
     return f"""
     <h1>Admin Lesson Builder</h1>
     <p><a href='/admin-dashboard'>Back</a> | <a href='/admin/lesson-builder/new'>Add Lesson</a></p>
+    {success_html}
     <form method='get'>
       <label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label>
       <label>Subject <select name='subject_id'><option value=''>All</option>{subject_options}</select></label>
@@ -9414,6 +9423,167 @@ def admin_lesson_builder_new():
 
         filterSubjects();
         filterTerms();
+        filterModules();
+        filterChapters();
+      }})();
+    </script>
+    """
+
+
+
+def _selected_subject_id_for_lesson_term(term: SyllabusTerm | None, subjects: list[SubjectMaster]) -> int | None:
+    if not term:
+        return None
+    term_subject = (term.subject or "").strip().lower()
+    for subject in subjects:
+        subject_keys = [subject.subject_code, subject.subject_name_en, subject.subject_name_si]
+        if any((key or "").strip().lower() == term_subject for key in subject_keys):
+            return subject.id
+    return None
+
+
+@app.route("/admin/lesson-builder/lesson/<int:lesson_id>/edit", methods=["GET", "POST"])
+def admin_lesson_builder_edit(lesson_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_lesson_engine_tables()
+
+    lesson = db.session.get(Lesson, lesson_id)
+    if not lesson:
+        return "<h2>Lesson not found</h2>", 404
+
+    error_message = ""
+    if request.method == "POST":
+        chapter_id_raw = (request.form.get("chapter_id") or "").strip()
+        lesson_order_raw = (request.form.get("lesson_order") or "").strip()
+        estimated_minutes_raw = (request.form.get("estimated_minutes") or "").strip()
+        try:
+            chapter_id = int(chapter_id_raw)
+            lesson_order = max(1, int(lesson_order_raw or "1"))
+            estimated_minutes = max(1, int(estimated_minutes_raw or "10"))
+        except ValueError:
+            error_message = "Chapter, lesson order, and estimated duration must be valid numbers."
+        else:
+            selected_chapter = db.session.get(SyllabusChapter, chapter_id)
+            if not selected_chapter:
+                error_message = "Selected chapter was not found."
+            else:
+                lesson.chapter_id = selected_chapter.id
+                lesson.lesson_order = lesson_order
+                lesson.lesson_title_en = (request.form.get("lesson_title_en") or "").strip() or "Untitled Lesson"
+                lesson.lesson_title_si = (request.form.get("lesson_title_si") or "").strip() or "නම නොමැති පාඩම"
+                lesson.description_en = (request.form.get("description_en") or "").strip() or None
+                lesson.description_si = (request.form.get("description_si") or "").strip() or None
+                lesson.estimated_minutes = estimated_minutes
+                lesson.is_active = _parse_bool_form(request.form.get("is_active"), False)
+                db.session.commit()
+                session["lesson_builder_success"] = f"Lesson '{lesson.lesson_title_en}' updated successfully."
+                return redirect("/admin/lesson-builder")
+
+    chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+    module = db.session.get(SyllabusModule, chapter.module_id) if chapter else None
+    term = db.session.get(SyllabusTerm, module.term_id) if module else None
+
+    active_subjects = SubjectMaster.query.filter_by(is_active=True).order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
+    all_terms = SyllabusTerm.query.order_by(SyllabusTerm.grade.asc(), SyllabusTerm.term_number.asc(), SyllabusTerm.id.asc()).all()
+    all_modules = SyllabusModule.query.order_by(SyllabusModule.term_id.asc(), SyllabusModule.module_order.asc(), SyllabusModule.id.asc()).all()
+    all_chapters = SyllabusChapter.query.filter_by(is_active=True).order_by(SyllabusChapter.module_id.asc(), SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).all()
+
+    selected_grade = term.grade if term else ""
+    selected_subject_id = _selected_subject_id_for_lesson_term(term, active_subjects)
+    selected_module_id = module.id if module else None
+    selected_chapter_id = chapter.id if chapter else lesson.chapter_id
+
+    subject_options = "".join(
+        f"<option value='{s.id}' data-grade='{escape(s.grade or '')}' data-keys='{escape('|'.join([k.lower() for k in [s.subject_code, s.subject_name_en, s.subject_name_si] if k]))}' {'selected' if selected_subject_id == s.id else ''}>{escape(s.subject_name_en)} ({escape(s.subject_code or '-')})</option>"
+        for s in active_subjects
+    )
+    module_options = "".join(
+        f"<option value='{m.id}' data-term-id='{m.term_id}' {'selected' if selected_module_id == m.id else ''}>M{m.module_order} - {escape(m.module_name_en)}</option>"
+        for m in all_modules
+    )
+    chapter_options = "".join(
+        f"<option value='{c.id}' data-module-id='{c.module_id}' {'selected' if selected_chapter_id == c.id else ''}>C{c.chapter_order} - {escape(c.chapter_name_en)}</option>"
+        for c in all_chapters
+    )
+    error_html = f"<p style='padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;'>{escape(error_message)}</p>" if error_message else ""
+    checked = "checked" if lesson.is_active else ""
+
+    return f"""
+    <h1>Edit Lesson</h1>
+    <p><a href='/admin/lesson-builder'>Back to Lesson List</a> | <a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></p>
+    {error_html}
+    <form method='post'>
+      <label>Grade <select name='grade' id='lesson-grade' required><option value=''>Select grade</option>{grade_options_html(selected_grade)}</select></label><br><br>
+      <label>Subject <select name='subject_id' id='lesson-subject' required><option value=''>Select subject</option>{subject_options}</select></label><br><br>
+      <label>Module <select name='module_id' id='lesson-module' required><option value=''>Select module</option>{module_options}</select></label><br><br>
+      <label>Chapter <select name='chapter_id' id='lesson-chapter' required><option value=''>Select chapter</option>{chapter_options}</select></label><br><br>
+      <label>Lesson Order <input type='number' name='lesson_order' value='{lesson.lesson_order}' min='1' required></label><br><br>
+      <label>Lesson Title EN <input type='text' name='lesson_title_en' value='{escape(lesson.lesson_title_en or "")}' required></label><br><br>
+      <label>Lesson Title SI <input type='text' name='lesson_title_si' value='{escape(lesson.lesson_title_si or "")}' required></label><br><br>
+      <label>Description EN<br><textarea name='description_en' rows='4' cols='70'>{escape(lesson.description_en or "")}</textarea></label><br><br>
+      <label>Description SI<br><textarea name='description_si' rows='4' cols='70'>{escape(lesson.description_si or "")}</textarea></label><br><br>
+      <label>Estimated Duration <input type='number' name='estimated_minutes' value='{lesson.estimated_minutes or 10}' min='1'> minutes</label><br><br>
+      <label><input type='checkbox' name='is_active' value='1' {checked}> Is Active</label><br><br>
+      <button type='submit'>Save Lesson</button>
+    </form>
+    <script>
+      (function () {{
+        const gradeEl = document.getElementById('lesson-grade');
+        const subjectEl = document.getElementById('lesson-subject');
+        const moduleEl = document.getElementById('lesson-module');
+        const chapterEl = document.getElementById('lesson-chapter');
+        if (!gradeEl || !subjectEl || !moduleEl || !chapterEl) return;
+
+        const optionsFor = (el) => Array.from(el.querySelectorAll('option')).filter(opt => opt.value);
+        const subjectOptions = optionsFor(subjectEl);
+        const moduleOptions = optionsFor(moduleEl);
+        const chapterOptions = optionsFor(chapterEl);
+        const moduleTermMap = {json.dumps({str(m.id): str(m.term_id) for m in all_modules})};
+        const termSubjectGradeMap = {json.dumps({str(t.id): {"grade": t.grade or "", "subject": (t.subject or "").lower()} for t in all_terms})};
+
+        const moduleMatchesSelection = (moduleOption) => {{
+          const grade = (gradeEl.value || '').trim();
+          const selectedSubject = subjectEl.options[subjectEl.selectedIndex];
+          const keys = ((selectedSubject?.dataset?.keys) || '').split('|').filter(Boolean);
+          const termInfo = termSubjectGradeMap[moduleTermMap[moduleOption.value]] || {{}};
+          if (grade && termInfo.grade !== grade) return false;
+          if (keys.length === 0) return true;
+          return keys.includes((termInfo.subject || '').toLowerCase());
+        }};
+
+        const showOptions = (el, options, predicate, placeholder) => {{
+          const current = el.value;
+          el.innerHTML = `<option value="">${{placeholder}}</option>`;
+          let keepCurrent = false;
+          options.forEach(opt => {{
+            if (!predicate(opt)) return;
+            el.appendChild(opt);
+            if (opt.value === current) keepCurrent = true;
+          }});
+          if (!keepCurrent) el.value = '';
+        }};
+
+        const filterSubjects = () => {{
+          const grade = (gradeEl.value || '').trim();
+          showOptions(subjectEl, subjectOptions, (opt) => !grade || opt.dataset.grade === grade, 'Select subject');
+        }};
+
+        const filterModules = () => {{
+          showOptions(moduleEl, moduleOptions, moduleMatchesSelection, 'Select module');
+        }};
+
+        const filterChapters = () => {{
+          const moduleId = moduleEl.value;
+          showOptions(chapterEl, chapterOptions, (opt) => !moduleId || opt.dataset.moduleId === moduleId, 'Select chapter');
+        }};
+
+        gradeEl.addEventListener('change', () => {{ filterSubjects(); filterModules(); filterChapters(); }});
+        subjectEl.addEventListener('change', () => {{ filterModules(); filterChapters(); }});
+        moduleEl.addEventListener('change', filterChapters);
+
+        filterSubjects();
         filterModules();
         filterChapters();
       }})();
