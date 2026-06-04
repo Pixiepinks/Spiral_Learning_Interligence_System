@@ -3075,6 +3075,85 @@ def render_public_home_page() -> str:
     template_path = os.path.join(FRONTEND_BUILD_DIR, "index.html")
     with open(template_path, "r", encoding="utf-8") as f:
         html = f.read()
+
+    home_lesson_override_css = """
+    <style id="slis-home-lesson-mobile-fix">
+      .new-popular-lessons .home-lesson-card {
+        min-height: 0 !important;
+        height: auto !important;
+        overflow: hidden !important;
+      }
+
+      .new-popular-lessons .home-lesson-image-wrap {
+        width: 100% !important;
+        aspect-ratio: 16 / 9 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: hidden !important;
+        background: #0b1f4d !important;
+      }
+
+      .new-popular-lessons .home-lesson-image {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        object-position: center center !important;
+        display: block !important;
+        background: #0b1f4d !important;
+      }
+
+      .new-popular-lessons .home-lesson-content {
+        min-height: 0 !important;
+        height: auto !important;
+        padding: 14px 18px 18px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+      }
+
+      .new-popular-lessons .home-lesson-content h3,
+      .new-popular-lessons .home-lesson-content p {
+        margin: 0 !important;
+      }
+
+      .new-popular-lessons .home-lesson-start {
+        margin-top: 8px !important;
+        align-self: flex-start !important;
+      }
+
+      @media (max-width: 640px) {
+        .new-popular-lessons .home-lessons-list {
+          gap: 18px !important;
+        }
+
+        .new-popular-lessons .home-lesson-content {
+          padding: 10px 16px 14px !important;
+          gap: 6px !important;
+        }
+
+        .new-popular-lessons .home-lesson-badges {
+          margin-bottom: 2px !important;
+        }
+
+        .new-popular-lessons .home-lesson-content h3 {
+          line-height: 1.15 !important;
+        }
+
+        .new-popular-lessons .home-lesson-content p {
+          line-height: 1.2 !important;
+        }
+
+        .new-popular-lessons .home-lesson-start {
+          margin-top: 6px !important;
+        }
+      }
+    </style>
+    """
+
+    if "</head>" in html:
+        html = html.replace("</head>", f"{home_lesson_override_css}\n</head>", 1)
+
     section_html = build_public_home_lesson_section()
     return html.replace("</main>", f"{section_html}\n    </main>", 1)
 
