@@ -4299,7 +4299,7 @@ def student_dashboard():
   }}
 
   .main {{
-    padding-top: 150px !important;
+    padding-top: 164px !important;
   }}
 
   .mobile-dashboard-header {{
@@ -4308,7 +4308,7 @@ def student_dashboard():
 
   .mobile-quick-actions {{
     position: fixed !important;
-    top: 78px !important;
+    top: 92px !important;
     left: 18px !important;
     right: 18px !important;
     z-index: 9998 !important;
