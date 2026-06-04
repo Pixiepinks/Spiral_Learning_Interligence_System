@@ -5593,7 +5593,8 @@ def admin_chapter_content(chapter_id: int):
     video_options = "".join([f"<option value='{v.id}'>{v.id} - {escape(v.title_en)}</option>" for v in video_rows])
 
     return f"""<h1>Chapter Content Manager</h1>
-    <p><a href='/admin/syllabus'>Back</a></p>
+    <p style='padding:10px;border-radius:8px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;'><strong>This page is deprecated.</strong> Please use <a href='/admin/lesson-builder?chapter_id={chapter_id}'>Lesson Builder</a>.</p>
+    <p><a href='/admin/syllabus'>Back</a> | <a href='/admin/lesson-builder?chapter_id={chapter_id}'>Open Lesson Builder</a> | <a href='/admin/migrate-chapter-content/{chapter_id}'>Migrate Old Content</a></p>
     <table border='1' cellpadding='6'><tr><th>Order</th><th>Type</th><th>Title</th><th>Required</th><th>Action</th></tr>{list_html or "<tr><td colspan='5'>No content yet</td></tr>"}</table>
     <h2>Add Content</h2>
     <form method='post'>
@@ -5617,6 +5618,110 @@ def admin_chapter_content(chapter_id: int):
       <p>Required Answer <select name='required_answer'><option value='yes'>Yes</option><option value='no'>No</option></select></p>
       <button type='submit'>Save Interaction</button>
     </form>"""
+
+
+@app.route("/admin/migrate-chapter-content/<int:chapter_id>", methods=["GET", "POST"])
+def admin_migrate_chapter_content(chapter_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_chapter_learning_tables()
+    ensure_lesson_engine_tables()
+    chapter = db.session.get(SyllabusChapter, chapter_id)
+    if not chapter:
+        return "<h2>Chapter not found</h2>", 404
+    legacy_rows = (
+        ChapterLearningContent.query
+        .filter_by(chapter_id=chapter_id, is_active=True)
+        .order_by(ChapterLearningContent.content_order.asc(), ChapterLearningContent.id.asc())
+        .all()
+    )
+    if request.method == "POST":
+        next_order = (
+            db.session.query(db.func.max(Lesson.lesson_order))
+            .filter(Lesson.chapter_id == chapter_id)
+            .scalar()
+            or 0
+        ) + 1
+        lesson = Lesson(
+            chapter_id=chapter_id,
+            lesson_order=next_order,
+            lesson_title_en=f"Migrated content - {chapter.chapter_name_en}",
+            lesson_title_si=f"මාරු කළ අන්තර්ගතය - {chapter.chapter_name_si or chapter.chapter_name_en}",
+            lesson_type="standard",
+            estimated_minutes=max(10, sum(max(1, int(getattr(row, "estimated_minutes", None) or 5)) for row in legacy_rows)),
+            xp_reward=10,
+            is_active=True,
+        )
+        db.session.add(lesson)
+        db.session.flush()
+        migrated_count = 0
+        slide_order = 1
+        for row in legacy_rows:
+            legacy_type = (row.content_type or "").strip().lower()
+            slide_type = "video" if legacy_type == "video" else "explanation"
+            content_en = row.content_body_en
+            content_si = row.content_body_si
+            if legacy_type in {"activity", "practice", "test"}:
+                content_en = content_en or f"Migrated legacy {legacy_type} content. Original URL: {row.content_url or '-'}"
+                content_si = content_si or f"මාරු කළ පැරණි {legacy_type} අන්තර්ගතය. මුල් URL: {row.content_url or '-'}"
+            slide = LessonSlide(
+                lesson_id=lesson.id,
+                slide_order=slide_order,
+                slide_type=slide_type,
+                title_en=row.title_en or f"Migrated {legacy_type or 'content'}",
+                title_si=row.title_si or row.title_en or f"Migrated {legacy_type or 'content'}",
+                content_en=content_en,
+                content_si=content_si,
+                video_url=row.content_url if legacy_type == "video" else None,
+                video_url_si=row.content_url if legacy_type == "video" else None,
+                video_url_en=row.content_url if legacy_type == "video" else None,
+                is_required=bool(row.is_required),
+                is_active=True,
+            )
+            db.session.add(slide)
+            migrated_count += 1
+            slide_order += 1
+            if legacy_type == "video":
+                interactions = VideoInteraction.query.filter_by(content_id=row.id).order_by(VideoInteraction.trigger_seconds.asc(), VideoInteraction.id.asc()).all()
+                for interaction in interactions:
+                    if not interaction.question_id:
+                        continue
+                    db.session.add(LessonSlide(
+                        lesson_id=lesson.id,
+                        slide_order=slide_order,
+                        slide_type="interactive_video",
+                        title_en=f"{row.title_en or 'Video'} - Question at {interaction.trigger_seconds}s",
+                        title_si=f"{row.title_si or row.title_en or 'Video'} - {interaction.trigger_seconds}s ප්‍රශ්නය",
+                        content_en=row.content_body_en,
+                        content_si=row.content_body_si,
+                        video_url=row.content_url,
+                        video_url_si=row.content_url,
+                        video_url_en=row.content_url,
+                        activity_json=json.dumps({
+                            "trigger_seconds": int(interaction.trigger_seconds or 0),
+                            "question_id": int(interaction.question_id),
+                            "pause_video": bool(interaction.pause_video),
+                            "required_answer": bool(interaction.required_answer),
+                        }, ensure_ascii=False),
+                        is_required=bool(row.is_required),
+                        is_active=True,
+                    ))
+                    migrated_count += 1
+                    slide_order += 1
+        db.session.commit()
+        session["lesson_builder_success"] = f"Migrated {migrated_count} legacy content row(s) into lesson '{lesson.lesson_title_en}'. Original ChapterLearningContent rows were not deleted."
+        return redirect(f"/admin/lesson-builder?chapter_id={chapter_id}")
+    rows_html = "".join(
+        f"<tr><td>{row.content_order}</td><td>{escape(row.content_type or '')}</td><td>{escape(row.title_en or '')}</td><td>{'video' if (row.content_type or '').strip().lower() == 'video' else 'explanation'}</td></tr>"
+        for row in legacy_rows
+    )
+    return f"""<h1>Migrate Chapter Content</h1>
+    <p><strong>Chapter:</strong> {escape(chapter.chapter_name_en)}</p>
+    <p>This helper copies active legacy ChapterLearningContent rows into a new Lesson with LessonSlide rows. It does not delete or modify the original rows.</p>
+    <table border='1' cellpadding='6'><tr><th>Order</th><th>Legacy Type</th><th>Title</th><th>New Slide Type</th></tr>{rows_html or "<tr><td colspan='4'>No active legacy content found.</td></tr>"}</table>
+    <form method='post' onsubmit="return confirm('Create a new migrated lesson for this chapter?');"><button type='submit' {'disabled' if not legacy_rows else ''}>Migrate to Lesson Builder</button></form>
+    <p><a href='/admin/lesson-builder?chapter_id={chapter_id}'>Back to Lesson Builder</a> | <a href='/admin/chapters/content/{chapter_id}'>Back to Deprecated Content Page</a></p>"""
 
 
 @app.route("/admin/chapter-content/edit/<int:content_id>", methods=["GET", "POST"])
@@ -9060,6 +9165,7 @@ def student_learning_path():
     if not student_id:
         return redirect(url_for("login"))
     ensure_chapter_learning_tables()
+    ensure_lesson_engine_tables()
     student = db.session.get(Student, student_id)
     is_si = student.medium == "Sinhala"
     grade = normalize_grade(student.grade)
@@ -9327,27 +9433,26 @@ def student_subject_module_page(subject_id: int, module_id: int):
         .all()
     } if chapter_ids else {}
     for idx, ch in enumerate(chapters):
-        content_rows = ChapterLearningContent.query.filter_by(chapter_id=ch.id, is_active=True).all()
+        chapter_lessons = Lesson.query.filter_by(chapter_id=ch.id, is_active=True).order_by(Lesson.lesson_order.asc(), Lesson.id.asc()).all()
+        chapter_lesson_ids = [lesson.id for lesson in chapter_lessons]
         ctype_counts = {"video": 0, "note": 0, "activity": 0, "practice": 0, "test": 0}
-        for item in content_rows:
-            key = (item.content_type or "").strip().lower()
-            if key in ctype_counts:
-                ctype_counts[key] += 1
-            total_estimated_minutes += max(5, int(getattr(item, "estimated_minutes", None) or 0))
-        total_content = len(content_rows)
-        total_video_count += ctype_counts["video"]
-        total_note_count += ctype_counts["note"]
+        lesson_slide_counts = {row.lesson_id: row.slide_count for row in db.session.query(LessonSlide.lesson_id, db.func.count(LessonSlide.id).label("slide_count")).filter(LessonSlide.lesson_id.in_(chapter_lesson_ids), LessonSlide.is_active.is_(True)).group_by(LessonSlide.lesson_id).all()} if chapter_lesson_ids else {}
+        completed_lessons = StudentLessonProgress.query.filter(StudentLessonProgress.student_id == student.id, StudentLessonProgress.lesson_id.in_(chapter_lesson_ids), StudentLessonProgress.is_completed.is_(True)).count() if chapter_lesson_ids else 0
+        lesson_count = len(chapter_lessons)
+        slide_count = sum(int(lesson_slide_counts.get(lesson_id, 0) or 0) for lesson_id in chapter_lesson_ids)
+        ctype_counts["video"] = sum(1 for lesson_id in chapter_lesson_ids if lesson_slide_counts.get(lesson_id, 0))
+        ctype_counts["note"] = slide_count
+        ctype_counts["activity"] = LessonSlide.query.filter(LessonSlide.lesson_id.in_(chapter_lesson_ids), LessonSlide.is_active.is_(True), LessonSlide.slide_type.in_(["quiz", "activity", "tap_correct_picture", "image_grid", "drag_drop_circle_size_match", "interactive_video", "manual_interim_test"])).count() if chapter_lesson_ids else 0
+        ctype_counts["practice"] = completed_lessons
+        ctype_counts["test"] = max(0, lesson_count - completed_lessons)
+        total_video_count += lesson_count
+        total_note_count += slide_count
         total_activity_count += ctype_counts["activity"]
-        total_practice_count += ctype_counts["practice"]
+        total_practice_count += completed_lessons
         total_test_count += ctype_counts["test"]
-        completed_content = StudentContentProgress.query.filter(
-            StudentContentProgress.student_id == student.id,
-            StudentContentProgress.content_id.in_([c.id for c in content_rows]) if content_rows else False,
-            StudentContentProgress.status == "completed"
-        ).count() if content_rows else 0
-        total_required_items += total_content
-        total_completed_items += completed_content
-        chapter_pct = int((completed_content / total_content) * 100) if total_content else (100 if progress_map.get(ch.id) and progress_map[ch.id].status == "completed" else 0)
+        total_required_items += lesson_count
+        total_completed_items += completed_lessons
+        chapter_pct = int((completed_lessons / lesson_count) * 100) if lesson_count else (100 if progress_map.get(ch.id) and progress_map[ch.id].status == "completed" else 0)
         status_key, status_text = chapter_status(ch, idx)
         status_counts[status_key] = status_counts.get(status_key, 0) + 1
         if status_key != "locked":
@@ -9394,7 +9499,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
               <small>{'පරිච්ඡේදය' if is_si else 'Chapter'} {ch.chapter_order or idx+1} {("<span class='recommended-badge'>Recommended for You</span>" if is_recommended else "")} {chapter_mastery_badge}</small>
               <h3>{escape(ch_name)}</h3>
               <p>{escape(chapter_subtitle)}</p>
-              <div class='content-metrics'><span>🎬 {ctype_counts['video']}</span><span>📝 {ctype_counts['note']}</span><span>🧩 {ctype_counts['activity']}</span><span>🎯 {ctype_counts['practice']}</span><span>❓ {ctype_counts['test']}</span><span>⏱️ {chapter_estimated_minutes}m</span><span>⭐ {chapter_xp_reward} XP</span></div>
+              <div class='content-metrics'><span>📚 {lesson_count} lessons</span><span>🧾 {slide_count} slides</span><span>🧩 {ctype_counts['activity']} activities</span><span>✅ {completed_lessons} done</span><span>▶️ {ctype_counts['test']} left</span><span>⏱️ {chapter_estimated_minutes}m</span><span>⭐ {chapter_xp_reward} XP</span></div>
             </div>
             <div class='chapter-progress-wrap'>
               <span class='status-pill {status_key}'>{status_text}</span>
@@ -10361,6 +10466,11 @@ def student_lesson_page(lesson_id: int):
 
         manual_test_questions = manual_interim_selected_questions(s.id) if slide_content_type == "manual_interim_test" else []
         manual_test_html = build_manual_interim_slide_html(s, manual_test_questions, "si" if is_si else "en", is_si) if slide_content_type == "manual_interim_test" else ""
+        interactive_question_html = ""
+        if slide_content_type == "interactive_video" and activity_payload:
+            interactive_question = db.session.get(Question, int(activity_payload.get("question_id") or 0))
+            if interactive_question:
+                interactive_question_html = render_manual_interim_question_html(interactive_question, "si" if is_si else "en", 1)
 
         slide_payload.append({
             "id": s.id,
@@ -10378,6 +10488,7 @@ def student_lesson_page(lesson_id: int):
             "image_grid_images": image_grid_images,
             "question_count": int(s.question_count or 0),
             "manual_test_html": manual_test_html,
+            "interactive_question_html": interactive_question_html,
         })
 
     inner_html = f"""
@@ -10504,7 +10615,7 @@ def student_lesson_page(lesson_id: int):
             if (submitBtn) submitBtn.disabled = false;
           }}
         }});
-      }} function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test"; document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      }} function wireInteractiveVideo(mediaWrap, current) {{ const activity = current.activity || {{}}; const triggerSeconds = Math.max(0, Number(activity.trigger_seconds || 0)); const pauseVideo = activity.pause_video !== false; const requiredAnswer = activity.required_answer !== false; const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || ""; const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`; const questionHtml = current.interactive_question_html || `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`; mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-question" style="display:none;margin-top:16px;padding:16px;border:1px solid #fed7aa;border-radius:14px;background:#fff7ed;"><h3>${{isSinhala ? "වීඩියෝ ප්‍රශ්නය" : "Video Question"}}</h3><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || ''}}">${{questionHtml}}<button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div>`); const questionPanel = mediaWrap.querySelector(".interactive-video-question"); const iframe = mediaWrap.querySelector(".interactive-video-frame"); const form = mediaWrap.querySelector(".interactive-video-form"); const status = mediaWrap.querySelector(".interactive-video-status"); let questionShown = false; let timer = null; const showQuestion = () => {{ if (questionShown) return; questionShown = true; if (questionPanel) questionPanel.style.display = "block"; if (pauseVideo && iframe) iframe.src = iframe.src; if (!requiredAnswer) solvedQuizSlides.add(current.id); enableFinishLessonButton(); }}; if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ timer = window.setTimeout(showQuestion, triggerSeconds * 1000); }} form?.addEventListener("submit", async (event) => {{ event.preventDefault(); if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving..."; const fd = new FormData(form); fd.set("slide_id", String(current.id)); fd.set("time_spent_seconds", String(Math.round((Date.now() - slideStartedAt) / 1000))); try {{ const res = await fetch("/student/lesson/" + lessonId + "/interactive-video-answer", {{ method: "POST", body: fd }}); const data = await res.json().catch(()=>null); if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || "Answer failed"); if (status) status.textContent = data.is_correct ? (isSinhala ? "නිවැරදියි" : "Correct") : (isSinhala ? "පිළිතුර සුරැකිණි" : "Answer saved"); solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl); form.querySelectorAll("input,select,button,textarea").forEach((el)=>{{ if (!el.classList.contains("manual-test-submit")) el.disabled = true; }}); }} catch (err) {{ console.error("Interactive video answer failed:", err); alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer.")); if (status) status.textContent = ""; }} }}); }} function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "interactive_video") {{ wireInteractiveVideo(mediaWrap, current); }} if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
@@ -10604,6 +10715,57 @@ def student_lesson_manual_interim_test_submit(lesson_id: int):
     recalculate_student_chapter_progress(student.id, lesson.chapter_id)
     db.session.commit()
     return jsonify({"ok": True, "score": score, "total_questions": total_questions, "correct_answers": correct_count, "mastery_status": mastery.status_en if mastery else None, "answers": answer_summary})
+
+
+@app.route("/student/lesson/<int:lesson_id>/interactive-video-answer", methods=["POST"])
+def student_lesson_interactive_video_answer_submit(lesson_id: int):
+    student = get_current_student_for_json()
+    if not student:
+        return jsonify({"ok": False, "error": "Student session expired"}), 401
+    ensure_lesson_engine_tables()
+    lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
+    if not lesson:
+        return jsonify({"ok": False, "error": "Lesson not found"}), 404
+    slide_id = int(request.form.get("slide_id") or 0)
+    question_id = int(request.form.get("question_id") or 0)
+    slide = LessonSlide.query.filter_by(id=slide_id, lesson_id=lesson.id, slide_type="interactive_video", is_active=True).first()
+    if not slide:
+        return jsonify({"ok": False, "error": "Interactive video slide not found"}), 404
+    try:
+        activity_payload = json.loads(slide.activity_json or "{}")
+        if not isinstance(activity_payload, dict):
+            activity_payload = {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        activity_payload = {}
+    configured_question_id = int(activity_payload.get("question_id") or 0)
+    if configured_question_id and question_id != configured_question_id:
+        return jsonify({"ok": False, "error": "Question does not match this slide"}), 400
+    question = db.session.get(Question, question_id)
+    if not question:
+        return jsonify({"ok": False, "error": "Question not found"}), 404
+    medium_key = "si" if student.medium == "Sinhala" else "en"
+    is_correct, student_answer, correct_answer = evaluate_manual_interim_question(question, request.form, medium_key)
+    required_answer = bool(activity_payload.get("required_answer", True))
+    if required_answer and not str(student_answer or "").strip():
+        return jsonify({"ok": False, "error": "Please answer the question before continuing."}), 400
+    answer_payload = {
+        "question_id": question.id,
+        "question_type": (question.question_type or "mcq").strip().lower(),
+        "student_answer": student_answer,
+        "correct_answer": correct_answer,
+        "trigger_seconds": int(activity_payload.get("trigger_seconds") or 0),
+    }
+    db.session.add(StudentLessonAnswer(
+        lesson_id=lesson.id,
+        slide_id=slide.id,
+        student_id=student.id,
+        selected_answer=json.dumps(answer_payload, ensure_ascii=False),
+        is_correct=bool(is_correct),
+        answered_at=datetime.utcnow(),
+    ))
+    update_student_skill_mastery(student.id, lesson.id, slide.id, bool(is_correct), answer_payload)
+    db.session.commit()
+    return jsonify({"ok": True, "is_correct": bool(is_correct), "required_answer": required_answer})
 
 
 @app.route("/student/lesson/<int:lesson_id>/finish", methods=["POST"])
@@ -10834,6 +10996,11 @@ def admin_lesson_builder():
         query = query.filter(SyllabusChapter.id == chapter_id)
     lessons = query.order_by(SyllabusTerm.grade.asc(), SyllabusModule.module_order.asc(), SyllabusChapter.chapter_order.asc(), Lesson.lesson_order.asc()).all()
 
+    selected_chapter = db.session.get(SyllabusChapter, chapter_id) if chapter_id else None
+    page_title = "Admin Lesson Builder"
+    if selected_chapter:
+        page_title = f"Manage Lessons - {selected_chapter.chapter_name_en}"
+
     subjects = get_subjects_for_grade(grade, active_only=True) if grade else []
     rows = "".join(
         f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/lesson/{lesson.id}/edit'>Edit Lesson</a> | <a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
@@ -10843,12 +11010,13 @@ def admin_lesson_builder():
     success_html = f"<p style='padding:10px;border-radius:8px;background:#dcfce7;color:#166534;border:1px solid #86efac;'>{escape(success_message)}</p>" if success_message else ""
     subject_options = "".join([f"<option value='{s.id}' {'selected' if subject_id == s.id else ''}>{escape(s.subject_name_en)}</option>" for s in subjects])
     return f"""
-    <h1>Admin Lesson Builder</h1>
-    <p><a href='/admin-dashboard'>Back</a> | <a href='/admin/lesson-builder/new'>Add Lesson</a></p>
+    <h1>{escape(page_title)}</h1>
+    <p><a href='/admin-dashboard'>Back</a> | <a href='/admin/lesson-builder/new{('?chapter_id=' + str(chapter_id)) if chapter_id else ''}'>Add Lesson</a></p>
     {success_html}
     <form method='get'>
       <label>Grade <select name='grade'><option value=''>All</option>{grade_options_html(grade)}</select></label>
       <label>Subject <select name='subject_id'><option value=''>All</option>{subject_options}</select></label>
+      {f"<input type='hidden' name='chapter_id' value='{chapter_id}'>" if chapter_id else ''}
       <button type='submit'>Filter</button>
     </form>
     <table border='1' cellpadding='6'>
@@ -10879,35 +11047,40 @@ def admin_lesson_builder_new():
         )
         db.session.add(lesson)
         db.session.commit()
-        return redirect("/admin/lesson-builder")
+        return redirect(f"/admin/lesson-builder?chapter_id={chapter_id}")
 
     active_subjects = SubjectMaster.query.filter_by(is_active=True).order_by(SubjectMaster.grade.asc(), SubjectMaster.subject_name_en.asc()).all()
     all_terms = SyllabusTerm.query.order_by(SyllabusTerm.grade.asc(), SyllabusTerm.term_number.asc(), SyllabusTerm.id.asc()).all()
     all_modules = SyllabusModule.query.order_by(SyllabusModule.term_id.asc(), SyllabusModule.module_order.asc(), SyllabusModule.id.asc()).all()
     all_chapters = SyllabusChapter.query.filter_by(is_active=True).order_by(SyllabusChapter.module_id.asc(), SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc()).all()
+    preselected_chapter_id = int(request.args.get("chapter_id") or 0) if (request.args.get("chapter_id") or "").isdigit() else 0
+    preselected_chapter = db.session.get(SyllabusChapter, preselected_chapter_id) if preselected_chapter_id else None
+    preselected_module = db.session.get(SyllabusModule, preselected_chapter.module_id) if preselected_chapter else None
+    preselected_term = db.session.get(SyllabusTerm, preselected_module.term_id) if preselected_module else None
+    preselected_subject_id = _selected_subject_id_for_lesson_term(preselected_term, active_subjects) if preselected_term else None
 
     subject_options = "".join(
-        f"<option value='{s.id}' data-grade='{escape(s.grade or '')}' data-keys='{escape('|'.join([k.lower() for k in [s.subject_code, s.subject_name_en, s.subject_name_si] if k]))}'>{escape(s.subject_name_en)} ({escape(s.subject_code or '-')})</option>"
+        f"<option value='{s.id}' data-grade='{escape(s.grade or '')}' data-keys='{escape('|'.join([k.lower() for k in [s.subject_code, s.subject_name_en, s.subject_name_si] if k]))}' {'selected' if s.id == preselected_subject_id else ''}>{escape(s.subject_name_en)} ({escape(s.subject_code or '-')})</option>"
         for s in active_subjects
     )
     term_options = "".join(
-        f"<option value='{t.id}' data-grade='{escape(t.grade or '')}' data-subject='{escape((t.subject or '').lower())}'>Term {t.term_number} - {escape(t.term_name_en)}</option>"
+        f"<option value='{t.id}' data-grade='{escape(t.grade or '')}' data-subject='{escape((t.subject or '').lower())}' {'selected' if preselected_term and t.id == preselected_term.id else ''}>Term {t.term_number} - {escape(t.term_name_en)}</option>"
         for t in all_terms
     )
     module_options = "".join(
-        f"<option value='{m.id}' data-term-id='{m.term_id}'>M{m.module_order} - {escape(m.module_name_en)}</option>"
+        f"<option value='{m.id}' data-term-id='{m.term_id}' {'selected' if preselected_module and m.id == preselected_module.id else ''}>M{m.module_order} - {escape(m.module_name_en)}</option>"
         for m in all_modules
     )
     chapter_options = "".join(
-        f"<option value='{c.id}' data-module-id='{c.module_id}'>C{c.chapter_order} - {escape(c.chapter_name_en)}</option>"
+        f"<option value='{c.id}' data-module-id='{c.module_id}' {'selected' if c.id == preselected_chapter_id else ''}>C{c.chapter_order} - {escape(c.chapter_name_en)}</option>"
         for c in all_chapters
     )
 
     return f"""
-    <h1>Add Lesson</h1>
+    <h1>{'Add Lesson - ' + escape(preselected_chapter.chapter_name_en) if preselected_chapter else 'Add Lesson'}</h1>
     <p><a href='/admin/lesson-builder'>Back to Lesson List</a></p>
     <form method='post'>
-      <label>Grade <select name='grade' id='lesson-grade' required><option value=''>Select grade</option>{grade_options_html('')}</select></label><br><br>
+      <label>Grade <select name='grade' id='lesson-grade' required><option value=''>Select grade</option>{grade_options_html(str(preselected_term.grade) if preselected_term and preselected_term.grade else '')}</select></label><br><br>
       <label>Subject <select name='subject_id' id='lesson-subject' required><option value=''>Select subject</option>{subject_options}</select></label><br><br>
       <label>Term <select name='term_id' id='lesson-term' required><option value=''>Select term</option>{term_options}</select></label><br><br>
       <label>Module <select name='module_id' id='lesson-module' required><option value=''>Select module</option>{module_options}</select></label><br><br>
@@ -11309,7 +11482,19 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         print("FILES:", request.files)
         print("OLD ACTIVITY JSON:", old_activity_json)
 
-        if is_drag_drop_circle_size_match_submission:
+        if selected_slide_type == "interactive_video":
+            obj.image_url = None
+            trigger_seconds = max(0, int(request.form.get("trigger_seconds") or "0"))
+            question_id = int(request.form.get("interactive_question_id") or request.form.get("question_id") or "0")
+            if question_id <= 0 or not db.session.get(Question, question_id):
+                return f"<h2>Could not save interactive video slide</h2><p>Select a valid question.</p><p><a href='{request.path}'>Back</a></p>", 400
+            obj.activity_json = json.dumps({
+                "trigger_seconds": trigger_seconds,
+                "question_id": question_id,
+                "pause_video": _parse_bool_form(request.form.get("pause_video"), True),
+                "required_answer": _parse_bool_form(request.form.get("required_answer"), True),
+            }, ensure_ascii=False)
+        elif is_drag_drop_circle_size_match_submission:
             obj.image_url = None
             if not slide:
                 db.session.add(obj)
@@ -11466,6 +11651,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         return redirect(f"/admin/lesson-builder/{lesson.id}/slides")
     slide_type_options = [
         ("intro_video", "Intro Video", "හැඳින්වීමේ වීඩියෝව"),
+        ("interactive_video", "Interactive Video Question", "අන්තර්ක්‍රියාකාරී වීඩියෝ ප්‍රශ්නය"),
         ("explanation", "Explanation", "පැහැදිලි කිරීම"),
         ("example", "Example", "උදාහරණය"),
         ("activity", "Activity", "ක්‍රියාකාරකම"),
@@ -11548,9 +11734,26 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for index, item in enumerate(drag_items[:3], start=1)
     )
+    interactive_activity = {}
+    if slide and slide.activity_json:
+        try:
+            parsed_interactive_activity = json.loads(slide.activity_json)
+            if isinstance(parsed_interactive_activity, dict):
+                interactive_activity = parsed_interactive_activity
+        except (TypeError, ValueError, json.JSONDecodeError):
+            interactive_activity = {}
+    interactive_trigger_seconds = int(interactive_activity.get("trigger_seconds") or 0)
+    interactive_question_id = int(interactive_activity.get("question_id") or 0)
+    interactive_pause_video = bool(interactive_activity.get("pause_video", True))
+    interactive_required_answer = bool(interactive_activity.get("required_answer", True))
+
     selected_manual_question_ids = [row.question_id for row in LessonSlideQuestion.query.filter_by(slide_id=slide.id).order_by(LessonSlideQuestion.display_order.asc(), LessonSlideQuestion.id.asc()).all()] if slide else []
     selected_manual_question_id_set = set(selected_manual_question_ids)
     admin_questions = Question.query.order_by(Question.grade.asc(), Question.subject.asc(), Question.topic_en.asc(), Question.id.asc()).all()
+    interactive_question_options = "".join(
+        f"<option value='{q.id}' {'selected' if q.id == interactive_question_id else ''}>Q{q.id} - {escape(((q.question_text_en or q.question_text_si or '')[:90]))}</option>"
+        for q in admin_questions
+    )
     def _question_summary(q: Question) -> str:
         text = (q.question_text_en or q.question_text_si or "").strip().replace("\n", " ")
         return text[:140] + ("..." if len(text) > 140 else "")
@@ -11590,6 +11793,28 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       <label>Video URL (Sinhala) <input type='url' name='video_url_si' value='{escape((slide.video_url_si or slide.video_url) if slide and (slide.video_url_si or slide.video_url) else '')}'></label><br><br>
       <label>Video URL (English) <input type='url' name='video_url_en' value='{escape(slide.video_url_en) if slide and slide.video_url_en else ''}'></label><br><br>
       <label>Audio URL <input type='url' name='audio_url' value='{escape(slide.audio_url) if slide and slide.audio_url else ''}'></label><br><br>
+      <fieldset id='interactiveVideoBuilder' style='border:1px solid #fed7aa;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#fff7ed;'>
+        <legend><strong>Interactive Video Question</strong></legend>
+        <p style='color:#9a3412;'>Use the Sinhala/English Video URL fields above, then choose the timestamp and question that should appear during playback.</p>
+        <label>Trigger second <input type='number' min='0' name='trigger_seconds' value='{interactive_trigger_seconds}'></label><br><br>
+        <label>Select Question <select name='interactive_question_id' required><option value=''>Select question</option>{interactive_question_options}</select></label><br><br>
+        <label><input type='checkbox' name='pause_video' {'checked' if interactive_pause_video else ''}> Pause video</label><br><br>
+        <label><input type='checkbox' name='required_answer' {'checked' if interactive_required_answer else ''}> Required answer</label>
+      </fieldset>
+      <script>
+        (function() {{
+          const typeSelect = document.getElementById('slideTypeSelect');
+          const builder = document.getElementById('interactiveVideoBuilder');
+          const questionSelect = builder ? builder.querySelector('select[name=interactive_question_id]') : null;
+          function toggleInteractiveVideo() {{
+            const show = typeSelect && typeSelect.value === 'interactive_video';
+            if (builder) builder.style.display = show ? 'block' : 'none';
+            if (questionSelect) questionSelect.required = Boolean(show);
+          }}
+          typeSelect?.addEventListener('change', toggleInteractiveVideo);
+          toggleInteractiveVideo();
+        }})();
+      </script>
       <fieldset id='manualInterimTestBuilder' style='border:1px solid #bfdbfe;border-radius:12px;padding:14px;max-width:1120px;margin-bottom:18px;background:#eff6ff;'>
         <legend><strong>Interim Test - Manual Questions</strong></legend>
         <style>.manual-admin-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:12px}}.manual-picker-table-wrap{{overflow:auto;max-height:520px;border:1px solid #cbd5e1;border-radius:12px;background:#fff}}.manual-picker-table{{width:100%;border-collapse:collapse;font-size:14px}}.manual-picker-table th,.manual-picker-table td{{border-bottom:1px solid #e2e8f0;padding:8px;text-align:left;vertical-align:top}}.manual-picker-table th{{position:sticky;top:0;background:#dbeafe;z-index:1}}.manual-picker-status{{font-weight:800;color:#1d4ed8}}.manual-picker-status.error{{color:#b91c1c}}@media(max-width:760px){{.manual-admin-grid{{grid-template-columns:1fr}}.manual-picker-table{{font-size:13px}}}}</style>
@@ -12146,7 +12371,7 @@ def admin_syllabus():
         for m in modules:
             chapters = SyllabusChapter.query.filter_by(module_id=m.id).order_by(SyllabusChapter.chapter_order.asc()).all()
             chapter_html = "".join([
-                f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a> | <a href='/admin/chapters/content/{c.id}'>Manage Learning Content</a></li>"
+                f"<li>{escape(c.chapter_name_en)} / {escape(c.chapter_name_si)} ({'Active' if c.is_active else 'Inactive'}) - <a href='/admin/syllabus/chapter/edit/{c.id}'>Edit</a> | <a href='/admin/lesson-builder?chapter_id={c.id}'>Manage Lessons</a></li>"
                 for c in chapters
             ])
             module_html += f"<li>Module {m.module_order}: {escape(m.module_name_en)} - <a href='/admin/syllabus/module/edit/{m.id}'>Edit</a> | <a href='/admin/syllabus/chapter/add/{m.id}'>Add Chapter</a><ul>{chapter_html or '<li>No chapters</li>'}</ul></li>"
