@@ -10610,7 +10610,38 @@ def student_lesson_page(lesson_id: int):
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><div class='lesson-journey-card' aria-label='Lesson Journey'><div class='lesson-journey-head'><div><p class='lesson-journey-kicker'>SLIS Journey</p><h2 class='lesson-journey-title'>{'Lesson Journey' if not is_si else 'පාඩම් ගමන'}</h2></div></div><div class='lesson-journey-track'>{lesson_journey_html}</div><p class='lesson-journey-summary'>{escape(lessons_completed_summary)}</p><p class='chapter-progress-caption'>{'Chapter progress' if not is_si else 'පරිච්ඡේද ප්‍රගතිය'}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
-      function normalizeYouTube(url) {{ if (!url) return ""; const v = String(url).trim(); return v.includes("youtube.com/embed/") ? v : (v.includes("watch?v=") ? v.replace("watch?v=", "embed/") : v); }}
+      function normalizeYouTube(url, enableJsApi=false) {{
+        if (!url) return "";
+        let v = String(url).trim();
+        if (v.includes("watch?v=")) v = v.replace("watch?v=", "embed/");
+        if (!enableJsApi) return v;
+        const separator = v.includes("?") ? "&" : "?";
+        return `${{v}}${{separator}}enablejsapi=1&origin=${{encodeURIComponent(window.location.origin)}}`;
+      }}
+      function ensureYouTubeApiLoaded(callback) {{
+        if (window.YT && window.YT.Player) {{
+          callback();
+          return;
+        }}
+
+        window.__slisYoutubeApiCallbacks = window.__slisYoutubeApiCallbacks || [];
+        window.__slisYoutubeApiCallbacks.push(callback);
+
+        if (!window.__slisYoutubeApiLoading) {{
+          window.__slisYoutubeApiLoading = true;
+          const tag = document.createElement("script");
+          tag.src = "https://www.youtube.com/iframe_api";
+          document.head.appendChild(tag);
+
+          window.onYouTubeIframeAPIReady = function () {{
+            const callbacks = window.__slisYoutubeApiCallbacks || [];
+            window.__slisYoutubeApiCallbacks = [];
+            callbacks.forEach((fn) => {{
+              try {{ fn(); }} catch (e) {{ console.error(e); }}
+            }});
+          }};
+        }}
+      }}
       async function saveProgress(forceComplete=false) {{ const current = slides[currentIndex]; const completion = forceComplete ? 100 : Math.round(((currentIndex + 1) / slides.length) * 100); const isCompleted = forceComplete || currentIndex >= slides.length - 1; const res = await fetch(`/student/lesson/${{lessonId}}/progress`, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{current_slide_order:current.slide_order,completion_percent:completion,is_completed:isCompleted}})}}); return await res.json().catch(()=>null); }}
       function parseActivityJson(rawJson) {{ if (!rawJson) return null; if (typeof rawJson === "object" && !Array.isArray(rawJson)) return rawJson; if (typeof rawJson !== "string") return null; try {{ const parsed = JSON.parse(rawJson); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null; }} catch (err) {{ console.warn("Could not parse slide.activity_json", err); return null; }} }}
       function getImageGridImages(slide) {{
@@ -10805,7 +10836,7 @@ def student_lesson_page(lesson_id: int):
         const pauseVideo = activity.pause_video !== false;
         const requiredAnswer = activity.required_answer !== false;
         const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || "";
-        const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`;
+        const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl, true)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`;
         mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<button type="button" class="debug-show-interactive-question">Show Question</button><div class="interactive-video-popup" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);align-items:center;justify-content:center;z-index:9999;padding:16px;"><div class="interactive-video-card" style="background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto;border:1px solid #fed7aa;box-shadow:0 24px 60px rgba(15,23,42,.25);"><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || (question && question.id) || ""}}"><div class="interactive-video-question-body"></div><button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div></div>`);
         const questionPanel = mediaWrap.querySelector(".interactive-video-popup");
         const body = mediaWrap.querySelector(".interactive-video-question-body");
@@ -10816,7 +10847,7 @@ def student_lesson_page(lesson_id: int):
         const form = mediaWrap.querySelector(".interactive-video-form");
         const status = mediaWrap.querySelector(".interactive-video-status");
         let questionShown = false;
-        let triggerTimer = null;
+        let ytPlayer = null;
 
         const showQuestion = () => {{
           if (questionShown) return;
@@ -10832,8 +10863,8 @@ def student_lesson_page(lesson_id: int):
             questionPanel.style.display = "flex";
           }}
 
-          if (pauseVideo && iframe) {{
-            iframe.src = iframe.src;
+          if (pauseVideo && ytPlayer && ytPlayer.pauseVideo) {{
+            ytPlayer.pauseVideo();
           }}
 
           if (!requiredAnswer) {{
@@ -10862,8 +10893,66 @@ def student_lesson_page(lesson_id: int):
 
         if (triggerSeconds <= 0) {{
           window.setTimeout(showQuestion, 600);
+        }} else if (iframe && videoUrl) {{
+          const iframeId = "interactive_video_iframe_" + current.id;
+          iframe.id = iframeId;
+
+          ensureYouTubeApiLoaded(() => {{
+            let poller = null;
+
+            ytPlayer = new YT.Player(iframeId, {{
+              events: {{
+                onReady: function () {{
+                  console.log("[interactive_video] YouTube player ready", {{
+                    slide_id: current.id,
+                    triggerSeconds
+                  }});
+                }},
+                onStateChange: function (event) {{
+                  if (event.data === YT.PlayerState.PLAYING && !poller) {{
+                    poller = window.setInterval(() => {{
+                      if (questionShown) {{
+                        window.clearInterval(poller);
+                        poller = null;
+                        return;
+                      }}
+
+                      let currentTime = 0;
+                      try {{
+                        currentTime = ytPlayer.getCurrentTime();
+                      }} catch (e) {{
+                        currentTime = 0;
+                      }}
+
+                      console.log("[interactive_video] video time", {{
+                        slide_id: current.id,
+                        currentTime,
+                        triggerSeconds
+                      }});
+
+                      if (currentTime >= triggerSeconds) {{
+                        window.clearInterval(poller);
+                        poller = null;
+                        showQuestion();
+                      }}
+                    }}, 500);
+                  }}
+
+                  if (
+                    event.data === YT.PlayerState.PAUSED ||
+                    event.data === YT.PlayerState.ENDED
+                  ) {{
+                    if (poller) {{
+                      window.clearInterval(poller);
+                      poller = null;
+                    }}
+                  }}
+                }}
+              }}
+            }});
+          }});
         }} else {{
-          triggerTimer = window.setTimeout(showQuestion, triggerSeconds * 1000);
+          window.setTimeout(showQuestion, triggerSeconds * 1000);
         }}
 
         mediaWrap.querySelector(".debug-show-interactive-question")?.addEventListener("click", showQuestion);
@@ -10884,7 +10973,7 @@ def student_lesson_page(lesson_id: int):
             solvedQuizSlides.add(current.id);
             enableFinishLessonButton();
             if (questionPanel) questionPanel.style.display = "none";
-            if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl);
+            if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
           }} catch (err) {{
             console.error("Interactive video answer failed:", err);
             alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer."));
