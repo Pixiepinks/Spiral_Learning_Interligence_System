@@ -1741,18 +1741,71 @@ def drag_drop_group_assets() -> str:
       .dd-item-pumpkin{transform:scale(1.25);transform-origin:bottom center;}
       .dd-drop-zone{position:relative !important;width:min(92vw,430px) !important;height:230px !important;border:2px dashed #aaa !important;border-radius:12px !important;overflow:hidden !important;}
       .dd-basket{position:absolute;inset:0;width:100% !important;height:100% !important;object-fit:contain !important;pointer-events:none !important;}
-      .interactive-drag-drop-question{max-width:100%;overflow:hidden;}
-      .interactive-drag-drop-question .drag-items-row{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;justify-content:center !important;align-items:flex-end !important;gap:10px !important;margin:8px 0 10px 0 !important;}
-      .interactive-drag-drop-question .dd-item{width:72px !important;height:72px !important;min-width:72px !important;max-width:72px !important;min-height:72px !important;max-height:72px !important;}
-      .interactive-drag-drop-question .dd-drop-zone{width:min(86vw,360px) !important;height:185px !important;margin:0 auto !important;}
-      @media (max-width:768px){
-        .interactive-drag-drop-question .dd-item{width:58px !important;height:58px !important;min-width:58px !important;max-width:58px !important;min-height:58px !important;max-height:58px !important;}
-        .interactive-drag-drop-question .dd-drop-zone{width:min(84vw,320px) !important;height:165px !important;}
+      .interactive-drag-drop-question {
+        max-width: 100% !important;
+        overflow: hidden !important;
+      }
+
+      .interactive-drag-drop-question .drag-items-row {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        align-items: flex-end !important;
+        gap: 8px !important;
+        margin: 6px 0 10px !important;
+      }
+
+      .interactive-drag-drop-question .dd-item {
+        width: 64px !important;
+        height: 64px !important;
+        min-width: 64px !important;
+        max-width: 64px !important;
+        min-height: 64px !important;
+        max-height: 64px !important;
+        object-fit: contain !important;
+        cursor: grab !important;
+        touch-action: none !important;
+        user-select: none !important;
+      }
+
+      .interactive-drag-drop-question .dd-drop-zone {
+        width: min(82vw, 320px) !important;
+        height: 150px !important;
+        margin: 0 auto !important;
+        position: relative !important;
+        overflow: hidden !important;
+      }
+
+      .interactive-drag-drop-question .dd-basket {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        pointer-events: none !important;
+      }
+
+      @media (max-width: 768px) {
+        .interactive-drag-drop-question .dd-item {
+          width: 52px !important;
+          height: 52px !important;
+          min-width: 52px !important;
+          max-width: 52px !important;
+          min-height: 52px !important;
+          max-height: 52px !important;
+        }
+
+        .interactive-drag-drop-question .dd-drop-zone {
+          width: min(78vw, 280px) !important;
+          height: 135px !important;
+        }
       }
     </style>
     <script>
     function initDragGroupUI(root=document){
-      root.querySelectorAll('.drag-drop-question').forEach((wrap)=>{
+      const scope = root || document;
+      const wraps = Array.from(scope.querySelectorAll('.drag-drop-question'));
+      if (scope.matches && scope.matches('.drag-drop-question')) wraps.unshift(scope);
+      wraps.forEach((wrap)=>{
         const questionId = wrap.dataset.questionId || '';
         const bank = wrap.querySelector('.drag-items-row');
         const dropZone = wrap.querySelector('.dd-drop-zone');
@@ -1775,6 +1828,12 @@ def drag_drop_group_assets() -> str:
             if (e.button !== undefined && e.button !== 0) return;
             const rect = el.getBoundingClientRect();
             const state = {el, dx: e.clientX - rect.left, dy: e.clientY - rect.top, startWrap: wrap};
+            el.style.setProperty('width', rect.width + 'px', 'important');
+            el.style.setProperty('height', rect.height + 'px', 'important');
+            el.style.setProperty('min-width', rect.width + 'px', 'important');
+            el.style.setProperty('min-height', rect.height + 'px', 'important');
+            el.style.setProperty('max-width', rect.width + 'px', 'important');
+            el.style.setProperty('max-height', rect.height + 'px', 'important');
             el.style.position = 'fixed';
             el.style.left = rect.left + 'px';
             el.style.top = rect.top + 'px';
@@ -9909,11 +9968,11 @@ def student_chapter_page(chapter_id: int):
           controlHtml = `<p style="color:#b45309;">Drag-drop assets are missing for this interactive question. Please check Drag Items JSON and Container Image URL in admin question setup.</p>`;
         }} else {{
           const safeGroupClass = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
-          controlHtml = `<div class='drag-drop-question interactive-drag-drop-question' data-question-id='interactive'><div class='drag-items-row'>${{items.map(it => {{
+          controlHtml = `<div class="drag-drop-question interactive-drag-drop-question" data-question-id="interactive"><div class='drag-items-row'>${{items.map(it => {{
             const group = String(it.group || '');
             const groupClass = safeGroupClass(group);
             return `<img class="dd-item ${{groupClass ? `dd-item-${{groupClass}}` : ''}}" data-id="${{escapeHtml(String(it.id || ''))}}" data-group="${{escapeHtml(group)}}" src="${{escapeHtml(normalizeLocalImageUrl(it.image_url || ''))}}" alt="${{escapeHtml(String(it.label_si || it.label_en || it.group || 'drag item'))}}">`;
-          }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}' alt='drop container'></div><input id='interactive_drag_answer' class='drag-answer-json' name='answer_interactive' type='hidden' value=''></div>`;
+          }}).join('')}}</div><div class='dd-drop-zone'><img class='dd-basket' src='${{escapeHtml(basket)}}' alt='drop container'></div><input id="interactive_drag_answer" class="drag-answer-json" name="answer_interactive" type="hidden" value=""></div>`;
         }}
       }} else if (qType === 'tap_correct_image') {{
         const images = Array.isArray(interaction.question_images) ? interaction.question_images : [];
@@ -9996,9 +10055,15 @@ def student_chapter_page(chapter_id: int):
         }}, 0);
       }}
       body.innerHTML = `<h3>Interactive Question</h3><p>${{escapeHtml(qText)}}</p>${{imageHtml}}${{controlHtml}}<button type='button' id='interactive_continue'>Continue</button>`;
-      setTimeout(() => {{
-        if (window.initDragGroupUI) window.initDragGroupUI(body);
-      }}, 0);
+      if (window.initDragGroupUI) {{
+        window.initDragGroupUI(document);
+      }}
+      if (window.initTapCorrectImageUI) {{
+        window.initTapCorrectImageUI(document);
+      }}
+      if (window.initTapSelectUI) {{
+        window.initTapSelectUI(document);
+      }}
       const continueBtn = document.getElementById('interactive_continue');
       if (qType === 'tap_select_image' || qType === 'tap_correct_image') continueBtn.disabled = true;
       continueBtn.addEventListener('click', () => {{
@@ -10615,7 +10680,7 @@ def student_lesson_page(lesson_id: int):
             if (submitBtn) submitBtn.disabled = false;
           }}
         }});
-      }} function wireInteractiveVideo(mediaWrap, current) {{ const activity = current.activity || {{}}; const triggerSeconds = Math.max(0, Number(activity.trigger_seconds || 0)); const pauseVideo = activity.pause_video !== false; const requiredAnswer = activity.required_answer !== false; const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || ""; const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`; const questionHtml = current.interactive_question_html || `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`; mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-question" style="display:none;margin-top:16px;padding:16px;border:1px solid #fed7aa;border-radius:14px;background:#fff7ed;"><h3>${{isSinhala ? "වීඩියෝ ප්‍රශ්නය" : "Video Question"}}</h3><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || ''}}">${{questionHtml}}<button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div>`); const questionPanel = mediaWrap.querySelector(".interactive-video-question"); const iframe = mediaWrap.querySelector(".interactive-video-frame"); const form = mediaWrap.querySelector(".interactive-video-form"); const status = mediaWrap.querySelector(".interactive-video-status"); let questionShown = false; let timer = null; const showQuestion = () => {{ if (questionShown) return; questionShown = true; if (questionPanel) questionPanel.style.display = "block"; if (pauseVideo && iframe) iframe.src = iframe.src; if (!requiredAnswer) solvedQuizSlides.add(current.id); enableFinishLessonButton(); }}; if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ timer = window.setTimeout(showQuestion, triggerSeconds * 1000); }} form?.addEventListener("submit", async (event) => {{ event.preventDefault(); if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving..."; const fd = new FormData(form); fd.set("slide_id", String(current.id)); fd.set("time_spent_seconds", String(Math.round((Date.now() - slideStartedAt) / 1000))); try {{ const res = await fetch("/student/lesson/" + lessonId + "/interactive-video-answer", {{ method: "POST", body: fd }}); const data = await res.json().catch(()=>null); if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || "Answer failed"); if (status) status.textContent = data.is_correct ? (isSinhala ? "නිවැරදියි" : "Correct") : (isSinhala ? "පිළිතුර සුරැකිණි" : "Answer saved"); solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl); form.querySelectorAll("input,select,button,textarea").forEach((el)=>{{ if (!el.classList.contains("manual-test-submit")) el.disabled = true; }}); }} catch (err) {{ console.error("Interactive video answer failed:", err); alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer.")); if (status) status.textContent = ""; }} }}); }} function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "interactive_video") {{ wireInteractiveVideo(mediaWrap, current); }} if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      }} function wireInteractiveVideo(mediaWrap, current) {{ const activity = current.activity || {{}}; const triggerSeconds = Math.max(0, Number(activity.trigger_seconds || 0)); const pauseVideo = activity.pause_video !== false; const requiredAnswer = activity.required_answer !== false; const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || ""; const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`; const questionHtml = current.interactive_question_html || `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`; mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-question" style="display:none;margin-top:16px;padding:16px;border:1px solid #fed7aa;border-radius:14px;background:#fff7ed;"><h3>${{isSinhala ? "වීඩියෝ ප්‍රශ්නය" : "Video Question"}}</h3><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || ''}}">${{questionHtml}}<button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div>`); const questionPanel = mediaWrap.querySelector(".interactive-video-question"); questionPanel?.querySelectorAll(".drag-drop-question").forEach((wrap)=>wrap.classList.add("interactive-drag-drop-question")); if (window.initDragGroupUI) {{ window.initDragGroupUI(document); }} if (window.initTapCorrectImageUI) {{ window.initTapCorrectImageUI(document); }} if (window.initTapSelectUI) {{ window.initTapSelectUI(document); }} const iframe = mediaWrap.querySelector(".interactive-video-frame"); const form = mediaWrap.querySelector(".interactive-video-form"); const status = mediaWrap.querySelector(".interactive-video-status"); let questionShown = false; let timer = null; const showQuestion = () => {{ if (questionShown) return; questionShown = true; if (questionPanel) questionPanel.style.display = "block"; if (pauseVideo && iframe) iframe.src = iframe.src; if (!requiredAnswer) solvedQuizSlides.add(current.id); enableFinishLessonButton(); }}; if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ timer = window.setTimeout(showQuestion, triggerSeconds * 1000); }} form?.addEventListener("submit", async (event) => {{ event.preventDefault(); if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving..."; const fd = new FormData(form); fd.set("slide_id", String(current.id)); fd.set("time_spent_seconds", String(Math.round((Date.now() - slideStartedAt) / 1000))); try {{ const res = await fetch("/student/lesson/" + lessonId + "/interactive-video-answer", {{ method: "POST", body: fd }}); const data = await res.json().catch(()=>null); if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || "Answer failed"); if (status) status.textContent = data.is_correct ? (isSinhala ? "නිවැරදියි" : "Correct") : (isSinhala ? "පිළිතුර සුරැකිණි" : "Answer saved"); solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl); form.querySelectorAll("input,select,button,textarea").forEach((el)=>{{ if (!el.classList.contains("manual-test-submit")) el.disabled = true; }}); }} catch (err) {{ console.error("Interactive video answer failed:", err); alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer.")); if (status) status.textContent = ""; }} }}); }} function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "interactive_video") {{ wireInteractiveVideo(mediaWrap, current); }} if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
