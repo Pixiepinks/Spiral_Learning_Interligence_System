@@ -1095,7 +1095,6 @@ body {
   flex-direction: column;
   width: 320px;
   max-width: 100%;
-  min-height: 360px;
   overflow: hidden;
   border-radius: 18px;
   background:
@@ -1114,23 +1113,28 @@ body {
 
 .home-lesson-image-wrap {
   width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
   overflow: hidden;
+  background: #0b1f4d;
 }
 
 .home-lesson-image {
   width: 100%;
-  height: 180px;
+  height: 100%;
+  object-fit: contain;
   display: block;
-  object-fit: cover;
+  background: #0b1f4d;
   object-position: center;
   border-radius: 14px 14px 0 0;
 }
 
 .home-lesson-content {
-  padding: 14px;
+  padding: 14px 18px 18px;
   display: flex;
   flex-direction: column;
-  flex: 1;
+  gap: 8px;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -1154,7 +1158,7 @@ body {
 }
 
 .home-lesson-content h3 {
-  margin: 0 0 6px;
+  margin: 0;
   color: #ffffff;
   font-family: "Noto Sans Sinhala", "Nunito", sans-serif;
   font-size: 1.02rem;
@@ -1163,7 +1167,7 @@ body {
 }
 
 .home-lesson-content p {
-  margin: 0 0 12px;
+  margin: 0;
   color: #bdd0f7;
   font-family: "Noto Sans Sinhala", "Nunito", sans-serif;
   font-size: 0.88rem;
@@ -1173,7 +1177,7 @@ body {
 
 .home-lesson-start {
   align-self: flex-start;
-  margin-top: auto;
+  margin-top: 6px;
   padding: 8px 13px;
   border-radius: 999px;
   color: #ffffff;
@@ -1218,9 +1222,40 @@ body {
   .home-lessons-list {
     grid-template-columns: repeat(2, minmax(0, 320px));
   }
+}
+
+@media (max-width: 640px) {
+  .home-lesson-card {
+    min-height: 0 !important;
+  }
+
+  .home-lesson-image-wrap {
+    aspect-ratio: 16 / 9;
+    height: auto !important;
+  }
 
   .home-lesson-image {
-    height: 140px;
+    object-fit: contain !important;
+  }
+
+  .home-lesson-content {
+    padding: 12px 16px 16px !important;
+    gap: 6px !important;
+    min-height: 0 !important;
+  }
+
+  .home-lesson-content h3 {
+    margin: 0 !important;
+    line-height: 1.15;
+  }
+
+  .home-lesson-content p {
+    margin: 0 !important;
+    line-height: 1.2;
+  }
+
+  .home-lesson-start {
+    margin-top: 6px !important;
   }
 }
 
@@ -1236,10 +1271,6 @@ body {
 
   .home-lesson-card {
     border-radius: 18px;
-  }
-
-  .home-lesson-image {
-    height: 120px;
   }
 
   .home-lessons-column h2 {
