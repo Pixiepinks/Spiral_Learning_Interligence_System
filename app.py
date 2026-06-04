@@ -10772,10 +10772,34 @@ def student_lesson_page(lesson_id: int):
         ];
         return opts.filter((opt)=>opt.label);
       }}
+      function normalizeLocalImageUrl(url) {{
+        if (!url) return "";
+        const v = String(url).trim();
+        if (!v) return "";
+        if (
+          v.startsWith("/") ||
+          v.startsWith("http://") ||
+          v.startsWith("https://") ||
+          v.startsWith("//") ||
+          v.startsWith("data:")
+        ) {{
+          return v;
+        }}
+        return "/" + v;
+      }}
       function buildInteractiveVideoQuestionHtml(question) {{
         if (!question) return `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`;
         const qType = String(question.question_type || "mcq").toLowerCase();
         const qid = String(question.id || "");
+        const imageUrlSafe = (url) => {{
+          if (typeof normalizeLocalImageUrl === "function") {{
+            return normalizeLocalImageUrl(url);
+          }}
+          if (!url) return "";
+          const v = String(url).trim();
+          if (!v) return "";
+          return /^(https?:)?\\/\\//.test(v) || v.startsWith("/") || v.startsWith("data:") ? v : "/" + v;
+        }};
         const imageHtml = (qType !== "tap_select_image" && qType !== "tap_correct_image" && qType !== "drag_drop_group_container" && question.image_url) ? `<p><img src="${{escapeHtml(normalizeLocalImageUrl(question.image_url))}}" alt="Question image" style="max-width:100%;border:1px solid #ddd;border-radius:6px;"></p>` : "";
         let controlHtml = "";
         const parseDragItems = (raw) => {{
@@ -10797,7 +10821,7 @@ def student_lesson_page(lesson_id: int):
           controlHtml = `<input class="manual-test-text-input" type="text" name="q_${{escapeHtml(qid)}}" placeholder="${{isSinhala ? "පිළිතුර ටයිප් කරන්න" : "Type your answer"}}" autocomplete="off">`;
         }} else if (qType === "drag_drop_group_container") {{
           const items = parseDragItems(question.drag_items_json);
-          const basket = normalizeLocalImageUrl(question.drag_container_image_url || "");
+          const basket = imageUrlSafe(question.drag_container_image_url || "");
 
           console.log("[interactive_video] drag question assets", {{
             question_id: qid,
@@ -10814,7 +10838,7 @@ def student_lesson_page(lesson_id: int):
               const itemId = escapeHtml(String(item.id || ""));
               const group = String(item.group || "");
               const groupClass = safeGroupClass(group);
-              const imageUrl = escapeHtml(normalizeLocalImageUrl(item.image_url || ""));
+              const imageUrl = escapeHtml(imageUrlSafe(item.image_url || ""));
               const altText = escapeHtml(String(item.label_si || item.label_en || item.group || "drag item"));
 
               return "<img class=\\"dd-item " + (groupClass ? "dd-item-" + groupClass : "") + "\\" data-id=\\"" + itemId + "\\" data-group=\\"" + escapeHtml(group) + "\\" src=\\"" + imageUrl + "\\" alt=\\"" + altText + "\\">";
