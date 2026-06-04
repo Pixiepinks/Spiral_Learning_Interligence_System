@@ -10784,19 +10784,47 @@ def student_lesson_page(lesson_id: int):
         }} else if (qType === "short_answer") {{
           controlHtml = `<input class="manual-test-text-input" type="text" name="q_${{escapeHtml(qid)}}" placeholder="${{isSinhala ? "පිළිතුර ටයිප් කරන්න" : "Type your answer"}}" autocomplete="off">`;
         }} else if (qType === "drag_drop_group_container") {{
-          const rawItems = question.drag_items_json || "[]";
           let items = [];
-          try {{ items = JSON.parse(rawItems); }} catch(e) {{ items = []; }}
+          const rawItems = question.drag_items_json || "[]";
+
+          try {{
+            const parsed = typeof rawItems === "string" ? JSON.parse(rawItems) : rawItems;
+            items = Array.isArray(parsed) ? parsed : [];
+          }} catch (e) {{
+            console.error("[interactive_video] invalid drag_items_json", e, rawItems);
+            items = [];
+          }}
+
           const basket = normalizeLocalImageUrl(question.drag_container_image_url || "");
+
+          console.log("[interactive_video] drag question assets", {{
+            question_id: qid,
+            items_count: items.length,
+            basket
+          }});
+
           if (!items.length || !basket) {{
             controlHtml = `<p style="color:#b45309;">${{isSinhala ? "මෙම ඇද-දමන්න ප්‍රශ්නයට දත්ත සකසා නැත." : "Drag-drop assets are missing for this interactive question."}}</p>`;
           }} else {{
             const safeGroupClass = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-            controlHtml = `<div class="drag-drop-question interactive-drag-drop-question" data-question-id="interactive"><div class="drag-items-row">${{items.map((item)=>{{
+
+            const itemHtml = items.map((item) => {{
+              const itemId = escapeHtml(String(item.id || ""));
               const group = String(item.group || "");
               const groupClass = safeGroupClass(group);
-              return `<img class="dd-item ${{groupClass ? `dd-item-${{groupClass}}` : ""}}" data-id="${{escapeHtml(String(item.id || ""))}}" data-group="${{escapeHtml(group)}}" src="${{escapeHtml(normalizeLocalImageUrl(item.image_url || ""))}}" alt="${{escapeHtml(String(item.label_si || item.label_en || item.group || "drag item"))}}">`;
-            }}).join("")}}</div><div class="dd-drop-zone"><img class="dd-basket" src="${{escapeHtml(basket)}}" alt="drop container"></div><input id="interactive_drag_answer" class="drag-answer-json" name="answer_interactive" type="hidden" value=""><input type="hidden" name="answer_${{escapeHtml(qid)}}" id="answer_${{escapeHtml(qid)}}" value=""></div>`;
+              const imageUrl = escapeHtml(normalizeLocalImageUrl(item.image_url || ""));
+              const altText = escapeHtml(String(item.label_si || item.label_en || item.group || "drag item"));
+
+              return "<img class=\\"dd-item " + (groupClass ? "dd-item-" + groupClass : "") + "\\" data-id=\\"" + itemId + "\\" data-group=\\"" + escapeHtml(group) + "\\" src=\\"" + imageUrl + "\\" alt=\\"" + altText + "\\">";
+            }}).join("");
+
+            controlHtml =
+              "<div class=\\"drag-drop-question interactive-drag-drop-question\\" data-question-id=\\"interactive\\">" +
+                "<div class=\\"drag-items-row\\">" + itemHtml + "</div>" +
+                "<div class=\\"dd-drop-zone\\"><img class=\\"dd-basket\\" src=\\"" + escapeHtml(basket) + "\\" alt=\\"drop container\\"></div>" +
+                "<input id=\\"interactive_drag_answer\\" class=\\"drag-answer-json\\" name=\\"answer_interactive\\" type=\\"hidden\\" value=\\"\\">" +
+                "<input type=\\"hidden\\" name=\\"answer_" + escapeHtml(qid) + "\\" id=\\"answer_" + escapeHtml(qid) + "\\" value=\\"\\">" +
+              "</div>";
           }}
         }} else if (qType === "tap_correct_image") {{
           const images = Array.isArray(question.question_images) ? question.question_images : [];
@@ -10842,6 +10870,9 @@ def student_lesson_page(lesson_id: int):
         const body = mediaWrap.querySelector(".interactive-video-question-body");
         if (body) {{
           body.innerHTML = buildInteractiveVideoQuestionHtml(question);
+          if (window.initDragGroupUI && body) {{
+            window.initDragGroupUI(body);
+          }}
         }}
         const iframe = mediaWrap.querySelector(".interactive-video-frame");
         const form = mediaWrap.querySelector(".interactive-video-form");
@@ -10873,9 +10904,15 @@ def student_lesson_page(lesson_id: int):
 
           enableFinishLessonButton();
 
-          if (window.initDragGroupUI) window.initDragGroupUI(document);
-          if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(document);
-          if (window.initTapSelectUI) window.initTapSelectUI(document);
+          if (window.initDragGroupUI && questionPanel) {{
+            window.initDragGroupUI(questionPanel);
+          }}
+          if (window.initTapCorrectImageUI && questionPanel) {{
+            window.initTapCorrectImageUI(questionPanel);
+          }}
+          if (window.initTapSelectUI && questionPanel) {{
+            window.initTapSelectUI(questionPanel);
+          }}
         }};
 
         console.log("[interactive_video] armed", {{
