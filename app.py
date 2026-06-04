@@ -4307,42 +4307,53 @@ def student_dashboard():
   }}
 
   .mobile-quick-actions {{
-    display: grid !important;
     position: fixed !important;
-    top: 74px !important;
-    left: 14px !important;
-    right: 14px !important;
-    z-index: 9996 !important;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    top: 78px !important;
+    left: 18px !important;
+    right: 18px !important;
+    z-index: 9998 !important;
+
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 5px !important;
+
+    height: 38px !important;
     margin: 0 !important;
+    padding: 0 !important;
   }}
 
   .mobile-action-btn {{
-    min-height: 52px;
-    border-radius: 16px;
-    background: rgba(255,255,255,.90);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 8px 22px rgba(15,23,42,.10);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    text-decoration: none;
+    height: 38px !important;
+    min-height: 38px !important;
+
+    border-radius: 11px !important;
+    padding: 2px !important;
+
+    background: rgba(255,255,255,.92) !important;
+    box-shadow: 0 4px 10px rgba(15,23,42,.06) !important;
+
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    gap: 0 !important;
+
     color: #0f3b8f;
-    font-size: 18px;
-    font-weight: 800;
+    text-decoration: none;
     overflow: hidden;
+
+    font-size: 12px !important;
+    font-weight: 700 !important;
   }}
 
   .mobile-action-btn span {{
     display: block;
-    font-size: 9px;
-    line-height: 1;
     color: #475569;
-    white-space: nowrap;
+    font-size: 7px !important;
+    line-height: 1 !important;
+    margin-top: 1px !important;
+    white-space: nowrap !important;
   }}
 
   .top {{
