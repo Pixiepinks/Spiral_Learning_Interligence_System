@@ -10778,23 +10778,25 @@ def student_lesson_page(lesson_id: int):
         const qid = String(question.id || "");
         const imageHtml = (qType !== "tap_select_image" && qType !== "tap_correct_image" && qType !== "drag_drop_group_container" && question.image_url) ? `<p><img src="${{escapeHtml(normalizeLocalImageUrl(question.image_url))}}" alt="Question image" style="max-width:100%;border:1px solid #ddd;border-radius:6px;"></p>` : "";
         let controlHtml = "";
+        const parseDragItems = (raw) => {{
+          try {{
+            let parsed = typeof raw === "string" ? JSON.parse(raw || "[]") : raw;
+            if (typeof parsed === "string") parsed = JSON.parse(parsed || "[]");
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && Array.isArray(parsed.items)) return parsed.items;
+            return [];
+          }} catch (err) {{
+            console.error("[interactive_video] invalid drag_items_json", err, raw);
+            return [];
+          }}
+        }};
         if (qType === "mcq") {{
           const options = getInteractiveOptions(question);
           controlHtml = `<div class="quiz-options">${{options.map((opt)=>`<label><input type="radio" name="q_${{escapeHtml(qid)}}" value="${{escapeHtml(opt.key)}}"> ${{escapeHtml(opt.key)}}. ${{escapeHtml(opt.label)}}</label>`).join("")}}</div>`;
         }} else if (qType === "short_answer") {{
           controlHtml = `<input class="manual-test-text-input" type="text" name="q_${{escapeHtml(qid)}}" placeholder="${{isSinhala ? "පිළිතුර ටයිප් කරන්න" : "Type your answer"}}" autocomplete="off">`;
         }} else if (qType === "drag_drop_group_container") {{
-          let items = [];
-          const rawItems = question.drag_items_json || "[]";
-
-          try {{
-            const parsed = typeof rawItems === "string" ? JSON.parse(rawItems) : rawItems;
-            items = Array.isArray(parsed) ? parsed : [];
-          }} catch (e) {{
-            console.error("[interactive_video] invalid drag_items_json", e, rawItems);
-            items = [];
-          }}
-
+          const items = parseDragItems(question.drag_items_json);
           const basket = normalizeLocalImageUrl(question.drag_container_image_url || "");
 
           console.log("[interactive_video] drag question assets", {{
@@ -10804,7 +10806,7 @@ def student_lesson_page(lesson_id: int):
           }});
 
           if (!items.length || !basket) {{
-            controlHtml = `<p style="color:#b45309;">${{isSinhala ? "මෙම ඇද-දමන්න ප්‍රශ්නයට දත්ත සකසා නැත." : "Drag-drop assets are missing for this interactive question."}}</p>`;
+            controlHtml = `<p style="color:#b45309;font-weight:800;">Drag-drop assets are missing. Please check Drag Items JSON and Container Image URL.</p>`;
           }} else {{
             const safeGroupClass = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
@@ -10868,12 +10870,6 @@ def student_lesson_page(lesson_id: int):
         mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<button type="button" class="debug-show-interactive-question">Show Question</button><div class="interactive-video-popup" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);align-items:center;justify-content:center;z-index:9999;padding:16px;"><div class="interactive-video-card" style="background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto;border:1px solid #fed7aa;box-shadow:0 24px 60px rgba(15,23,42,.25);"><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || (question && question.id) || ""}}"><div class="interactive-video-question-body"></div><button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div></div>`);
         const questionPanel = mediaWrap.querySelector(".interactive-video-popup");
         const body = mediaWrap.querySelector(".interactive-video-question-body");
-        if (body) {{
-          body.innerHTML = buildInteractiveVideoQuestionHtml(question);
-          if (window.initDragGroupUI && body) {{
-            window.initDragGroupUI(body);
-          }}
-        }}
         const iframe = mediaWrap.querySelector(".interactive-video-frame");
         const form = mediaWrap.querySelector(".interactive-video-form");
         const status = mediaWrap.querySelector(".interactive-video-status");
@@ -10894,6 +10890,19 @@ def student_lesson_page(lesson_id: int):
             questionPanel.style.display = "flex";
           }}
 
+          if (body) {{
+            try {{
+              body.innerHTML = buildInteractiveVideoQuestionHtml(question);
+            }} catch (err) {{
+              console.error("[interactive_video] failed to build question html", err, question);
+              body.innerHTML = "<p style='color:#b91c1c;font-weight:800;'>Question failed to load. Please check question setup.</p>";
+            }}
+          }}
+
+          if (window.initDragGroupUI && body) window.initDragGroupUI(body);
+          if (window.initTapCorrectImageUI && body) window.initTapCorrectImageUI(body);
+          if (window.initTapSelectUI && body) window.initTapSelectUI(body);
+
           if (pauseVideo && ytPlayer && ytPlayer.pauseVideo) {{
             ytPlayer.pauseVideo();
           }}
@@ -10903,16 +10912,6 @@ def student_lesson_page(lesson_id: int):
           }}
 
           enableFinishLessonButton();
-
-          if (window.initDragGroupUI && questionPanel) {{
-            window.initDragGroupUI(questionPanel);
-          }}
-          if (window.initTapCorrectImageUI && questionPanel) {{
-            window.initTapCorrectImageUI(questionPanel);
-          }}
-          if (window.initTapSelectUI && questionPanel) {{
-            window.initTapSelectUI(questionPanel);
-          }}
         }};
 
         console.log("[interactive_video] armed", {{
