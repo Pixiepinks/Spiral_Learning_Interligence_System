@@ -10531,7 +10531,6 @@ def student_lesson_page(lesson_id: int):
 
         manual_test_questions = manual_interim_selected_questions(s.id) if slide_content_type == "manual_interim_test" else []
         manual_test_html = build_manual_interim_slide_html(s, manual_test_questions, "si" if is_si else "en", is_si) if slide_content_type == "manual_interim_test" else ""
-        interactive_question_html = ""
         interactive_question_payload = None
         if slide_content_type == "interactive_video" and activity_payload:
             interactive_question = db.session.get(Question, int(activity_payload.get("question_id") or 0))
@@ -10577,7 +10576,6 @@ def student_lesson_page(lesson_id: int):
             "image_grid_images": image_grid_images,
             "question_count": int(s.question_count or 0),
             "manual_test_html": manual_test_html,
-            "interactive_question_html": interactive_question_html,
             "interactive_question": interactive_question_payload,
         })
 
@@ -10808,30 +10806,67 @@ def student_lesson_page(lesson_id: int):
         const requiredAnswer = activity.required_answer !== false;
         const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || "";
         const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`;
-        mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-popup" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);align-items:center;justify-content:center;z-index:9999;padding:16px;"><div class="interactive-video-card" style="background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto;border:1px solid #fed7aa;box-shadow:0 24px 60px rgba(15,23,42,.25);"><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || (question && question.id) || ""}}"><div class="interactive-video-question-body"></div><button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div></div>`);
+        mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<button type="button" class="debug-show-interactive-question">Show Question</button><div class="interactive-video-popup" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);align-items:center;justify-content:center;z-index:9999;padding:16px;"><div class="interactive-video-card" style="background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto;border:1px solid #fed7aa;box-shadow:0 24px 60px rgba(15,23,42,.25);"><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || (question && question.id) || ""}}"><div class="interactive-video-question-body"></div><button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div></div>`);
         const questionPanel = mediaWrap.querySelector(".interactive-video-popup");
         const body = mediaWrap.querySelector(".interactive-video-question-body");
         if (body) {{
           body.innerHTML = buildInteractiveVideoQuestionHtml(question);
         }}
-        if (window.initDragGroupUI) {{
-          window.initDragGroupUI(document);
-        }}
-        if (window.initTapCorrectImageUI) {{ window.initTapCorrectImageUI(document); }}
-        if (window.initTapSelectUI) {{ window.initTapSelectUI(document); }}
         const iframe = mediaWrap.querySelector(".interactive-video-frame");
         const form = mediaWrap.querySelector(".interactive-video-form");
         const status = mediaWrap.querySelector(".interactive-video-status");
         let questionShown = false;
+        let triggerTimer = null;
+
         const showQuestion = () => {{
           if (questionShown) return;
           questionShown = true;
-          if (questionPanel) questionPanel.style.display = "flex";
-          if (pauseVideo && iframe) iframe.src = iframe.src;
-          if (!requiredAnswer) solvedQuizSlides.add(current.id);
+
+          console.log("[interactive_video] showing question", {{
+            slide_id: current.id,
+            triggerSeconds,
+            question
+          }});
+
+          if (questionPanel) {{
+            questionPanel.style.display = "flex";
+          }}
+
+          if (pauseVideo && iframe) {{
+            iframe.src = iframe.src;
+          }}
+
+          if (!requiredAnswer) {{
+            solvedQuizSlides.add(current.id);
+          }}
+
           enableFinishLessonButton();
+
+          if (window.initDragGroupUI) window.initDragGroupUI(document);
+          if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(document);
+          if (window.initTapSelectUI) window.initTapSelectUI(document);
         }};
-        if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ window.setTimeout(showQuestion, triggerSeconds * 1000); }}
+
+        console.log("[interactive_video] armed", {{
+          slide_id: current.id,
+          triggerSeconds,
+          pauseVideo,
+          requiredAnswer,
+          question_id: activity.question_id,
+          hasQuestion: !!question
+        }});
+
+        if (!question) {{
+          console.warn("[interactive_video] no question payload found", current);
+        }}
+
+        if (triggerSeconds <= 0) {{
+          window.setTimeout(showQuestion, 600);
+        }} else {{
+          triggerTimer = window.setTimeout(showQuestion, triggerSeconds * 1000);
+        }}
+
+        mediaWrap.querySelector(".debug-show-interactive-question")?.addEventListener("click", showQuestion);
         form?.addEventListener("submit", async (event) => {{
           event.preventDefault();
           if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving...";
