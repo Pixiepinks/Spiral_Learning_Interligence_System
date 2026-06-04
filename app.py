@@ -10532,10 +10532,34 @@ def student_lesson_page(lesson_id: int):
         manual_test_questions = manual_interim_selected_questions(s.id) if slide_content_type == "manual_interim_test" else []
         manual_test_html = build_manual_interim_slide_html(s, manual_test_questions, "si" if is_si else "en", is_si) if slide_content_type == "manual_interim_test" else ""
         interactive_question_html = ""
+        interactive_question_payload = None
         if slide_content_type == "interactive_video" and activity_payload:
             interactive_question = db.session.get(Question, int(activity_payload.get("question_id") or 0))
             if interactive_question:
-                interactive_question_html = render_manual_interim_question_html(interactive_question, "si" if is_si else "en", 1)
+                interactive_question_payload = {
+                    "id": interactive_question.id,
+                    "question_type": (interactive_question.question_type or "mcq").strip().lower(),
+                    "question_text_en": interactive_question.question_text_en or "",
+                    "question_text_si": interactive_question.question_text_si or "",
+                    "image_url": interactive_question.image_url or "",
+                    "option_a_en": interactive_question.option_a_en or "",
+                    "option_b_en": interactive_question.option_b_en or "",
+                    "option_c_en": interactive_question.option_c_en or "",
+                    "option_d_en": interactive_question.option_d_en or "",
+                    "option_a_si": interactive_question.option_a_si or "",
+                    "option_b_si": interactive_question.option_b_si or "",
+                    "option_c_si": interactive_question.option_c_si or "",
+                    "option_d_si": interactive_question.option_d_si or "",
+                    "box_template": interactive_question.box_template or "",
+                    "drag_items_json": interactive_question.drag_items_json or "[]",
+                    "drag_container_image_url": interactive_question.drag_container_image_url or "",
+                    "tap_areas_json": interactive_question.tap_areas_json or "[]",
+                    "correct_area_id": interactive_question.correct_area_id or "",
+                    "question_images": [
+                        {"id": image.id, "image_url": image.image_url, "image_name": image.image_name or "", "is_correct": bool(image.is_correct)}
+                        for image in get_question_choice_images(interactive_question.id)
+                    ],
+                }
 
         slide_payload.append({
             "id": s.id,
@@ -10554,11 +10578,37 @@ def student_lesson_page(lesson_id: int):
             "question_count": int(s.question_count or 0),
             "manual_test_html": manual_test_html,
             "interactive_question_html": interactive_question_html,
+            "interactive_question": interactive_question_payload,
         })
 
     inner_html = f"""
     <style>.lesson-player-card{{margin-top:16px;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(147,197,253,.45);border-radius:24px;padding:22px;box-shadow:0 18px 45px rgba(15,23,42,.10);position:relative;overflow:hidden}}.lesson-player-card::before{{content:"";position:absolute;inset:0;background:radial-gradient(520px 170px at 10% 0%,rgba(59,130,246,.14),transparent 70%),radial-gradient(420px 160px at 88% 0%,rgba(20,184,166,.10),transparent 72%);pointer-events:none}}.lesson-player-card>*{{position:relative;z-index:1}}.lesson-meta p{{margin:4px 0;color:#64748b}}.lesson-journey-card{{margin:16px 0 12px;padding:18px;border-radius:22px;background:rgba(255,255,255,.88);border:1px solid rgba(191,219,254,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 14px 30px rgba(37,99,235,.08)}}.lesson-journey-head{{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}}.lesson-journey-kicker{{margin:0 0 3px;color:#2563eb;font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}}.lesson-journey-title{{margin:0;color:#0f172a;font-size:18px;font-weight:900}}.lesson-journey-track{{display:flex;align-items:stretch;gap:12px;overflow-x:auto;padding:4px 2px 10px;scrollbar-color:#bfdbfe transparent}}.lesson-journey-step{{position:relative;display:flex;align-items:center;gap:9px;min-width:max-content;padding:11px 14px;border-radius:999px;border:1px solid transparent;text-decoration:none;font-weight:900;box-shadow:0 10px 24px rgba(15,23,42,.07)}}.lesson-journey-step:not(:last-child)::after{{content:"→";position:absolute;right:-18px;top:50%;transform:translateY(-50%);color:#94a3b8;font-weight:900}}.lesson-journey-icon{{display:grid;place-items:center;width:26px;height:26px;border-radius:999px;background:rgba(255,255,255,.75);font-size:15px}}.lesson-journey-label{{color:inherit}}.lesson-journey-status{{font-size:11px;letter-spacing:.04em;text-transform:uppercase;opacity:.82}}.lesson-journey-step.completed{{background:linear-gradient(135deg,#dcfce7,#bbf7d0);border-color:#86efac;color:#166534}}.lesson-journey-step.current{{background:linear-gradient(135deg,#dbeafe,#93c5fd);border-color:#60a5fa;color:#1d4ed8;box-shadow:0 14px 30px rgba(37,99,235,.18)}}.lesson-journey-step.unlocked{{background:linear-gradient(135deg,#ecfeff,#dbeafe);border-color:#bae6fd;color:#0369a1}}.lesson-journey-step.locked{{background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-color:#cbd5e1;color:#64748b;box-shadow:none}}.lesson-journey-summary{{margin:2px 0 0;color:#334155;font-weight:900}}.chapter-progress-caption{{margin:12px 0 6px;color:#1e3a8a;font-size:12px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}}.lesson-progress-line{{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:8px 0 16px;box-shadow:inset 0 1px 3px rgba(15,23,42,.12)}}.lesson-progress-line span{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#14b8a6)}}.slide-stage{{border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-height:280px;background:#f8fafc}}.slide-pill{{display:inline-block;padding:4px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;margin-bottom:10px}}.slide-content{{white-space:pre-wrap;line-height:1.7;color:#0f172a}}.slide-media{{max-width:100%;border-radius:10px;margin-top:12px}}.slide-video{{width:100%;max-width:840px;aspect-ratio:16/9;border:0;border-radius:12px;margin-top:12px}}.manual-test-wrap{{margin-top:16px}}.manual-test-header{{background:linear-gradient(135deg,#eff6ff,#ecfeff);border:1px solid #bfdbfe;border-radius:18px;padding:16px;margin-bottom:14px}}.manual-test-kicker{{margin:0 0 4px;color:#2563eb;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:.08em}}.manual-test-question{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin:14px 0;box-shadow:0 6px 16px rgba(15,23,42,.05)}}.manual-test-question-number{{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em}}.manual-test-question h4{{margin:8px 0 12px;color:#0f172a;line-height:1.55}}.manual-test-question-image{{max-width:100%;border-radius:12px;margin:8px 0 12px}}.manual-test-answer-area{{display:grid;gap:10px}}.manual-test-option{{display:flex;gap:8px;align-items:flex-start;border:1px solid #e2e8f0;border-radius:12px;padding:10px;background:#f8fafc;cursor:pointer}}.manual-test-text-input{{width:100%;max-width:520px;border:1px solid #cbd5e1;border-radius:12px;padding:12px;font-size:16px}}.manual-test-actions{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}}.manual-test-result{{margin-top:14px;border-radius:16px;padding:16px;background:#ecfdf5;border:1px solid #86efac;color:#14532d;font-weight:800}}.image-analysis-worksheet{{font-family:'Noto Sans Sinhala','Iskoola Pota','Nirmala UI',Inter,Arial,sans-serif;display:grid;gap:20px;max-width:960px;margin:0 auto;padding:8px 0}}.image-analysis-image-frame{{display:flex;justify-content:center;align-items:center;padding:16px;border-radius:24px;background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid #bfdbfe;box-shadow:0 18px 42px rgba(37,99,235,.10)}}.image-analysis-main-image{{display:block;width:100%;max-width:min(100%,760px);height:auto;border-radius:18px;border:1px solid #dbeafe;box-shadow:0 14px 28px rgba(15,23,42,.08);object-fit:contain}}.image-analysis-sub-questions{{display:grid;gap:14px}}.image-analysis-sub-question{{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,.9fr);align-items:center;gap:16px;padding:16px;border:1px solid #bfdbfe;border-radius:18px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.07)}}.image-analysis-sub-question.is-correct{{border-color:#86efac;background:linear-gradient(135deg,#fff,#f0fdf4)}}.image-analysis-sub-question.is-wrong{{border-color:#fecaca;background:linear-gradient(135deg,#fff,#fff1f2)}}.image-analysis-question-main{{display:flex;align-items:flex-start;gap:12px}}.image-analysis-number-badge{{display:inline-grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:999px;background:linear-gradient(135deg,#2563eb,#38bdf8);color:#fff;font-size:17px;font-weight:900;box-shadow:0 8px 18px rgba(37,99,235,.25)}}.image-analysis-question-text{{color:#0f172a;font-size:17px;font-weight:850;line-height:1.65;cursor:pointer}}.image-analysis-answer-cell{{display:grid;grid-template-columns:minmax(120px,1fr) auto;align-items:center;gap:10px}}.image-analysis-answer-cell input{{width:100%;min-height:52px;box-sizing:border-box;padding:13px 15px;border:1.5px solid #bfdbfe;border-radius:14px;background:#f8fbff;color:#0f172a;font-size:18px;font-weight:800;outline:none;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}}.image-analysis-answer-cell input:focus{{border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.13);background:#fff}}.image-analysis-sub-question.is-correct input{{border-color:#22c55e;background:#f0fdf4}}.image-analysis-sub-question.is-wrong input{{border-color:#ef4444;background:#fff1f2}}.image-analysis-result-icon{{font-size:24px;line-height:1}}.image-analysis-feedback{{grid-column:1/-1;font-size:15px;font-weight:900;line-height:1.45}}.image-analysis-sub-question.is-correct .image-analysis-feedback{{color:#15803d}}.image-analysis-sub-question.is-wrong .image-analysis-feedback{{color:#b91c1c}}@media(max-width:760px){{.manual-test-question{{padding:13px}}.manual-test-option{{padding:12px}}.image-analysis-worksheet{{gap:16px;padding:0}}.image-analysis-image-frame{{padding:10px;border-radius:18px}}.image-analysis-main-image{{border-radius:14px}}.image-analysis-sub-question{{grid-template-columns:1fr;padding:14px;gap:12px}}.image-analysis-question-text{{font-size:16px}}.image-analysis-answer-cell{{grid-template-columns:1fr auto}}.image-analysis-answer-cell input{{min-height:50px;font-size:17px}}}}.image-grid-gallery{{display:flex;justify-content:center;align-items:flex-start;gap:26px;margin-top:22px;flex-wrap:wrap}}.image-grid-card{{width:170px;background:transparent;border:none;box-shadow:none;padding:0;text-align:center;transition:all .25s ease}}.image-grid-card:hover{{transform:translateY(-4px)}}.image-grid-card img{{width:100%;max-height:175px;object-fit:contain;background:transparent;border-radius:0;display:block;margin:0 auto}}.image-grid-caption{{margin:10px 0 0;color:#334155;font-weight:600;text-align:center;line-height:1.35;font-size:16px}}@media (max-width:900px){{.image-grid-gallery{{gap:22px}}}}@media (max-width:640px){{.image-grid-gallery{{gap:18px}}.image-grid-card{{width:160px}}}}.lesson-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}}.lesson-dot{{width:10px;height:10px;border-radius:999px;background:#cbd5e1;border:none;cursor:pointer}}.lesson-dot.active{{background:#2563eb}}.lesson-dot.completed{{background:#22c55e}}.lesson-nav{{display:flex;justify-content:space-between;margin-top:16px;gap:10px}}.lesson-btn{{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}}.lesson-btn.prev{{background:#e2e8f0;color:#0f172a}}.lesson-btn.next{{background:#2563eb;color:#fff}}.xp-panel{{margin-top:16px;padding:16px;border-radius:12px;background:linear-gradient(135deg,#052e16,#166534);color:#dcfce7;display:none}}.activity-wrap{{margin-top:18px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#f8fbff,#f0f9ff);border:1px solid #dbeafe}}.activity-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px}}.activity-card{{appearance:none;-webkit-appearance:none;width:100%;border:2px solid #e2e8f0;background:#ffffff;border-radius:18px;padding:18px 14px;min-height:120px;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.08);transition:all .2s ease;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;color:#0f172a}}.activity-card:hover{{transform:translateY(-3px);border-color:#93c5fd}}.activity-card.selected{{border-color:#2563eb;background:#eff6ff}}.activity-card.correct{{border-color:#22c55e;background:#dcfce7}}.activity-card.wrong,.activity-card.missing{{border-color:#ef4444;background:#fee2e2}}.selected-answer{{border:2px solid #2563eb !important;background:#dbeafe !important;transform:translateY(-2px)}}.correct-answer{{border:2px solid #16a34a !important;background:#dcfce7 !important}}.wrong-answer{{border:2px solid #dc2626 !important;background:#fee2e2 !important}}.activity-card:disabled{{opacity:1;cursor:default}}.activity-thumb{{width:62px;height:62px;object-fit:cover;border-radius:14px;margin-bottom:10px;box-shadow:0 6px 16px rgba(15,23,42,.12)}}.activity-emoji{{display:block;font-size:42px;line-height:1;margin-bottom:10px}}.activity-name{{display:block;font-size:16px;line-height:1.35}}.activity-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}}.activity-check-btn{{margin-top:16px;border:none;border-radius:14px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:white;font-weight:800;padding:12px 22px;cursor:pointer}}.activity-result{{font-weight:700}}.activity-result.success{{color:#166534}}.activity-result.fail{{color:#991b1b}}@media (max-width:640px){{.activity-grid{{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}.activity-card{{min-height:108px;padding:16px 12px}}.activity-name{{font-size:15px}}}}.tap-picture-grid{{display:grid;grid-template-columns:repeat(3,200px);justify-content:center;gap:18px;margin-top:18px}}.tap-picture-card{{position:relative;width:200px;height:200px;box-sizing:border-box;border-radius:16px;border:3px solid transparent;background:rgba(255,255,255,.82);box-shadow:0 14px 32px rgba(15,23,42,.12);cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;overflow:hidden;display:flex;align-items:center;justify-content:center}}.tap-picture-card:hover{{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.16)}}.tap-picture-card img{{width:170px;height:170px;object-fit:contain;border-radius:16px;display:block;flex:0 0 auto}}.tap-picture-card.selected-correct{{border-color:#22c55e;background:#ecfdf5}}.tap-picture-card.selected-wrong{{border-color:#ef4444;background:#fef2f2;animation:tapShake .28s linear}}.tap-picture-check{{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:999px;background:#22c55e;color:#fff;display:none;align-items:center;justify-content:center;font-weight:900;box-shadow:0 8px 20px rgba(34,197,94,.35)}}.tap-picture-card.selected-correct .tap-picture-check{{display:flex}}@keyframes tapShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-5px)}}75%{{transform:translateX(5px)}}}}@media(max-width:900px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}@media(max-width:560px){{.tap-picture-grid{{grid-template-columns:repeat(2,200px)}}}}.ai-helper-card{{position:fixed;right:22px;bottom:22px;background:#fff;border:1px solid #dbeafe;border-radius:14px;padding:12px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-width:290px;z-index:30;display:none}}.ai-helper-close{{position:absolute;top:8px;right:10px;border:none;background:transparent;font-size:22px;font-weight:800;cursor:pointer;color:#64748b}}.ai-helper-actions{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}}.ai-helper-btn{{border:1px solid #bfdbfe;border-radius:10px;padding:8px;background:#eff6ff;color:#1e40af;font-weight:700;cursor:pointer}}.ai-helper-panel{{margin-top:8px;background:#f8fafc;border-radius:10px;padding:8px;font-size:13px}}.drag-circle-match{{position:relative;overflow:hidden;background:linear-gradient(135deg,#ffffff 0%,#f0f9ff 48%,#ecfeff 100%);border:1px solid rgba(59,130,246,.18);box-shadow:0 18px 42px rgba(15,23,42,.08)}}.drag-circle-match .activity-question{{margin:0 0 6px;color:#0f172a;font-size:22px}}.ddcs-board{{display:flex;flex-direction:column;gap:30px;margin-top:20px;touch-action:none}}.ddcs-section-label{{margin:0 0 12px;color:#475569;font-weight:800;letter-spacing:.01em}}.ddcs-items-row,.ddcs-targets-row{{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}}.ddcs-source-zone{{padding:18px;border-radius:22px;background:rgba(255,255,255,.74);border:1px solid rgba(148,163,184,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}}.ddcs-target-zone{{padding:20px;border-radius:24px;background:linear-gradient(180deg,rgba(240,253,250,.75),rgba(239,246,255,.82));border:1px solid rgba(20,184,166,.18)}}.ddcs-item{{position:relative;width:140px;min-height:178px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;cursor:grab;touch-action:none;user-select:none;z-index:2;transition:transform .28s cubic-bezier(.2,.8,.2,1),filter .2s ease,opacity .2s ease}}.ddcs-item:active{{cursor:grabbing}}.ddcs-item.dragging{{z-index:50;filter:drop-shadow(0 22px 28px rgba(15,23,42,.25));transition:none}}.ddcs-item.returning{{transition:transform .32s cubic-bezier(.22,1,.36,1)}}.ddcs-item.placed{{cursor:default;pointer-events:none;min-height:140px}}.ddcs-item-shell{{width:140px;height:140px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,#fff 0%,#f8fafc 48%,#e0f2fe 100%);box-shadow:0 16px 34px rgba(37,99,235,.16),inset 0 0 0 1px rgba(255,255,255,.85);overflow:hidden}}.ddcs-item img,.ddcs-image-fallback{{width:140px;height:140px;object-fit:contain;display:flex;align-items:center;justify-content:center}}.ddcs-image-fallback{{border-radius:999px;color:#2563eb;font-size:42px;font-weight:900;background:linear-gradient(135deg,#dbeafe,#ccfbf1)}}.ddcs-item-label{{max-width:140px;color:#0f172a;font-weight:800;font-size:15px;line-height:1.25;text-align:center}}.ddcs-target-card{{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:150px}}.ddcs-target-circle{{position:relative;border:4px dashed #60a5fa;border-radius:999px;background:rgba(255,255,255,.42);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 8px rgba(219,234,254,.34),0 16px 30px rgba(15,23,42,.08);transition:border-color .2s ease,background .2s ease,transform .2s ease}}.ddcs-target-circle.hover{{border-color:#2563eb;background:rgba(219,234,254,.72);transform:scale(1.03)}}.ddcs-target-circle.success{{border-style:solid;border-color:#22c55e;background:rgba(220,252,231,.68);box-shadow:inset 0 0 0 8px rgba(187,247,208,.35),0 18px 34px rgba(34,197,94,.18)}}.ddcs-target-circle.reject{{border-color:#ef4444;background:rgba(254,226,226,.65);animation:tapShake .28s linear}}.ddcs-target-circle .ddcs-item{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)!important}}.ddcs-target-label{{color:#0f172a;font-size:16px;font-weight:900}}.ddcs-message{{display:none;margin-top:18px;padding:14px 16px;border-radius:16px;font-weight:900}}.ddcs-message.success{{display:block;color:#166534;background:#dcfce7;border:1px solid #86efac}}.ddcs-message.fail{{display:block;color:#991b1b;background:#fee2e2;border:1px solid #fecaca}}.ddcs-reset{{border:none;border-radius:14px;background:linear-gradient(135deg,#0f172a,#334155);color:#fff;font-weight:900;padding:12px 18px;cursor:pointer;box-shadow:0 12px 24px rgba(15,23,42,.18)}}@media(max-width:760px){{.drag-circle-match{{padding:16px}}.ddcs-board{{gap:22px}}.ddcs-items-row,.ddcs-targets-row{{gap:16px}}.ddcs-item{{width:128px;min-height:164px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:128px;height:128px}}.ddcs-item.placed{{min-height:128px}}.ddcs-target-card{{min-width:130px}}.ddcs-target-circle{{max-width:230px;max-height:230px}}.ddcs-targets-row{{align-items:flex-end}}.ddcs-section-label{{text-align:center}}}}@media(max-width:520px){{.ddcs-items-row{{display:grid;grid-template-columns:repeat(2,minmax(118px,1fr));justify-items:center}}.ddcs-targets-row{{flex-direction:column;align-items:center}}.ddcs-item{{width:120px;min-height:154px}}.ddcs-item-shell,.ddcs-item img,.ddcs-image-fallback{{width:120px;height:120px}}.ddcs-item.placed{{min-height:120px}}.ddcs-target-card{{width:100%}}.ddcs-target-circle{{width:min(var(--ddcs-target-size),72vw)!important;height:min(var(--ddcs-target-size),72vw)!important}}}}</style>
     {tap_select_common_assets()}
+    {drag_drop_group_assets()}
+    <style>
+      .interactive-drag-drop-question .dd-item {{
+        width: 52px !important;
+        height: 52px !important;
+        min-width: 52px !important;
+        max-width: 52px !important;
+        min-height: 52px !important;
+        max-height: 52px !important;
+        object-fit: contain !important;
+      }}
+
+      .interactive-drag-drop-question .drag-items-row {{
+        display: flex !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 8px !important;
+      }}
+
+      .interactive-drag-drop-question .dd-drop-zone {{
+        width: min(78vw, 280px) !important;
+        height: 135px !important;
+        margin: 0 auto !important;
+      }}
+    </style>
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><div class='lesson-journey-card' aria-label='Lesson Journey'><div class='lesson-journey-head'><div><p class='lesson-journey-kicker'>SLIS Journey</p><h2 class='lesson-journey-title'>{'Lesson Journey' if not is_si else 'පාඩම් ගමන'}</h2></div></div><div class='lesson-journey-track'>{lesson_journey_html}</div><p class='lesson-journey-summary'>{escape(lessons_completed_summary)}</p><p class='chapter-progress-caption'>{'Chapter progress' if not is_si else 'පරිච්ඡේද ප්‍රගතිය'}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
@@ -10680,7 +10730,207 @@ def student_lesson_page(lesson_id: int):
             if (submitBtn) submitBtn.disabled = false;
           }}
         }});
-      }} function wireInteractiveVideo(mediaWrap, current) {{ const activity = current.activity || {{}}; const triggerSeconds = Math.max(0, Number(activity.trigger_seconds || 0)); const pauseVideo = activity.pause_video !== false; const requiredAnswer = activity.required_answer !== false; const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || ""; const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`; const questionHtml = current.interactive_question_html || `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`; mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-question" style="display:none;margin-top:16px;padding:16px;border:1px solid #fed7aa;border-radius:14px;background:#fff7ed;"><h3>${{isSinhala ? "වීඩියෝ ප්‍රශ්නය" : "Video Question"}}</h3><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || ''}}">${{questionHtml}}<button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div>`); const questionPanel = mediaWrap.querySelector(".interactive-video-question"); questionPanel?.querySelectorAll(".drag-drop-question").forEach((wrap)=>wrap.classList.add("interactive-drag-drop-question")); if (window.initDragGroupUI) {{ window.initDragGroupUI(document); }} if (window.initTapCorrectImageUI) {{ window.initTapCorrectImageUI(document); }} if (window.initTapSelectUI) {{ window.initTapSelectUI(document); }} const iframe = mediaWrap.querySelector(".interactive-video-frame"); const form = mediaWrap.querySelector(".interactive-video-form"); const status = mediaWrap.querySelector(".interactive-video-status"); let questionShown = false; let timer = null; const showQuestion = () => {{ if (questionShown) return; questionShown = true; if (questionPanel) questionPanel.style.display = "block"; if (pauseVideo && iframe) iframe.src = iframe.src; if (!requiredAnswer) solvedQuizSlides.add(current.id); enableFinishLessonButton(); }}; if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ timer = window.setTimeout(showQuestion, triggerSeconds * 1000); }} form?.addEventListener("submit", async (event) => {{ event.preventDefault(); if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving..."; const fd = new FormData(form); fd.set("slide_id", String(current.id)); fd.set("time_spent_seconds", String(Math.round((Date.now() - slideStartedAt) / 1000))); try {{ const res = await fetch("/student/lesson/" + lessonId + "/interactive-video-answer", {{ method: "POST", body: fd }}); const data = await res.json().catch(()=>null); if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || "Answer failed"); if (status) status.textContent = data.is_correct ? (isSinhala ? "නිවැරදියි" : "Correct") : (isSinhala ? "පිළිතුර සුරැකිණි" : "Answer saved"); solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl); form.querySelectorAll("input,select,button,textarea").forEach((el)=>{{ if (!el.classList.contains("manual-test-submit")) el.disabled = true; }}); }} catch (err) {{ console.error("Interactive video answer failed:", err); alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer.")); if (status) status.textContent = ""; }} }}); }} function maybeShowAiAssistant(shouldOpen=false) {{ const payload = window.lastAiAssistPayload || null; const card = document.getElementById("aiHelperCard"); if (!card || !payload) return; const panel = document.getElementById("aiHelperPanel"); if (panel && payload.message) panel.textContent = payload.message; if (shouldOpen && payload.show) card.style.display = "block"; }} function renderSlide() {{ slideStartedAt = Date.now(); window.lastAiAssistPayload = null; const current = slides[currentIndex]; document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " "); document.getElementById("slideTitle").textContent = current.title || "Slide"; document.getElementById("slideContent").textContent = current.content || ""; const pct = Math.round(((currentIndex + 1) / slides.length) * 100); document.getElementById("completionText").textContent = `Completion: ${{pct}}%`; document.getElementById("completionBar").style.width = `${{pct}}%`; const mediaWrap = document.getElementById("slideMediaWrap"); mediaWrap.innerHTML = ""; const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase(); if (contentType === "interactive_video") {{ wireInteractiveVideo(mediaWrap, current); }} if (contentType === "manual_interim_test") {{ mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || ""); if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap); if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap); wireManualInterimTest(mediaWrap, current); }} if (contentType === "intro_video" && current.video_url) {{ const iframe = document.createElement("iframe"); iframe.className = "slide-video"; iframe.src = normalizeYouTube(current.video_url); iframe.allowFullscreen = true; mediaWrap.appendChild(iframe); }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{ console.log("IMAGE GRID CURRENT SLIDE:", current); const imageGridImages = getImageGridImages(current); console.log("IMAGE GRID IMAGES:", imageGridImages); const gridHtml = renderImageGrid(imageGridImages); if (gridHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", gridHtml); }} else {{ mediaWrap.textContent = "No image_grid images found for this slide."; }} }} else if (current.image_url) {{ const image = document.createElement("img"); image.className = "slide-media"; image.src = current.image_url; mediaWrap.appendChild(image); }} const activityHtml = render_activity_slide(current.activity); if (activityHtml) {{ mediaWrap.insertAdjacentHTML("beforeend", activityHtml); const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType = activityTypeMap[activityType] || activityType; if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap); if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap); if (normalizedType === "mcq") wireMcqInteraction(mediaWrap); if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap); }} document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join(""); document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }})); document.getElementById("prevSlideBtn").disabled = currentIndex === 0; document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next"; const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase(); const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false); document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id); document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none"; }}
+      }} function getInteractiveQuestionText(question) {{
+        if (!question) return isSinhala ? "ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video.";
+        return isSinhala ? (question.question_text_si || question.question_text_en || "Question") : (question.question_text_en || question.question_text_si || "Question");
+      }}
+      function getInteractiveOptions(question) {{
+        const opts = [
+          {{key: "A", label: isSinhala ? question.option_a_si : question.option_a_en}},
+          {{key: "B", label: isSinhala ? question.option_b_si : question.option_b_en}},
+          {{key: "C", label: isSinhala ? question.option_c_si : question.option_c_en}},
+          {{key: "D", label: isSinhala ? question.option_d_si : question.option_d_en}},
+        ];
+        return opts.filter((opt)=>opt.label);
+      }}
+      function buildInteractiveVideoQuestionHtml(question) {{
+        if (!question) return `<p>${{isSinhala ? "මෙම වීඩියෝවට ප්‍රශ්නයක් තෝරා නැත." : "No question has been selected for this video."}}</p>`;
+        const qType = String(question.question_type || "mcq").toLowerCase();
+        const qid = String(question.id || "");
+        const imageHtml = (qType !== "tap_select_image" && qType !== "tap_correct_image" && qType !== "drag_drop_group_container" && question.image_url) ? `<p><img src="${{escapeHtml(normalizeLocalImageUrl(question.image_url))}}" alt="Question image" style="max-width:100%;border:1px solid #ddd;border-radius:6px;"></p>` : "";
+        let controlHtml = "";
+        if (qType === "mcq") {{
+          const options = getInteractiveOptions(question);
+          controlHtml = `<div class="quiz-options">${{options.map((opt)=>`<label><input type="radio" name="q_${{escapeHtml(qid)}}" value="${{escapeHtml(opt.key)}}"> ${{escapeHtml(opt.key)}}. ${{escapeHtml(opt.label)}}</label>`).join("")}}</div>`;
+        }} else if (qType === "short_answer") {{
+          controlHtml = `<input class="manual-test-text-input" type="text" name="q_${{escapeHtml(qid)}}" placeholder="${{isSinhala ? "පිළිතුර ටයිප් කරන්න" : "Type your answer"}}" autocomplete="off">`;
+        }} else if (qType === "drag_drop_group_container") {{
+          const rawItems = question.drag_items_json || "[]";
+          let items = [];
+          try {{ items = JSON.parse(rawItems); }} catch(e) {{ items = []; }}
+          const basket = normalizeLocalImageUrl(question.drag_container_image_url || "");
+          if (!items.length || !basket) {{
+            controlHtml = `<p style="color:#b45309;">${{isSinhala ? "මෙම ඇද-දමන්න ප්‍රශ්නයට දත්ත සකසා නැත." : "Drag-drop assets are missing for this interactive question."}}</p>`;
+          }} else {{
+            const safeGroupClass = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+            controlHtml = `<div class="drag-drop-question interactive-drag-drop-question" data-question-id="interactive"><div class="drag-items-row">${{items.map((item)=>{{
+              const group = String(item.group || "");
+              const groupClass = safeGroupClass(group);
+              return `<img class="dd-item ${{groupClass ? `dd-item-${{groupClass}}` : ""}}" data-id="${{escapeHtml(String(item.id || ""))}}" data-group="${{escapeHtml(group)}}" src="${{escapeHtml(normalizeLocalImageUrl(item.image_url || ""))}}" alt="${{escapeHtml(String(item.label_si || item.label_en || item.group || "drag item"))}}">`;
+            }}).join("")}}</div><div class="dd-drop-zone"><img class="dd-basket" src="${{escapeHtml(basket)}}" alt="drop container"></div><input id="interactive_drag_answer" class="drag-answer-json" name="answer_interactive" type="hidden" value=""><input type="hidden" name="answer_${{escapeHtml(qid)}}" id="answer_${{escapeHtml(qid)}}" value=""></div>`;
+          }}
+        }} else if (qType === "tap_correct_image") {{
+          const images = Array.isArray(question.question_images) ? question.question_images : [];
+          const correctCount = images.filter((img)=>img.is_correct).length;
+          const multi = correctCount > 1;
+          const imageCards = images.map((img)=>`<button type="button" class="tap-correct-image-card" data-image-id="${{escapeHtml(String(img.id || ""))}}"><img src="${{escapeHtml(normalizeLocalImageUrl(img.image_url || ""))}}" alt="${{escapeHtml(img.image_name || "Question image")}}"></button>`).join("");
+          controlHtml = `<div class="tap-correct-image-wrap" data-multi="${{multi ? "1" : "0"}}" data-question-id="${{escapeHtml(qid)}}"><div class="tap-correct-image-grid">${{imageCards}}</div><input type="hidden" name="answer_${{escapeHtml(qid)}}" value="[]"><p class="tap-correct-image-feedback" aria-live="polite"></p></div>`;
+        }} else if (qType === "tap_select_image") {{
+          controlHtml = `<div class="tap-select-wrap"><img src="${{escapeHtml(normalizeLocalImageUrl(question.image_url || ""))}}" alt="Tap select image" class="tap-select-image"><svg class="tap-select-overlay" viewBox="0 0 100 100" preserveAspectRatio="none"></svg><input type="hidden" name="answer_${{escapeHtml(qid)}}" value=""></div>`;
+          setTimeout(() => {{
+            const wrap = document.querySelector(".interactive-video-popup .tap-select-wrap");
+            const svg = wrap?.querySelector(".tap-select-overlay");
+            const hidden = wrap?.querySelector(`input[name="answer_${{qid}}"]`);
+            let areas = [];
+            try {{ areas = JSON.parse(question.tap_areas_json || "[]"); }} catch(e) {{ areas = []; }}
+            if (!wrap || !svg || !hidden) return;
+            areas.forEach((area)=>{{
+              const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              rect.setAttribute("class", "tap-area");
+              rect.setAttribute("x", String(area.x || 0));
+              rect.setAttribute("y", String(area.y || 0));
+              rect.setAttribute("width", String(area.width ?? area.w ?? 0));
+              rect.setAttribute("height", String(area.height ?? area.h ?? 0));
+              rect.addEventListener("click", ()=>{{ hidden.value = String(area.id || ""); svg.querySelectorAll(".tap-area").forEach((node)=>node.classList.remove("selected")); rect.classList.add("selected"); }});
+              svg.appendChild(rect);
+            }});
+          }}, 0);
+        }} else {{
+          controlHtml = `<input class="manual-test-text-input" type="text" name="q_${{escapeHtml(qid)}}" placeholder="${{isSinhala ? "පිළිතුර ටයිප් කරන්න" : "Type your answer"}}" autocomplete="off">`;
+        }}
+        return `<h3>${{isSinhala ? "වීඩියෝ ප්‍රශ්නය" : "Video Question"}}</h3><p>${{escapeHtml(getInteractiveQuestionText(question))}}</p>${{imageHtml}}${{controlHtml}}`;
+      }}
+      function wireInteractiveVideo(mediaWrap, current) {{
+        const activity = current.activity || {{}};
+        const question = current.interactive_question || null;
+        const triggerSeconds = Math.max(0, Number(activity.trigger_seconds || 0));
+        const pauseVideo = activity.pause_video !== false;
+        const requiredAnswer = activity.required_answer !== false;
+        const videoUrl = current.video_url || (isSinhala ? current.video_url_si : current.video_url_en) || current.video_url_si || current.video_url_en || "";
+        const videoHtml = videoUrl ? `<iframe class="slide-video interactive-video-frame" src="${{normalizeYouTube(videoUrl)}}" allowfullscreen></iframe>` : `<p class="slide-content">${{isSinhala ? "වීඩියෝ URL එකක් නොමැත." : "No video URL has been set for this slide."}}</p>`;
+        mediaWrap.insertAdjacentHTML("beforeend", `<div class="interactive-video-slide" data-trigger-seconds="${{triggerSeconds}}" data-required-answer="${{requiredAnswer}}">${{videoHtml}}<div class="interactive-video-popup" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);align-items:center;justify-content:center;z-index:9999;padding:16px;"><div class="interactive-video-card" style="background:#fff;padding:20px;border-radius:16px;max-width:760px;width:95%;max-height:90vh;overflow:auto;border:1px solid #fed7aa;box-shadow:0 24px 60px rgba(15,23,42,.25);"><form class="interactive-video-form"><input type="hidden" name="slide_id" value="${{current.id}}"><input type="hidden" name="question_id" value="${{activity.question_id || (question && question.id) || ""}}"><div class="interactive-video-question-body"></div><button class="manual-test-submit" type="submit">${{isSinhala ? "පිළිතුර සුරකින්න" : "Submit answer"}}</button><span class="interactive-video-status" style="margin-left:10px;font-weight:800;"></span></form></div></div></div>`);
+        const questionPanel = mediaWrap.querySelector(".interactive-video-popup");
+        const body = mediaWrap.querySelector(".interactive-video-question-body");
+        if (body) {{
+          body.innerHTML = buildInteractiveVideoQuestionHtml(question);
+        }}
+        if (window.initDragGroupUI) {{
+          window.initDragGroupUI(document);
+        }}
+        if (window.initTapCorrectImageUI) {{ window.initTapCorrectImageUI(document); }}
+        if (window.initTapSelectUI) {{ window.initTapSelectUI(document); }}
+        const iframe = mediaWrap.querySelector(".interactive-video-frame");
+        const form = mediaWrap.querySelector(".interactive-video-form");
+        const status = mediaWrap.querySelector(".interactive-video-status");
+        let questionShown = false;
+        const showQuestion = () => {{
+          if (questionShown) return;
+          questionShown = true;
+          if (questionPanel) questionPanel.style.display = "flex";
+          if (pauseVideo && iframe) iframe.src = iframe.src;
+          if (!requiredAnswer) solvedQuizSlides.add(current.id);
+          enableFinishLessonButton();
+        }};
+        if (triggerSeconds <= 0) {{ showQuestion(); }} else {{ window.setTimeout(showQuestion, triggerSeconds * 1000); }}
+        form?.addEventListener("submit", async (event) => {{
+          event.preventDefault();
+          if (status) status.textContent = isSinhala ? "සුරකිමින්..." : "Saving...";
+          const fd = new FormData(form);
+          const qid = String(activity.question_id || (question && question.id) || "");
+          const interactiveDragAnswer = form.querySelector("#interactive_drag_answer");
+          if (qid && interactiveDragAnswer && !fd.get(`answer_${{qid}}`)) fd.set(`answer_${{qid}}`, interactiveDragAnswer.value || "");
+          fd.set("slide_id", String(current.id));
+          fd.set("time_spent_seconds", String(Math.round((Date.now() - slideStartedAt) / 1000)));
+          try {{
+            const res = await fetch("/student/lesson/" + lessonId + "/interactive-video-answer", {{ method: "POST", body: fd }});
+            const data = await res.json().catch(()=>null);
+            if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || "Answer failed");
+            if (status) status.textContent = data.is_correct ? (isSinhala ? "නිවැරදියි" : "Correct") : (isSinhala ? "පිළිතුර සුරැකිණි" : "Answer saved");
+            solvedQuizSlides.add(current.id);
+            enableFinishLessonButton();
+            if (questionPanel) questionPanel.style.display = "none";
+            if (iframe && videoUrl) iframe.src = normalizeYouTube(videoUrl);
+          }} catch (err) {{
+            console.error("Interactive video answer failed:", err);
+            alert(err.message || (isSinhala ? "පිළිතුර සුරැකිය නොහැක." : "Could not save the answer."));
+            if (status) status.textContent = "";
+          }}
+        }});
+      }}
+      function maybeShowAiAssistant(shouldOpen=false) {{
+        const payload = window.lastAiAssistPayload || null;
+        const card = document.getElementById("aiHelperCard");
+        if (!card || !payload) return;
+        const panel = document.getElementById("aiHelperPanel");
+        if (panel && payload.message) panel.textContent = payload.message;
+        if (shouldOpen && payload.show) card.style.display = "block";
+      }}
+      function renderSlide() {{
+        slideStartedAt = Date.now();
+        window.lastAiAssistPayload = null;
+        const current = slides[currentIndex];
+        document.getElementById("slideTypePill").textContent = current.slide_type.replaceAll("_", " ");
+        document.getElementById("slideTitle").textContent = current.title || "Slide";
+        document.getElementById("slideContent").textContent = current.content || "";
+        const pct = Math.round(((currentIndex + 1) / slides.length) * 100);
+        document.getElementById("completionText").textContent = `Completion: ${{pct}}%`;
+        document.getElementById("completionBar").style.width = `${{pct}}%`;
+        const mediaWrap = document.getElementById("slideMediaWrap");
+        mediaWrap.innerHTML = "";
+        const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase();
+        if (contentType === "interactive_video") {{
+          wireInteractiveVideo(mediaWrap, current);
+        }}
+        if (contentType === "manual_interim_test") {{
+          mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || "");
+          if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap);
+          if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap);
+          wireManualInterimTest(mediaWrap, current);
+        }}
+        if (contentType === "intro_video" && current.video_url) {{
+          const iframe = document.createElement("iframe");
+          iframe.className = "slide-video";
+          iframe.src = normalizeYouTube(current.video_url);
+          iframe.allowFullscreen = true;
+          mediaWrap.appendChild(iframe);
+        }} else if (contentType === "image_grid" || String(current.activity?.type || current.activity?.activity_type || "").trim().toLowerCase() === "image_grid") {{
+          console.log("IMAGE GRID CURRENT SLIDE:", current);
+          const imageGridImages = getImageGridImages(current);
+          console.log("IMAGE GRID IMAGES:", imageGridImages);
+          const gridHtml = renderImageGrid(imageGridImages);
+          if (gridHtml) {{
+            mediaWrap.insertAdjacentHTML("beforeend", gridHtml);
+          }} else {{
+            mediaWrap.textContent = "No image_grid images found for this slide.";
+          }}
+        }} else if (current.image_url) {{
+          const image = document.createElement("img");
+          image.className = "slide-media";
+          image.src = current.image_url;
+          mediaWrap.appendChild(image);
+        }}
+        const activityHtml = contentType === "interactive_video" ? "" : render_activity_slide(current.activity);
+        if (activityHtml) {{
+          mediaWrap.insertAdjacentHTML("beforeend", activityHtml);
+          const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
+          const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
+          const normalizedType = activityTypeMap[activityType] || activityType;
+          if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap);
+          if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap);
+          if (normalizedType === "mcq") wireMcqInteraction(mediaWrap);
+          if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap);
+        }}
+        document.getElementById("progressDots").innerHTML = slides.map((s, i)=>`<button type='button' class="lesson-dot ${{i < currentIndex ? "completed" : ""}} ${{i === currentIndex ? "active" : ""}}" data-dot-index="${{i}}"></button>`).join("");
+        document.querySelectorAll("#progressDots .lesson-dot").forEach((dot)=>dot.addEventListener("click", ()=>{{ currentIndex = Number(dot.dataset.dotIndex || 0); renderSlide(); }}));
+        document.getElementById("prevSlideBtn").disabled = currentIndex === 0;
+        document.getElementById("finishLessonBtn").textContent = currentIndex === slides.length - 1 ? "Finish" : "Next";
+        const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
+        const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
+        const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase();
+        const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
+        document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id);
+        document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none";
+      }}
       document.getElementById("prevSlideBtn").addEventListener("click", ()=>{{ if (currentIndex > 0) {{ currentIndex--; renderSlide(); }} }});
       const finishBtn = document.getElementById("finishLessonBtn");
       finishBtn.addEventListener("click", async () => {{
