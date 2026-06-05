@@ -8940,6 +8940,7 @@ def admin_dashboard():
         <p><a href='/admin/live-classes'>Live Class Manager</a></p>
         <p><a href='/admin/classes'>Manage Classes</a></p>
         <p><a href='/admin/messages'>Send Student Messages</a></p>
+        <p><a href='/admin/whatsapp-inbox'>WhatsApp Inbox</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
         <p><a href='/admin/schools'>Manage Schools</a></p>
