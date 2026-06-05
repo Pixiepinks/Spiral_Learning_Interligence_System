@@ -3363,50 +3363,16 @@ def privacy_policy_page() -> object:
     return send_from_directory(FRONTEND_BUILD_DIR, "privacy-policy/index.html")
 
 
-def render_simple_public_legal_page(title: str, description: str) -> str:
-    return f"""
-    <!doctype html>
-    <html lang='en'>
-      <head>
-        <meta charset='utf-8'>
-        <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <title>{escape(title)} | SLIS</title>
-        <meta name='description' content='{escape(description, quote=True)}'>
-        <link rel='stylesheet' href='/styles.css'>
-      </head>
-      <body class='legal-page-body'>
-        <header class='legal-header'>
-          <a class='legal-logo-wrap' href='/' aria-label='SLIS Home'><img src='/assets/slis-logo.png' alt='SLIS logo' class='legal-logo'><span>Spiral Learning Intelligence System</span></a>
-          <nav class='legal-header-nav' aria-label='Legal navigation'>
-            <a href='/privacy-policy'>Privacy Policy</a>
-            <a href='/terms-of-service'>Terms of Service</a>
-            <a href='/contact-us'>Contact Us</a>
-          </nav>
-        </header>
-        <main class='legal-main'>
-          <article class='legal-card'>
-            <p class='legal-eyebrow'>SLIS Public Information</p>
-            <h1>{escape(title)}</h1>
-            <section><p>{escape(description)}</p></section>
-            <section class='legal-contact-card'><h2>Contact SLIS</h2><p>Email: <a href='mailto:support@slis-e.com'>support@slis-e.com</a></p><p>WhatsApp: <a href='https://wa.me/94703755777'>+94 70 375 5777</a></p></section>
-          </article>
-        </main>
-        <footer class='public-footer legal-footer'><a href='/privacy-policy'>Privacy Policy</a><a href='/terms-of-service'>Terms of Service</a><a href='/contact-us'>Contact Us</a></footer>
-      </body>
-    </html>
-    """
-
-
 @app.route("/terms-of-service")
 @app.route("/terms-of-service/")
-def terms_of_service_page() -> str:
-    return render_simple_public_legal_page("Terms of Service", "SLIS Terms of Service information is available for students, parents, teachers, schools, and visitors.")
+def terms_of_service_page() -> object:
+    return send_from_directory(FRONTEND_BUILD_DIR, "terms-of-service/index.html")
 
 
 @app.route("/contact-us")
 @app.route("/contact-us/")
-def contact_us_page() -> str:
-    return render_simple_public_legal_page("Contact Us", "Contact Spiral Learning Intelligence System (SLIS) for support, privacy requests, and platform assistance.")
+def contact_us_page() -> object:
+    return send_from_directory(FRONTEND_BUILD_DIR, "contact-us/index.html")
 
 
 @app.route("/register-form", methods=["GET", "POST"])
