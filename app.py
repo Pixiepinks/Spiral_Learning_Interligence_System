@@ -343,6 +343,65 @@ def display_grade(value: str | None, medium: str = "English") -> str:
     return GRADE_LABELS_EN.get(grade, grade)
 
 
+def send_whatsapp_admin_registration_alert(student):
+    token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
+    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    admin_number = (os.environ.get("WHATSAPP_ADMIN_NUMBER") or "94703755777").strip()
+
+    if not token or not phone_number_id or not admin_number:
+        app.logger.warning("WhatsApp admin alert skipped: missing WhatsApp env vars.")
+        return False
+
+    message = f"""🎓 New SLIS Student Registration
+
+Name: {student.name}
+Username: {student.username}
+Grade: {display_grade(student.grade, student.medium)}
+Medium: {student.medium}
+Mobile: {student.mobile}
+Email: {student.email or "-"}
+Parent Email: {student.parent_email or "-"}
+Registered At: {sri_lanka_now().strftime("%Y-%m-%d %I:%M %p")}
+
+Admin Panel:
+https://slis-e.com/admin/students"""
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": admin_number,
+        "type": "text",
+        "text": {"preview_url": False, "body": message},
+    }
+
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=20) as resp:
+            body = resp.read().decode("utf-8", "ignore")
+            app.logger.info("WhatsApp admin alert sent for student_id=%s response=%s", student.id, body)
+            return True
+    except HTTPError as exc:
+        app.logger.error(
+            "WhatsApp admin alert failed for student_id=%s status=%s response=%s",
+            student.id,
+            exc.code,
+            exc.read().decode("utf-8", "ignore"),
+        )
+    except Exception:
+        app.logger.exception("WhatsApp admin alert failed for student_id=%s", student.id)
+
+    return False
+
+
 def grade_options_html(selected: str = "") -> str:
     selected_grade = normalize_grade(selected)
     options = []
@@ -3385,6 +3444,11 @@ def register_student():
             )
     else:
         app.logger.warning("No email available for welcome email.")
+
+    try:
+        send_whatsapp_admin_registration_alert(student)
+    except Exception:
+        app.logger.exception("Unexpected WhatsApp admin notification error for student_id=%s", student.id)
 
     if is_form_submission:
         safe_email = quote_plus(student.email or "")
