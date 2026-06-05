@@ -4,6 +4,7 @@ import random
 import re
 import hashlib
 import secrets
+import threading
 import uuid
 import base64
 from datetime import date, datetime, timedelta
@@ -341,6 +342,55 @@ def display_grade(value: str | None, medium: str = "English") -> str:
     if medium == "Sinhala":
         return GRADE_LABELS_SI.get(grade, grade)
     return GRADE_LABELS_EN.get(grade, grade)
+
+
+def send_whatsapp_text(to_number: str, body: str) -> bool:
+    """Send a plain text WhatsApp Cloud API message."""
+    token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
+    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    to_number = (to_number or "").strip()
+    body = (body or "").strip()
+
+    if not token or not phone_number_id:
+        app.logger.error("WhatsApp text send skipped: missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID.")
+        return False
+    if not to_number or not body:
+        app.logger.error("WhatsApp text send skipped: missing destination number or message body.")
+        return False
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"preview_url": False, "body": body},
+    }
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=15) as resp:
+            response_body = resp.read().decode("utf-8", "ignore")
+            app.logger.info("WhatsApp text sent to=%s response=%s", to_number, response_body)
+            return True
+    except HTTPError as exc:
+        app.logger.error(
+            "WhatsApp text send failed to=%s status=%s response=%s",
+            to_number,
+            exc.code,
+            exc.read().decode("utf-8", "ignore"),
+        )
+    except Exception:
+        app.logger.exception("WhatsApp text send failed to=%s", to_number)
+
+    return False
 
 
 def send_whatsapp_admin_registration_alert(student):
@@ -2674,6 +2724,21 @@ class StudentMessage(db.Model):
     message_type = db.Column(db.String(30), nullable=True, default="general")
     is_read = db.Column(db.Boolean, nullable=False, default=False)
     created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WhatsappMessage(db.Model):
+    __tablename__ = "whatsapp_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    wa_message_id = db.Column(db.String(120), nullable=True, unique=True, index=True)
+    from_number = db.Column(db.String(40), nullable=False, index=True)
+    profile_name = db.Column(db.String(160), nullable=True)
+    phone_number_id = db.Column(db.String(80), nullable=True)
+    message_type = db.Column(db.String(40), nullable=True)
+    body = db.Column(db.Text, nullable=True)
+    raw_payload = db.Column(db.Text, nullable=False)
+    received_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -7235,6 +7300,193 @@ def admin_session_required():
     if session.get("admin_logged_in") is not True:
         return redirect(url_for("admin_login"))
     return None
+
+
+def admin_or_school_admin_session_required():
+    if session.get("admin_logged_in") is True:
+        return None
+    if session.get("school_admin_logged_in") is True:
+        return None
+    return redirect(url_for("admin_login"))
+
+
+def extract_whatsapp_message_body(message: dict) -> str:
+    message_type = message.get("type")
+    if message_type == "text":
+        return ((message.get("text") or {}).get("body") or "").strip()
+    if message_type == "button":
+        button = message.get("button") or {}
+        return (button.get("text") or button.get("payload") or "").strip()
+    if message_type == "interactive":
+        interactive = message.get("interactive") or {}
+        button_reply = interactive.get("button_reply") or {}
+        list_reply = interactive.get("list_reply") or {}
+        return (button_reply.get("title") or list_reply.get("title") or button_reply.get("id") or list_reply.get("id") or "").strip()
+    return f"[{message_type or 'unknown'} message]"
+
+
+def parse_whatsapp_timestamp(value) -> datetime | None:
+    try:
+        if value in (None, ""):
+            return None
+        return datetime.utcfromtimestamp(int(value))
+    except (TypeError, ValueError, OSError):
+        app.logger.error("WhatsApp webhook contained invalid timestamp=%s", value)
+        return None
+
+
+def queue_whatsapp_auto_reply(to_number: str, message_id: int) -> None:
+    def _send_reply():
+        try:
+            send_whatsapp_text(
+                to_number,
+                "Thank you for contacting SLIS. We received your WhatsApp message and our team will respond soon.",
+            )
+        except Exception:
+            app.logger.exception("WhatsApp webhook auto reply failed for message_id=%s", message_id)
+
+    threading.Thread(target=_send_reply, daemon=True).start()
+
+
+def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
+    saved_messages = []
+    for entry in payload.get("entry", []) or []:
+        for change in entry.get("changes", []) or []:
+            value = change.get("value") or {}
+            metadata = value.get("metadata") or {}
+            phone_number_id = metadata.get("phone_number_id")
+            contacts_by_wa_id = {
+                contact.get("wa_id"): (contact.get("profile") or {}).get("name")
+                for contact in value.get("contacts", []) or []
+                if contact.get("wa_id")
+            }
+            for message in value.get("messages", []) or []:
+                from_number = (message.get("from") or "").strip()
+                wa_message_id = (message.get("id") or "").strip() or None
+                if not from_number:
+                    app.logger.error("WhatsApp webhook message skipped: missing sender. message=%s", message)
+                    continue
+                if wa_message_id and WhatsappMessage.query.filter_by(wa_message_id=wa_message_id).first():
+                    app.logger.info("WhatsApp webhook duplicate ignored: wa_message_id=%s", wa_message_id)
+                    continue
+
+                record = WhatsappMessage(
+                    wa_message_id=wa_message_id,
+                    from_number=from_number,
+                    profile_name=contacts_by_wa_id.get(from_number),
+                    phone_number_id=phone_number_id,
+                    message_type=message.get("type"),
+                    body=extract_whatsapp_message_body(message),
+                    raw_payload=json.dumps(message, ensure_ascii=False),
+                    received_at=parse_whatsapp_timestamp(message.get("timestamp")),
+                )
+                db.session.add(record)
+                saved_messages.append(record)
+    if saved_messages:
+        db.session.commit()
+    return saved_messages
+
+
+@app.route("/webhook/whatsapp", methods=["GET", "POST"])
+def whatsapp_webhook():
+    if request.method == "GET":
+        verify_token = (os.environ.get("WHATSAPP_VERIFY_TOKEN") or "").strip()
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        if mode == "subscribe" and token == verify_token and verify_token and challenge is not None:
+            app.logger.info("WhatsApp webhook verified successfully.")
+            return Response(challenge, status=200, mimetype="text/plain")
+        app.logger.error(
+            "WhatsApp webhook verification failed: mode=%s token_present=%s verify_token_configured=%s",
+            mode,
+            bool(token),
+            bool(verify_token),
+        )
+        return Response("Forbidden", status=403, mimetype="text/plain")
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        app.logger.error("WhatsApp webhook POST failed: invalid or missing JSON payload.")
+        return jsonify({"success": False, "message": "Invalid JSON payload"}), 400
+
+    try:
+        saved_messages = save_incoming_whatsapp_messages(payload)
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("WhatsApp webhook POST failed while saving payload=%s", payload)
+        return jsonify({"success": False, "message": "Webhook processing failed"}), 500
+
+    for message in saved_messages:
+        queue_whatsapp_auto_reply(message.from_number, message.id)
+
+    return jsonify({"success": True, "saved": len(saved_messages)}), 200
+
+
+@app.route("/admin/whatsapp-inbox", methods=["GET"])
+def admin_whatsapp_inbox():
+    auth_redirect = admin_or_school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+
+    messages = WhatsappMessage.query.order_by(WhatsappMessage.created_at.desc()).limit(250).all()
+    rows = []
+    for item in messages:
+        received_label = item.received_at.strftime("%Y-%m-%d %H:%M:%S UTC") if item.received_at else "-"
+        rows.append(
+            "<tr>"
+            f"<td>{item.id}</td>"
+            f"<td>{escape(received_label)}</td>"
+            f"<td>{escape(item.profile_name or '-')}</td>"
+            f"<td>{escape(item.from_number)}</td>"
+            f"<td>{escape(item.message_type or '-')}</td>"
+            f"<td class='message-body'>{escape(item.body or '')}</td>"
+            f"<td>{escape(item.wa_message_id or '-')}</td>"
+            "</tr>"
+        )
+    table_rows = "".join(rows) or "<tr><td colspan='7' class='empty'>No WhatsApp messages saved yet.</td></tr>"
+    back_link = "/school-admin/dashboard" if session.get("school_admin_logged_in") is True and session.get("admin_logged_in") is not True else "/admin-dashboard"
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>WhatsApp Inbox - SLIS Admin</title>
+        <style>
+          body {{ font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }}
+          main {{ max-width: 1180px; margin: 0 auto; padding: 28px 18px; }}
+          .topbar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }}
+          h1 {{ margin: 0; color: #0f2a5f; }}
+          a {{ color: #184bb8; font-weight: 700; text-decoration: none; }}
+          .card {{ background: #fff; border: 1px solid #dbe4f0; border-radius: 18px; box-shadow: 0 12px 30px rgba(15, 42, 95, .08); overflow: hidden; }}
+          table {{ width: 100%; border-collapse: collapse; }}
+          th, td {{ padding: 12px 10px; border-bottom: 1px solid #e5edf8; text-align: left; vertical-align: top; font-size: 14px; }}
+          th {{ background: #eaf1ff; color: #143878; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }}
+          .message-body {{ max-width: 420px; white-space: pre-wrap; word-break: break-word; }}
+          .empty {{ text-align: center; color: #667085; padding: 30px; }}
+          @media (max-width: 760px) {{ .card {{ overflow-x: auto; }} .topbar {{ align-items: flex-start; flex-direction: column; }} }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <div class="topbar">
+            <div>
+              <h1>WhatsApp Inbox</h1>
+              <p>Latest incoming WhatsApp Cloud API messages saved by SLIS.</p>
+            </div>
+            <a href="{back_link}">Back to Dashboard</a>
+          </div>
+          <div class="card">
+            <table>
+              <thead><tr><th>ID</th><th>Received</th><th>Name</th><th>From</th><th>Type</th><th>Message</th><th>WhatsApp ID</th></tr></thead>
+              <tbody>{table_rows}</tbody>
+            </table>
+          </div>
+        </main>
+      </body>
+    </html>
+    """
 
 
 def _safe_int(value):
