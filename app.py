@@ -1073,10 +1073,19 @@ def send_student_whatsapp_welcome(student, school_name: str | None = None) -> bo
         )
         return False
 
+    template_name = os.environ.get("WHATSAPP_STUDENT_WELCOME_TEMPLATE", "slis_welcome")
+    language_code = os.environ.get("WHATSAPP_STUDENT_WELCOME_LANGUAGE", "en")
+    app.logger.info(
+        "Student WhatsApp welcome template=%s language=%s destination=%s",
+        template_name,
+        language_code,
+        destination,
+    )
+
     sent = send_whatsapp_template(
         destination,
-        "slis_welcome",
-        "en_US",
+        template_name,
+        language_code,
         [
             student.name,
             display_grade(student.grade, student.medium),
