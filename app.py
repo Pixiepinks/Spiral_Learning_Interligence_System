@@ -4418,6 +4418,58 @@ def login():
               button:hover {{
                 filter: brightness(1.03);
               }}
+              .login-options {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin: -2px 0 10px;
+                font-size: 0.88rem;
+              }}
+              .remember-me {{
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                margin: 0;
+                color: #1f2a44;
+                font-size: 0.88rem;
+                font-weight: 600;
+                white-space: nowrap;
+              }}
+              .remember-me input {{
+                width: 15px;
+                min-height: 15px;
+                height: 15px;
+                margin: 0;
+                padding: 0;
+                border-radius: 4px;
+                flex: 0 0 auto;
+              }}
+              .forgot-password-link,
+              .login-card-link {{
+                color: #184bb8;
+                font-size: 0.88rem;
+                font-weight: 600;
+                text-decoration: none;
+              }}
+              .forgot-password-link:hover,
+              .login-card-link:hover {{
+                text-decoration: underline;
+              }}
+              .login-extra-links {{
+                margin-top: 12px;
+                text-align: center;
+                color: #445675;
+                font-size: 0.88rem;
+                font-weight: 600;
+              }}
+              .login-help-text {{
+                margin-top: 6px;
+                text-align: center;
+                color: #445675;
+                font-size: 0.86rem;
+                font-weight: 600;
+              }}
               .login-legal-links {{
                 margin-top: 14px;
                 text-align: center;
@@ -4471,11 +4523,17 @@ def login():
                   <label for="password">Password</label>
                   <input id="password" type="password" name="password" required>
                 </div>
-                <div style="text-align:right;margin:-2px 0 10px;font-size:14px;">
-                  <a href="/forgot-password" style="color:#184bb8;font-size:.88rem;font-weight:600;text-decoration:none;">Forgot Password?</a>
+                <div class="login-options">
+                  <label class="remember-me" for="remember_me">
+                    <input id="remember_me" type="checkbox" name="remember_me" value="1">
+                    <span>Remember me</span>
+                  </label>
+                  <a class="forgot-password-link" href="/forgot-password">Forgot Password?</a>
                 </div>
                 <button type="submit">Login</button>
               </form>
+              <div class="login-extra-links">Don&apos;t have an account? <a class="login-card-link" href="/register-form">Register</a></div>
+              <div class="login-help-text">Need Help? <a class="login-card-link" href="https://wa.me/94703755777" target="_blank" rel="noopener noreferrer">WhatsApp 070 375 5777</a></div>
               <div class="login-legal-links"><a href="/privacy-policy">Privacy Policy</a> | <a href="/terms-of-service">Terms of Service</a> | <a href="/contact-us">Contact Us</a></div>
             </div>
           </body>
