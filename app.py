@@ -3357,56 +3357,252 @@ def join_page() -> object:
     return send_from_directory(FRONTEND_BUILD_DIR, "join/index.html")
 
 
+
+TRUST_EFFECTIVE_DATE = "01 June 2026"
+SLIS_WEBSITE = "https://slis-e.com"
+SLIS_SUPPORT_EMAIL = "support@slis-e.com"
+SLIS_WHATSAPP = "+94 70 375 5777"
+
+
+TRUST_CENTER_CSS = """
+<style>
+  :root { color-scheme: dark; --slis-navy:#061532; --slis-blue:#0a3a8f; --slis-sky:#43b5ff; --slis-card:rgba(255,255,255,.105); --slis-border:rgba(255,255,255,.18); --slis-text:#eef7ff; --slis-muted:#b9cbed; --slis-gold:#ffd66b; }
+  * { box-sizing: border-box; }
+  body.slis-trust-body { margin:0; min-height:100vh; font-family:"Inter", "Nunito", "Segoe UI", system-ui, sans-serif; color:var(--slis-text); background: radial-gradient(circle at 12% 4%, rgba(67,181,255,.32), transparent 28rem), radial-gradient(circle at 88% 12%, rgba(36,91,255,.28), transparent 30rem), linear-gradient(135deg, #041026 0%, #08265a 48%, #061532 100%); }
+  .trust-shell { width:min(1180px, calc(100% - 32px)); margin:0 auto; }
+  .trust-topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:20px 0; }
+  .trust-brand { display:flex; align-items:center; gap:12px; color:#fff; text-decoration:none; font-weight:900; letter-spacing:-.01em; }
+  .trust-brand img { width:min(110px, 24vw); max-width:110px; height:auto; object-fit:contain; display:block; filter:drop-shadow(0 10px 24px rgba(0,0,0,.28)); }
+  .trust-nav { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; }
+  .trust-nav a { color:#eaf6ff; text-decoration:none; font-weight:800; font-size:.92rem; padding:9px 12px; border:1px solid rgba(255,255,255,.14); border-radius:999px; background:rgba(255,255,255,.07); backdrop-filter:blur(14px); }
+  .trust-nav a:hover { background:rgba(255,255,255,.16); }
+  .trust-hero { padding:clamp(40px, 8vw, 92px) 0 34px; text-align:center; }
+  .trust-eyebrow { display:inline-flex; align-items:center; justify-content:center; gap:8px; margin:0 0 16px; color:#cfeeff; font-weight:900; letter-spacing:.14em; text-transform:uppercase; font-size:.78rem; }
+  .trust-hero h1 { margin:0; font-size:clamp(2.7rem, 8vw, 6.6rem); line-height:.92; letter-spacing:-.065em; }
+  .trust-hero h1 span { display:block; background:linear-gradient(90deg, #ffffff, #8bd8ff 55%, #ffd66b); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .trust-subtitle { max-width:850px; margin:20px auto 0; color:var(--slis-muted); font-size:clamp(1.02rem, 2.2vw, 1.28rem); line-height:1.75; }
+  .trust-meta { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin:22px 0 0; }
+  .trust-pill { border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.09); color:#eaf6ff; border-radius:999px; padding:9px 13px; font-weight:800; }
+  .trust-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:18px; margin:24px 0 42px; }
+  .glass-card { border:1px solid var(--slis-border); background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.07)); border-radius:24px; box-shadow:0 28px 80px rgba(0,0,0,.25); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+  .policy-card { padding:24px; display:flex; flex-direction:column; min-height:260px; }
+  .policy-icon { width:48px; height:48px; display:grid; place-items:center; border-radius:17px; background:linear-gradient(135deg, rgba(67,181,255,.25), rgba(255,214,107,.18)); font-size:1.5rem; }
+  .policy-card h2 { margin:18px 0 8px; font-size:1.24rem; color:#fff; }
+  .policy-card p { margin:0; color:#c5d5f3; line-height:1.65; }
+  .trust-button { margin-top:auto; align-self:flex-start; color:#061532; text-decoration:none; background:linear-gradient(135deg,#fff,#8bd8ff); padding:11px 15px; border-radius:999px; font-weight:950; box-shadow:0 14px 26px rgba(67,181,255,.22); }
+  .trust-badges { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0 0; }
+  .trust-badge { display:inline-flex; align-items:center; gap:8px; padding:10px 13px; border-radius:999px; color:#f7fbff; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.075); font-weight:850; }
+  .content-layout { display:grid; grid-template-columns:280px minmax(0,1fr); gap:22px; align-items:start; margin:18px 0 44px; }
+  .toc { position:sticky; top:16px; padding:22px; }
+  .toc strong { display:block; margin-bottom:12px; color:#fff; }
+  .toc a { display:block; color:#c9dcff; text-decoration:none; padding:8px 0; border-top:1px solid rgba(255,255,255,.08); font-weight:750; }
+  .policy-doc { padding:clamp(24px, 5vw, 46px); }
+  .policy-doc h1 { margin:0 0 8px; font-size:clamp(2rem,5vw,4.1rem); line-height:1; letter-spacing:-.045em; }
+  .effective { margin:0 0 28px; color:#b8cdf1; font-weight:800; }
+  .policy-doc section { padding:24px 0; border-top:1px solid rgba(255,255,255,.12); }
+  .policy-doc h2 { margin:0 0 10px; font-size:1.32rem; color:#fff; }
+  .policy-doc p, .policy-doc li { color:#d4e2fa; line-height:1.78; font-size:1.01rem; }
+  .policy-doc ul { margin:10px 0 0; padding-left:1.2rem; }
+  .policy-doc a { color:#9edcff; font-weight:900; }
+  .security-panel, .contact-panel { padding:28px; margin:22px 0 42px; }
+  .security-panel h2, .contact-panel h2 { margin-top:0; }
+  .contact-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+  .contact-list div { padding:18px; border-radius:20px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); }
+  .slis-footer { margin-top:40px; border-top:1px solid rgba(255,255,255,.14); background:rgba(2,10,28,.48); }
+  .slis-footer-inner { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:34px 0; display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:24px; }
+  .slis-footer h2, .slis-footer h3 { margin:0 0 8px; color:#fff; }
+  .slis-footer p { margin:0; color:#bed0ee; line-height:1.7; }
+  .slis-footer a { color:#eaf6ff; text-decoration:none; font-weight:850; display:inline-block; margin:4px 12px 4px 0; }
+  .slis-footer-bottom { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:0 0 28px; color:#9fb6dc; font-size:.93rem; }
+  @media (max-width:900px) { .trust-grid{grid-template-columns:1fr 1fr}.content-layout{grid-template-columns:1fr}.toc{position:static}.contact-list,.slis-footer-inner{grid-template-columns:1fr}.trust-topbar{align-items:flex-start; flex-direction:column}.trust-nav{justify-content:flex-start} }
+  @media (max-width:620px) { .trust-shell{width:min(100% - 22px, 1180px)}.trust-grid{grid-template-columns:1fr}.policy-card{min-height:0}.trust-brand img{width:82px}.trust-nav a{font-size:.84rem;padding:8px 10px}.policy-doc{border-radius:24px}.trust-hero{text-align:left}.trust-meta{justify-content:flex-start} }
+</style>
+"""
+
+
+def trust_footer() -> str:
+    return """
+    <footer class="slis-footer">
+      <div class="slis-footer-inner">
+        <div><h2>SLIS</h2><p><strong>Spiral Learning Intelligence System</strong><br>Learn Smarter. Grow Faster.</p></div>
+        <div><h3>Trust Center</h3><p><a href="/privacy-policy">Privacy Policy</a><a href="/children-privacy-policy">Children's Privacy Policy</a><a href="/terms-of-service">Terms of Service</a><a href="/data-deletion">Data Deletion</a><a href="/contact-us">Contact Us</a></p></div>
+        <div><h3>Support</h3><p><a href="mailto:support@slis-e.com">support@slis-e.com</a><br><a href="https://wa.me/94703755777">+94 70 375 5777</a><br><a href="https://slis-e.com">www.slis-e.com</a></p></div>
+      </div>
+      <div class="slis-footer-bottom">© 2026 Spiral Learning Intelligence System (SLIS). All Rights Reserved.<br>Made with care for Sri Lankan students.</div>
+    </footer>
+    """
+
+
+def trust_header() -> str:
+    return """
+    <header class="trust-shell trust-topbar">
+      <a class="trust-brand" href="/" aria-label="SLIS Home"><img src="/assets/slis-logo.png" alt="SLIS logo"><span>Spiral Learning Intelligence System</span></a>
+      <nav class="trust-nav" aria-label="Trust Center navigation"><a href="/trust-center">Trust Center</a><a href="/privacy-policy">Privacy</a><a href="/children-privacy-policy">Children</a><a href="/terms-of-service">Terms</a><a href="/data-deletion">Data Deletion</a><a href="/contact-us">Contact</a></nav>
+    </header>
+    """
+
+
+def trust_hero(title: str | None = None, subtitle: str | None = None) -> str:
+    hero_title = title or "SLIS Trust Center"
+    hero_subtitle = subtitle or "Protecting students, parents, teachers, schools, and educational data across the Spiral Learning Intelligence System."
+    return f"""
+    <section class="trust-shell trust-hero">
+      <p class="trust-eyebrow">Privacy • Safety • Student Protection</p>
+      <h1><span>{escape(hero_title)}</span></h1>
+      <p class="trust-subtitle">{escape(hero_subtitle)}</p>
+      <div class="trust-meta"><span class="trust-pill">Effective date: {TRUST_EFFECTIVE_DATE}</span><span class="trust-pill">Meta Privacy URL: /privacy-policy</span><span class="trust-pill">Educational purpose only</span></div>
+    </section>
+    """
+
+
+def page_shell(title: str, description: str, body: str) -> str:
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SLIS Trust Center</title><meta name="description" content="{escape(description, quote=True)}"><link rel="canonical" href="https://slis-e.com{escape(request.path)}">{TRUST_CENTER_CSS}</head><body class="slis-trust-body">{trust_header()}{body}{trust_footer()}</body></html>"""
+
+
+def section_html(index: int, heading: str, paragraphs: list[str] | None = None, bullets: list[str] | None = None, link: str | None = None) -> str:
+    anchor = re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
+    ps = "".join(f"<p>{p}</p>" for p in (paragraphs or []))
+    ul = "" if not bullets else "<ul>" + "".join(f"<li>{item}</li>" for item in bullets) + "</ul>"
+    extra = f"<p>{link}</p>" if link else ""
+    return f"<section id='{anchor}'><h2>{index}. {escape(heading)}</h2>{ps}{ul}{extra}</section>"
+
+
+@app.route("/trust-center")
+@app.route("/trust-center/")
+def trust_center_page() -> str:
+    cards = [
+        ("🔐", "Privacy Policy", "How SLIS collects, uses, protects, and manages personal information.", "Read Privacy Policy", "/privacy-policy"),
+        ("🧒", "Children's Privacy Policy", "How SLIS protects student and child-related learning data under parent and school supervision.", "Read Children's Policy", "/children-privacy-policy"),
+        ("📘", "Terms of Service", "Rules, responsibilities, and conditions for using the SLIS learning platform.", "Read Terms", "/terms-of-service"),
+        ("🗂️", "Data Deletion Request", "How students, parents, teachers, and schools can request correction, export, account closure, or deletion of data.", "Request Data Deletion", "/data-deletion"),
+        ("🛡️", "Security & Compliance", "How SLIS protects accounts, learning data, communication records, and platform access.", "View Security Practices", "#security"),
+        ("🤝", "Contact & Compliance", "Contact SLIS for privacy, data, security, and support requests.", "Contact SLIS", "/contact-us"),
+    ]
+    card_html = "".join(f"<article class='glass-card policy-card'><div class='policy-icon'>{icon}</div><h2>{escape(name)}</h2><p>{escape(desc)}</p><a class='trust-button' href='{href}'>{escape(button)}</a></article>" for icon, name, desc, button, href in cards)
+    badges = ["Student Data Protected", "Parent Supervision", "School Controlled Learning", "HTTPS Secured", "No Sale of Student Data", "No Student Advertising", "Educational Purpose Only", "WhatsApp Cloud API Transparency"]
+    body = trust_hero() + f"""
+    <main class="trust-shell">
+      <section class="trust-grid" aria-label="SLIS policy cards">{card_html}</section>
+      <section class="glass-card security-panel"><h2>Trust badges</h2><div class="trust-badges">{''.join(f'<span class="trust-badge">✓ {escape(b)}</span>' for b in badges)}</div></section>
+      <section id="security" class="glass-card security-panel"><h2>Security & Compliance Practices</h2><p>SLIS protects student and school data with HTTPS access, restricted administrator permissions, database security controls, operational logs, careful vendor selection, and purpose-limited use of educational information.</p><p>WhatsApp Cloud API communication is used transparently for learning, registration, reminders, and support workflows. SLIS does not sell student data or create student advertising profiles.</p></section>
+    </main>
+    """
+    return page_shell("SLIS Trust Center", "Privacy, safety, student protection, security, and compliance information for Spiral Learning Intelligence System.", body)
+
+
 @app.route("/privacy-policy")
 @app.route("/privacy-policy/")
-def privacy_policy_page() -> object:
-    return send_from_directory(FRONTEND_BUILD_DIR, "privacy-policy/index.html")
+@app.route("/privacy")
+@app.route("/privacy/")
+def privacy_policy_page() -> str:
+    sections = [
+        ("Introduction", ["Spiral Learning Intelligence System (SLIS) is built for learning, parent trust, and responsible education technology. We protect the privacy of students, parents, guardians, teachers, schools, administrators, and visitors who use SLIS."], None, None),
+        ("Scope of this Policy", ["This Policy applies to the SLIS website, learning platform, student accounts, parent communications, administrator tools, assessments, dashboards, WhatsApp communication, and related online services."], None, None),
+        ("Information We Collect", ["SLIS collects information needed to register accounts, provide learning services, measure progress, communicate with families and schools, and keep the platform secure."], ["Student name", "Parent or guardian name", "Email address", "Mobile number", "Grade", "Medium", "School or institution information", "Username and account credentials", "Learning progress", "Assessment answers and results", "Course, chapter, and lesson completion", "Messages and support requests", "WhatsApp communication records", "Device, browser, IP, and usage information"], None),
+        ("Student Information", ["Student information is treated as educational data and used only for authorized learning purposes, including account access, lessons, activities, assessments, reports, and support."], None, None),
+        ("Parent and Guardian Information", ["Parent and guardian information is used for account communication, support, payment or subscription communication where applicable, and student progress updates."], None, None),
+        ("Teacher, School, and Administrator Information", ["Teacher, school, and administrator information is used to manage classes, students, lessons, reports, school access, communications, and authorized platform administration."], None, None),
+        ("Learning Analytics and Assessment Data", ["SLIS collects progress, attempts, scores, activity completion, and learning-performance data to personalize learning and help parents, teachers, and schools understand student needs."], None, None),
+        ("WhatsApp Communication", ["SLIS may use the Meta WhatsApp Cloud API to send registration alerts, account updates, lesson reminders, live class reminders, payment or subscription reminders where applicable, parent support communication, and student support communication.", "Incoming WhatsApp messages may be stored in the SLIS admin inbox to provide support, maintain communication history, and respond to learning or account requests."], None, None),
+        ("Email Communication", ["SLIS may use email services such as Resend, or similar providers, for registration confirmations, account updates, learning notifications, password support, and support responses."], None, None),
+        ("How We Use Information", ["SLIS uses information only for legitimate platform, education, support, safety, and operational purposes."], ["Provide educational services", "Register and manage accounts", "Deliver learning content", "Track progress", "Generate reports", "Communicate with parents, students, teachers, and schools", "Provide support", "Improve platform performance", "Protect platform security", "Comply with legal obligations"], None),
+        ("Third-Party Services", ["SLIS may use Meta/Facebook/WhatsApp for messaging and platform integration; Resend or similar email providers; Railway or hosting providers; PostgreSQL database services; Supabase storage where applicable; and Google services where applicable. These providers are used only to operate, secure, and improve SLIS services."], None, None),
+        ("Data Sharing", ["SLIS does not sell personal data. SLIS does not sell student data. SLIS does not use student data for third-party targeted advertising. Data may be shared with authorized school administrators, teachers, parents, or service providers only where needed to provide the platform."], None, None),
+        ("Data Security", ["SLIS uses reasonable technical and organizational safeguards, including HTTPS, access controls, restricted administrator access, database security, audit-oriented logs, and operational monitoring."], None, None),
+        ("Data Retention", ["SLIS keeps information as long as needed for education, account management, legal, security, and operational purposes. Student data can be deleted or de-identified upon a valid parent, school, or administrator request, subject to technical backups and legal requirements."], None, None),
+        ("User Rights", ["Students, parents, guardians, teachers, and schools may contact SLIS to request access, correction, export, deletion, account closure, or communication preference updates."], ["Access to data", "Correction", "Export", "Deletion", "Account closure", "Communication preference updates"], None),
+        ("Children’s Privacy", ["Children use SLIS under parent, guardian, teacher, or school supervision."], None, "Read our <a href='/children-privacy-policy'>Children's Privacy Policy</a> for more details."),
+        ("No Student Advertising", ["SLIS does not show targeted advertising to students and does not build advertising profiles from student learning data."], None, None),
+        ("Policy Updates", ["SLIS may update this Policy as services, technology, or operational needs change. When updates are made, SLIS will update the effective date."], None, None),
+        ("Contact Information", ["Spiral Learning Intelligence System (SLIS)", f"Website: <a href='{SLIS_WEBSITE}'>{SLIS_WEBSITE}</a>", f"Email: <a href='mailto:{SLIS_SUPPORT_EMAIL}'>{SLIS_SUPPORT_EMAIL}</a>", f"WhatsApp: <a href='https://wa.me/94703755777'>{SLIS_WHATSAPP}</a>"], None, None),
+    ]
+    body = trust_hero() + render_policy_document("SLIS Privacy Policy", sections)
+    return page_shell("SLIS Privacy Policy", "How SLIS collects, uses, protects, and manages personal information for students, parents, teachers, schools, and visitors.", body)
 
 
-def render_simple_public_legal_page(title: str, description: str) -> str:
-    return f"""
-    <!doctype html>
-    <html lang='en'>
-      <head>
-        <meta charset='utf-8'>
-        <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <title>{escape(title)} | SLIS</title>
-        <meta name='description' content='{escape(description, quote=True)}'>
-        <link rel='stylesheet' href='/styles.css'>
-      </head>
-      <body class='legal-page-body'>
-        <header class='legal-header'>
-          <a class='legal-logo-wrap' href='/' aria-label='SLIS Home'><img src='/assets/slis-logo.png' alt='SLIS logo' class='legal-logo'><span>Spiral Learning Intelligence System</span></a>
-          <nav class='legal-header-nav' aria-label='Legal navigation'>
-            <a href='/privacy-policy'>Privacy Policy</a>
-            <a href='/terms-of-service'>Terms of Service</a>
-            <a href='/contact-us'>Contact Us</a>
-          </nav>
-        </header>
-        <main class='legal-main'>
-          <article class='legal-card'>
-            <p class='legal-eyebrow'>SLIS Public Information</p>
-            <h1>{escape(title)}</h1>
-            <section><p>{escape(description)}</p></section>
-            <section class='legal-contact-card'><h2>Contact SLIS</h2><p>Email: <a href='mailto:support@slis-e.com'>support@slis-e.com</a></p><p>WhatsApp: <a href='https://wa.me/94703755777'>+94 70 375 5777</a></p></section>
-          </article>
-        </main>
-        <footer class='public-footer legal-footer'><a href='/privacy-policy'>Privacy Policy</a><a href='/terms-of-service'>Terms of Service</a><a href='/contact-us'>Contact Us</a></footer>
-      </body>
-    </html>
-    """
+def render_policy_document(title: str, sections: list[tuple[str, list[str], list[str] | None, str | None]]) -> str:
+    toc = "".join(f"<a href='#{re.sub(r'[^a-z0-9]+', '-', heading.lower()).strip('-')}'>{escape(heading)}</a>" for heading, _, _, _ in sections)
+    content = "".join(section_html(i, heading, paragraphs, bullets, link) for i, (heading, paragraphs, bullets, link) in enumerate(sections, start=1))
+    return f"<main class='trust-shell content-layout'><aside class='glass-card toc'><strong>On this page</strong>{toc}</aside><article class='glass-card policy-doc'><h1>{escape(title)}</h1><p class='effective'>Effective date: {TRUST_EFFECTIVE_DATE}</p>{content}</article></main>"
+
+
+@app.route("/children-privacy-policy")
+@app.route("/children-privacy-policy/")
+def children_privacy_policy_page() -> str:
+    headings = ["Introduction", "Parent, Guardian, Teacher, and School Supervision", "Child and Student Profiles", "Information Collected from or about Students", "Learning Activity and Assessment Information", "Device and Usage Information", "How SLIS Uses Child/Student Information", "No Targeted Advertising to Students", "WhatsApp and Parent Communication", "School and Teacher Access", "Parent Rights", "Data Correction and Deletion", "Data Retention", "Security", "Contact Information"]
+    copy = {
+        "Introduction": "SLIS is designed for educational use and supports students through a structured digital learning environment.",
+        "Parent, Guardian, Teacher, and School Supervision": "Students may use the platform under parent, guardian, teacher, or school supervision. SLIS works to keep learning data visible only to appropriate authorized people.",
+        "Child and Student Profiles": "Student profiles help SLIS deliver grade, medium, lesson, assessment, and progress experiences appropriate for each learner.",
+        "Information Collected from or about Students": "SLIS collects only information reasonably needed to provide learning services, including identity, grade, medium, school, account, progress, assessment, support, communication, and usage information.",
+        "Learning Activity and Assessment Information": "Progress, attempts, scores, lesson completion, activity responses, and performance information help personalize learning and support parent, teacher, and school guidance.",
+        "Device and Usage Information": "Basic device, browser, IP, and usage data may be collected to secure accounts, improve performance, and troubleshoot technical issues.",
+        "How SLIS Uses Child/Student Information": "SLIS uses student information to create accounts, deliver lessons, record progress, provide support, generate reports, protect safety, and improve educational services.",
+        "No Targeted Advertising to Students": "SLIS does not use student learning data for third-party targeted advertising and does not build student advertising profiles.",
+        "WhatsApp and Parent Communication": "WhatsApp communication may be used for registration alerts, reminders, account updates, support, and parent communication through the Meta WhatsApp Cloud API.",
+        "School and Teacher Access": "Authorized schools and teachers may access relevant student learning information to manage classes, assignments, lessons, and reports.",
+        "Parent Rights": "Parents and guardians may request access, correction, export, account closure, or deletion of eligible student information.",
+        "Data Correction and Deletion": "Valid correction and deletion requests can be sent to SLIS support. SLIS may verify identity and authority before changing student records.",
+        "Data Retention": "SLIS retains student data as needed for education, support, security, operations, and legal requirements, and may delete or de-identify information after valid requests subject to backups and required records.",
+        "Security": "SLIS uses reasonable safeguards including HTTPS, restricted access, database protections, admin controls, and operational monitoring.",
+        "Contact Information": f"Contact SLIS at <a href='mailto:{SLIS_SUPPORT_EMAIL}'>{SLIS_SUPPORT_EMAIL}</a>, WhatsApp <a href='https://wa.me/94703755777'>{SLIS_WHATSAPP}</a>, or <a href='{SLIS_WEBSITE}'>{SLIS_WEBSITE}</a>. SLIS does not knowingly sell child or student data.",
+    }
+    sections = [(h, [copy[h]], None, None) for h in headings]
+    body = trust_hero() + render_policy_document("SLIS Children's Privacy Policy", sections)
+    return page_shell("SLIS Children's Privacy Policy", "How SLIS protects student and child-related learning data under parent, guardian, teacher, and school supervision.", body)
 
 
 @app.route("/terms-of-service")
 @app.route("/terms-of-service/")
 def terms_of_service_page() -> str:
-    return render_simple_public_legal_page("Terms of Service", "SLIS Terms of Service information is available for students, parents, teachers, schools, and visitors.")
+    texts = {
+        "Acceptance of Terms": "By accessing or using SLIS, users agree to use the platform responsibly and follow these Terms.",
+        "Description of Service": "SLIS provides online learning, lessons, assessments, dashboards, reports, communications, and support tools for students, parents, teachers, schools, and administrators.",
+        "Student, Parent, Teacher, and School Accounts": "Accounts must be created with accurate information and used only by authorized users for educational purposes.",
+        "User Responsibilities": "Users are responsible for respectful conduct, accurate submitted information, appropriate learning use, and cooperation with platform safety practices.",
+        "Account Security": "Users should keep usernames and passwords confidential and notify SLIS if account access appears compromised.",
+        "Educational Content": "SLIS content supports learning and may be updated, reorganized, expanded, or removed to improve the platform.",
+        "Assessments and Progress Data": "Assessment answers, scores, progress, attempts, and completion records are used to provide feedback, personalization, reports, and learning support.",
+        "Payments and Subscriptions where applicable": "Where paid features or subscriptions apply, users are responsible for payment information, applicable fees, renewal communication, and plan requirements shown at the time of use.",
+        "WhatsApp and Email Communication": "SLIS may use WhatsApp and email for registration, account, lesson, live class, subscription, support, and educational communication.",
+        "Acceptable Use": "Users may use SLIS only for lawful, respectful, educational, and authorized purposes.",
+        "Prohibited Conduct": "Users must not misuse accounts, interfere with security, upload harmful material, attempt unauthorized access, harass others, copy protected content improperly, or disrupt SLIS services.",
+        "Intellectual Property": "SLIS names, platform design, learning content, software, and materials are owned by SLIS or its licensors unless otherwise stated. Users receive limited access for education, not ownership.",
+        "Service Availability": "SLIS aims to provide reliable service but availability may vary due to maintenance, connectivity, hosting, updates, or events outside SLIS control.",
+        "Limitation of Liability": "To the maximum extent appropriate for the service, SLIS is not responsible for indirect losses, interruptions, or issues caused by misuse, third-party services, user devices, or network conditions.",
+        "Account Suspension or Termination": "SLIS may suspend or terminate access when accounts are misused, security is at risk, information is inaccurate, payment requirements are unmet where applicable, or rules are violated.",
+        "Changes to Terms": "SLIS may update these Terms and will update the effective date when material changes are made.",
+        "Contact Information": f"Questions about these Terms may be sent to <a href='mailto:{SLIS_SUPPORT_EMAIL}'>{SLIS_SUPPORT_EMAIL}</a> or WhatsApp <a href='https://wa.me/94703755777'>{SLIS_WHATSAPP}</a>.",
+    }
+    sections = [(h, [texts[h]], None, None) for h in texts]
+    body = trust_hero() + render_policy_document("SLIS Terms of Service", sections)
+    return page_shell("SLIS Terms of Service", "Rules, responsibilities, and conditions for using the SLIS learning platform.", body)
+
+
+@app.route("/data-deletion")
+@app.route("/data-deletion/")
+def data_deletion_page() -> str:
+    sections = [
+        ("Request Overview", ["Students, parents, guardians, teachers, schools, and administrators may request correction, deletion, export, account closure, or communication preference updates for eligible SLIS data."], None, None),
+        ("How to Submit", [f"Email <a href='mailto:{SLIS_SUPPORT_EMAIL}?subject=Data%20Deletion%20Request'>{SLIS_SUPPORT_EMAIL}</a> with the subject: Data Deletion Request."], ["Name", "Registered mobile number", "Registered email", "Student name if applicable", "School/grade if applicable", "Requested action"], None),
+        ("Verification", ["SLIS may verify your identity, account ownership, parent or school authority, and request scope before correcting, closing, exporting, or deleting data."], None, None),
+        ("Backups, Legal Records, and Security Logs", ["Some information may remain in backups, legal records, payment records where applicable, or security logs for a limited period before routine deletion or de-identification."], None, None),
+        ("Contact", [f"Website: <a href='{SLIS_WEBSITE}'>{SLIS_WEBSITE}</a>", f"Email: <a href='mailto:{SLIS_SUPPORT_EMAIL}'>{SLIS_SUPPORT_EMAIL}</a>", f"WhatsApp: <a href='https://wa.me/94703755777'>{SLIS_WHATSAPP}</a>"], None, None),
+    ]
+    body = trust_hero() + render_policy_document("SLIS Data Deletion Request", sections)
+    return page_shell("SLIS Data Deletion Request", "How SLIS users can request correction, deletion, export, or account closure.", body)
 
 
 @app.route("/contact-us")
 @app.route("/contact-us/")
 def contact_us_page() -> str:
-    return render_simple_public_legal_page("Contact Us", "Contact Spiral Learning Intelligence System (SLIS) for support, privacy requests, and platform assistance.")
+    body = trust_hero() + f"""
+    <main class="trust-shell">
+      <section class="glass-card contact-panel"><h2>Contact SLIS</h2><p><strong>Spiral Learning Intelligence System</strong><br>Website: <a href="{SLIS_WEBSITE}">{SLIS_WEBSITE}</a><br>Email: <a href="mailto:{SLIS_SUPPORT_EMAIL}">{SLIS_SUPPORT_EMAIL}</a><br>WhatsApp: <a href="https://wa.me/94703755777">{SLIS_WHATSAPP}</a></p></section>
+      <section class="contact-list"><div><h3>General Support</h3><p>Account access, learning questions, technical help, and platform guidance.</p></div><div><h3>Privacy Requests</h3><p>Access, correction, export, or communication preference updates.</p></div><div><h3>Data Deletion Requests</h3><p>Email support with the subject Data Deletion Request and the required account details.</p></div><div><h3>School/Admin Support</h3><p>Class, student, teacher, lesson, dashboard, and institution support.</p></div><div><h3>WhatsApp Support</h3><p>Support for WhatsApp reminders, registration alerts, and parent communication.</p></div></section>
+    </main>
+    """
+    return page_shell("Contact SLIS", "Contact Spiral Learning Intelligence System for support, privacy, data deletion, school administration, and WhatsApp requests.", body)
 
 
 @app.route("/register-form", methods=["GET", "POST"])
@@ -4067,7 +4263,7 @@ def login():
                 </div>
                 <button type="submit">Login</button>
               </form>
-              <div class="login-legal-links"><a href="/privacy-policy">Privacy Policy</a> | <a href="/terms-of-service">Terms of Service</a></div>
+              <div class="login-legal-links"><a href="/privacy-policy">Privacy Policy</a> | <a href="/terms-of-service">Terms of Service</a> | <a href="/contact-us">Contact Us</a></div>
             </div>
           </body>
         </html>
@@ -9012,6 +9208,7 @@ def admin_dashboard():
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
         <p><a href='/admin/schools'>Manage Schools</a></p>
         <h2>System Settings</h2>
+        <p><a href='/trust-center'>Trust Center</a></p>
         <p><a href='/privacy-policy'>Privacy Policy</a></p>
         <p><a href='/admin-logout'>Logout</a></p>
 

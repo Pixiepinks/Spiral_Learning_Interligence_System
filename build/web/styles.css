@@ -1460,3 +1460,83 @@ body {
     border-radius: 24px;
   }
 }
+
+/* Premium SLIS public footer for homepage and registration */
+.premium-public-footer {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.15fr) minmax(220px, 1.45fr) minmax(180px, .9fr);
+  gap: 20px;
+  align-items: start;
+  justify-content: initial;
+  width: min(1120px, calc(100% - 32px));
+  margin: 22px auto 0;
+  padding: 26px 24px;
+  border: 1px solid rgba(45, 112, 220, 0.14);
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(135deg, rgba(4, 24, 66, 0.94), rgba(9, 55, 128, 0.9));
+  box-shadow: 0 -18px 54px rgba(22, 79, 160, 0.16);
+  color: #eaf4ff;
+  text-align: left;
+  font-size: .94rem;
+  font-weight: 700;
+}
+
+.premium-public-footer .public-footer-brand strong,
+.premium-public-footer .public-footer-support strong {
+  display: block;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 950;
+  margin-bottom: 4px;
+}
+
+.premium-public-footer .public-footer-brand span,
+.premium-public-footer .public-footer-brand em {
+  display: block;
+  color: #c8ddff;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.premium-public-footer nav,
+.premium-public-footer .public-footer-support {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+}
+
+.premium-public-footer .public-footer-support {
+  flex-direction: column;
+  gap: 5px;
+}
+
+.premium-public-footer a {
+  color: #f5fbff;
+  text-decoration: none;
+  font-size: .92rem;
+  font-weight: 850;
+}
+
+.premium-public-footer a:hover {
+  color: #9edcff;
+  text-decoration: underline;
+}
+
+.premium-public-footer .public-footer-copy {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  color: #b8ccef;
+  font-size: .86rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .premium-public-footer {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    width: min(100% - 22px, 1120px);
+    padding: 22px 18px;
+  }
+}
