@@ -408,7 +408,7 @@ Name: {student.name}
 Username: {student.username}
 Grade: {display_grade(student.grade, student.medium)}
 Medium: {student.medium}
-Mobile: {student.mobile}
+WhatsApp Number: {student_whatsapp_number(student)}
 Email: {student.email or "-"}
 Parent Email: {student.parent_email or "-"}
 Registered At: {sri_lanka_now().strftime("%Y-%m-%d %I:%M %p")}
@@ -468,7 +468,7 @@ UI_TEXT = {
         "grade": "Grade",
         "medium": "Medium",
         "email": "Email",
-        "mobile": "Mobile",
+        "mobile": "WhatsApp Number",
         "register": "Register",
         "language": "Language",
         "change_language": "Change Language",
@@ -510,7 +510,7 @@ UI_TEXT = {
         "grade": "ශ්‍රේණිය",
         "medium": "මාධ්‍යය",
         "email": "ඊමේල්",
-        "mobile": "ජංගම දුරකථන",
+        "mobile": "WhatsApp අංකය",
         "register": "ලියාපදිංචි කරන්න",
         "language": "භාෂාව",
         "change_language": "භාෂාව මාරු කරන්න",
@@ -914,6 +914,7 @@ class Student(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=True)
     parent_email = db.Column(db.String(120), nullable=True)
     mobile = db.Column(db.String(20), nullable=False)
+    whatsapp_number = db.Column(db.String(20), nullable=True)
     medium = db.Column(db.String(20), nullable=False, default="English")
     password_hash = db.Column(db.String(255), nullable=True)
     xp = db.Column(db.Integer, nullable=False, default=0)
@@ -938,6 +939,41 @@ def generate_student_username_for_id(student_id: int) -> str:
     return f"SLIS{year}{student_id:05d}"
 
 
+def normalize_whatsapp_number(raw_number: str | None) -> tuple[str | None, str | None]:
+    """Validate Sri Lankan WhatsApp input and convert it to E.164 format."""
+    original = (raw_number or "").strip()
+    if not original:
+        return None, "WhatsApp Number is required."
+
+    compact = re.sub(r"[\s().-]+", "", original)
+    if not (compact.startswith("+94") or compact.startswith("07")):
+        return None, "WhatsApp Number must start with +94 or 07."
+
+    if compact.startswith("07"):
+        digits = re.sub(r"\D", "", compact)
+        if len(digits) != 10:
+            return None, "WhatsApp Number must use the format +94 7X XXX XXXX or 07X XXX XXXX."
+        compact = f"+94{digits[1:]}"
+    else:
+        if not re.fullmatch(r"\+\d+", compact):
+            return None, "WhatsApp Number can only include digits, spaces, or the leading + sign."
+
+    if not re.fullmatch(r"\+947\d{8}", compact):
+        return None, "WhatsApp Number must be valid in +94 7X XXX XXXX format."
+
+    return compact, None
+
+
+def student_whatsapp_number(student) -> str:
+    """Return the canonical WhatsApp number, falling back to legacy mobile values."""
+    return (getattr(student, "whatsapp_number", None) or getattr(student, "mobile", None) or "").strip()
+
+
+def whatsapp_wa_link_number(student) -> str:
+    """Return digits-only E.164 for wa.me links."""
+    return re.sub(r"\D", "", student_whatsapp_number(student))
+
+
 def ensure_student_username_schema() -> None:
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
     db.session.execute(
@@ -958,6 +994,33 @@ def ensure_student_username_schema() -> None:
             """
         )
     )
+    db.session.commit()
+
+
+def ensure_whatsapp_number_schema() -> None:
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS whatsapp_number VARCHAR(20)"))
+    db.session.execute(
+        db.text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'student' AND column_name = 'mobile_number'
+                ) THEN
+                    EXECUTE $sql$
+                        UPDATE student
+                        SET whatsapp_number = mobile_number
+                        WHERE (whatsapp_number IS NULL OR whatsapp_number = '')
+                          AND mobile_number IS NOT NULL
+                    $sql$;
+                END IF;
+            END $$;
+            """
+        )
+    )
+    db.session.execute(db.text("UPDATE student SET whatsapp_number = mobile WHERE (whatsapp_number IS NULL OR whatsapp_number = '') AND mobile IS NOT NULL"))
     db.session.commit()
 
 
@@ -1015,6 +1078,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
     db.session.commit()
     ensure_student_username_schema()
+    ensure_whatsapp_number_schema()
     ensure_family_registration_schema()
 
 
@@ -3566,7 +3630,7 @@ def privacy_policy_page() -> str:
     sections = [
         ("Introduction", ["Spiral Learning Intelligence System (SLIS) is built for learning, parent trust, and responsible education technology. We protect the privacy of students, parents, guardians, teachers, schools, administrators, and visitors who use SLIS."], None, None),
         ("Scope of this Policy", ["This Policy applies to the SLIS website, learning platform, student accounts, parent communications, administrator tools, assessments, dashboards, WhatsApp communication, and related online services."], None, None),
-        ("Information We Collect", ["SLIS collects information needed to register accounts, provide learning services, measure progress, communicate with families and schools, and keep the platform secure."], ["Student name", "Parent or guardian name", "Email address", "Mobile number", "Grade", "Medium", "School or institution information", "Username and account credentials", "Learning progress", "Assessment answers and results", "Course, chapter, and lesson completion", "Messages and support requests", "WhatsApp communication records", "Device, browser, IP, and usage information"], None),
+        ("Information We Collect", ["SLIS collects information needed to register accounts, provide learning services, measure progress, communicate with families and schools, and keep the platform secure."], ["Student name", "Parent or guardian name", "Email address", "WhatsApp number", "Grade", "Medium", "School or institution information", "Username and account credentials", "Learning progress", "Assessment answers and results", "Course, chapter, and lesson completion", "Messages and support requests", "WhatsApp communication records", "Device, browser, IP, and usage information"], None),
         ("Student Information", ["Student information is treated as educational data and used only for authorized learning purposes, including account access, lessons, activities, assessments, reports, and support."], None, None),
         ("Parent and Guardian Information", ["Parent and guardian information is used for account communication, support, payment or subscription communication where applicable, and student progress updates."], None, None),
         ("Teacher, School, and Administrator Information", ["Teacher, school, and administrator information is used to manage classes, students, lessons, reports, school access, communications, and authorized platform administration."], None, None),
@@ -3652,7 +3716,7 @@ def terms_of_service_page() -> str:
 def data_deletion_page() -> str:
     sections = [
         ("Request Overview", ["Students, parents, guardians, teachers, schools, and administrators may request correction, deletion, export, account closure, or communication preference updates for eligible SLIS data."], None, None),
-        ("How to Submit", [f"Email <a href='mailto:{SLIS_SUPPORT_EMAIL}?subject=Data%20Deletion%20Request'>{SLIS_SUPPORT_EMAIL}</a> with the subject: Data Deletion Request."], ["Name", "Registered mobile number", "Registered email", "Student name if applicable", "School/grade if applicable", "Requested action"], None),
+        ("How to Submit", [f"Email <a href='mailto:{SLIS_SUPPORT_EMAIL}?subject=Data%20Deletion%20Request'>{SLIS_SUPPORT_EMAIL}</a> with the subject: Data Deletion Request."], ["Name", "Registered WhatsApp number", "Registered email", "Student name if applicable", "School/grade if applicable", "Requested action"], None),
         ("Verification", ["SLIS may verify your identity, account ownership, parent or school authority, and request scope before correcting, closing, exporting, or deleting data."], None, None),
         ("Backups, Legal Records, and Security Logs", ["Some information may remain in backups, legal records, payment records where applicable, or security logs for a limited period before routine deletion or de-identification."], None, None),
         ("Contact", [f"Website: <a href='{SLIS_WEBSITE}'>{SLIS_WEBSITE}</a>", f"Email: <a href='mailto:{SLIS_SUPPORT_EMAIL}'>{SLIS_SUPPORT_EMAIL}</a>", f"WhatsApp: <a href='https://wa.me/94703755777'>{SLIS_WHATSAPP}</a>"], None, None),
@@ -3722,7 +3786,9 @@ def register_student():
             return "<h2>Error: Invalid or missing form data</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": "Invalid or missing JSON body"}), 400
 
-    required_fields = ["name", "grade", "mobile", "medium", "password", "confirm_password"]
+    required_fields = ["name", "grade", "medium", "password", "confirm_password"]
+    if not (str(data.get("whatsapp_number", "")).strip() or str(data.get("mobile_number", "")).strip() or str(data.get("mobile", "")).strip()):
+        required_fields.append("whatsapp_number")
     if Student.email.nullable is False:
         required_fields.append("email")
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
@@ -3777,7 +3843,12 @@ def register_student():
 
     email = str(data.get("email", "")).strip()
     parent_email = str(data.get("parent_email", "")).strip()
-    mobile = data["mobile"].strip()
+    whatsapp_number, whatsapp_error = normalize_whatsapp_number(data.get("whatsapp_number") or data.get("mobile_number") or data.get("mobile"))
+    if whatsapp_error:
+        if is_form_submission:
+            return f"<h2>Error: {whatsapp_error}</h2><p><a href='/register-form'>Back</a></p>", 400
+        return jsonify({"success": False, "message": whatsapp_error}), 400
+    mobile = whatsapp_number
 
     if Student.query.filter_by(email=email).first():
         if is_form_submission:
@@ -3792,6 +3863,7 @@ def register_student():
         username=f"TMP-{uuid.uuid4().hex}",
         parent_email=parent_email,
         mobile=mobile,
+        whatsapp_number=whatsapp_number,
         password_hash=generate_password_hash(password),
         school_id=school_id,
     )
@@ -3993,6 +4065,8 @@ def register_student():
                     "username": student.username,
                     "parent_email": student.parent_email,
                     "mobile": student.mobile,
+                    "mobile_number": student.mobile,
+                    "whatsapp_number": student_whatsapp_number(student),
                     "school_id": student.school_id,
                 },
             }
@@ -4017,6 +4091,8 @@ def get_students():
                         "email": student.email,
                         "parent_email": student.parent_email,
                         "mobile": student.mobile,
+                        "mobile_number": student.mobile,
+                        "whatsapp_number": student_whatsapp_number(student),
                     }
                     for student in students
                 ],
@@ -6644,7 +6720,7 @@ def parent_dashboard():
         message = notification.message_si if student_medium == "Sinhala" else notification.message_en
         safe_student_name = escape(student_name)
         safe_message = escape(message)
-        parent_mobile = (student.mobile or "").strip() if student else ""
+        parent_mobile = whatsapp_wa_link_number(student) if student else ""
         whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(message)}"
         whatsapp_button_html = (
             f"<a href='{whatsapp_link}' target='_blank'>Send via WhatsApp</a>"
@@ -7486,7 +7562,7 @@ def teacher_remind_homework_student(homework_id: int, student_id: int):
     db.session.commit()
 
     selected_message = message_si if student.medium == "Sinhala" else message_en
-    parent_mobile = (student.mobile or "").strip()
+    parent_mobile = whatsapp_wa_link_number(student)
     whatsapp_link_html = ""
     if parent_mobile:
         whatsapp_link = f"https://wa.me/{parent_mobile}?text={quote_plus(selected_message)}"
@@ -9696,7 +9772,7 @@ def admin_premium():
           <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{'Yes' if student.is_premium else 'No'}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.subscription_end_date.strftime('%Y-%m-%d') if student.subscription_end_date else '-'}</td>
           <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/activate-premium/{student.id}'>Activate 30 Days</a> | <a href='/admin/deactivate-premium/{student.id}' onclick="return confirm('Deactivate premium access for this student?');">Deactivate</a></td>
@@ -9717,7 +9793,7 @@ def admin_premium():
           <th style='border:1px solid #ccc;padding:8px;'>Medium</th>
           <th style='border:1px solid #ccc;padding:8px;'>Email</th>
           <th style='border:1px solid #ccc;padding:8px;'>Parent Email</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Mobile</th>
+          <th style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</th>
           <th style='border:1px solid #ccc;padding:8px;'>is_premium</th>
           <th style='border:1px solid #ccc;padding:8px;'>subscription_end_date</th>
           <th style='border:1px solid #ccc;padding:8px;'>Action</th>
@@ -13273,7 +13349,7 @@ def admin_students():
           <td style='border:1px solid #ccc;padding:8px;'>{school_name or '-'}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.xp}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.level}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
@@ -13287,7 +13363,7 @@ def admin_students():
     <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
     <p><a href='/register-form'>Add New Student</a></p>
     <table style='border-collapse:collapse;width:100%;'>
-      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>School</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>Mobile</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>School</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</th><th style='border:1px solid #ccc;padding:8px;'>XP</th><th style='border:1px solid #ccc;padding:8px;'>Level</th><th style='border:1px solid #ccc;padding:8px;'>Created At</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
       <tbody>{student_rows if student_rows else "<tr><td colspan='12' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
     </table>
     """
@@ -13320,7 +13396,7 @@ def admin_student_details(student_id: int):
     <h1>Student Details: {student.name}</h1>
     <p><a href='/admin/students'>Back to Manage Students</a></p>
     <h2>Student Profile</h2>
-    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.email}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Mobile</td><td style='border:1px solid #ccc;padding:8px;'>{student.mobile}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
+    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.email}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</td><td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
     <h2>SkillScan Result History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Level</th></tr></thead><tbody>{skillscan_rows if skillscan_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No SkillScan results found.</td></tr>"}</tbody></table>
     <h2>Practice Attempt History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}</tbody></table>
     <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
@@ -16581,6 +16657,7 @@ def update_homework_db() -> tuple:
 def update_family_registration_db() -> tuple:
     try:
         ensure_student_username_schema()
+        ensure_whatsapp_number_schema()
         ensure_family_registration_schema()
         return jsonify({"success": True, "message": "Family registration database updated successfully"}), 200
     except Exception as exc:
