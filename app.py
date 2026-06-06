@@ -3366,23 +3366,25 @@ SLIS_WHATSAPP = "+94 70 375 5777"
 
 TRUST_CENTER_CSS = """
 <style>
-  :root { color-scheme: dark; --slis-navy:#061532; --slis-blue:#0a3a8f; --slis-sky:#43b5ff; --slis-card:rgba(255,255,255,.105); --slis-border:rgba(255,255,255,.18); --slis-text:#eef7ff; --slis-muted:#b9cbed; --slis-gold:#ffd66b; }
+  :root { color-scheme: dark; --slis-navy:#061532; --slis-blue:#0a3a8f; --slis-sky:#43b5ff; --slis-card:rgba(255,255,255,.105); --slis-border:rgba(255,255,255,.18); --slis-text:#eef7ff; --slis-muted:#b9cbed; --slis-gold:#ffd66b; --slis-success:#34d399; }
   * { box-sizing: border-box; }
-  body.slis-trust-body { margin:0; min-height:100vh; font-family:"Inter", "Nunito", "Segoe UI", system-ui, sans-serif; color:var(--slis-text); background: radial-gradient(circle at 12% 4%, rgba(67,181,255,.32), transparent 28rem), radial-gradient(circle at 88% 12%, rgba(36,91,255,.28), transparent 30rem), linear-gradient(135deg, #041026 0%, #08265a 48%, #061532 100%); }
+  body.slis-trust-body { margin:0; min-height:100vh; font-family:"Inter", "Nunito", "Segoe UI", system-ui, sans-serif; color:var(--slis-text); background: radial-gradient(circle at 12% 4%, rgba(67,181,255,.30), transparent 28rem), radial-gradient(circle at 88% 10%, rgba(52,211,153,.20), transparent 26rem), radial-gradient(circle at 50% 34%, rgba(255,214,107,.12), transparent 30rem), linear-gradient(135deg, #041026 0%, #08265a 48%, #061532 100%); }
   .trust-shell { width:min(1180px, calc(100% - 32px)); margin:0 auto; }
   .trust-topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:20px 0; }
-  .trust-brand { display:flex; align-items:center; gap:12px; color:#fff; text-decoration:none; font-weight:900; letter-spacing:-.01em; }
-  .trust-brand img { width:min(110px, 24vw); max-width:110px; height:auto; object-fit:contain; display:block; filter:drop-shadow(0 10px 24px rgba(0,0,0,.28)); }
+  .trust-brand { display:flex; align-items:center; gap:12px; color:#fff; text-decoration:none; font-size:20px; font-weight:700; letter-spacing:-.01em; }
+  .trust-brand img { width:min(82px, 18vw); max-width:82px; height:auto; object-fit:contain; display:block; filter:drop-shadow(0 10px 24px rgba(0,0,0,.24)); }
   .trust-nav { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; }
-  .trust-nav a { color:#eaf6ff; text-decoration:none; font-weight:800; font-size:.92rem; padding:9px 12px; border:1px solid rgba(255,255,255,.14); border-radius:999px; background:rgba(255,255,255,.07); backdrop-filter:blur(14px); }
-  .trust-nav a:hover { background:rgba(255,255,255,.16); }
-  .trust-hero { padding:clamp(40px, 8vw, 92px) 0 34px; text-align:center; }
-  .trust-eyebrow { display:inline-flex; align-items:center; justify-content:center; gap:8px; margin:0 0 16px; color:#cfeeff; font-weight:900; letter-spacing:.14em; text-transform:uppercase; font-size:.78rem; }
+  .trust-nav a { color:#eaf6ff; text-decoration:none; font-weight:800; font-size:.92rem; padding:10px 14px; border:1px solid rgba(255,255,255,.18); border-radius:999px; background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.065)); box-shadow:0 12px 30px rgba(0,0,0,.13); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); transition:transform .22s ease, background .22s ease, border-color .22s ease, box-shadow .22s ease; }
+  .trust-nav a:hover { transform:translateY(-2px); background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.10)); border-color:rgba(255,255,255,.28); box-shadow:0 16px 38px rgba(67,181,255,.18); }
+  .trust-hero { padding:clamp(42px, 7vw, 86px) 0 34px; text-align:center; }
+  .trust-eyebrow { display:inline-flex; align-items:center; justify-content:center; gap:8px; margin:0 0 16px; color:#d9f4ff; font-weight:900; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem; }
   .trust-hero h1 { margin:0; font-size:clamp(2.7rem, 8vw, 6.6rem); line-height:.92; letter-spacing:-.065em; }
   .trust-hero h1 span { display:block; background:linear-gradient(90deg, #ffffff, #8bd8ff 55%, #ffd66b); -webkit-background-clip:text; background-clip:text; color:transparent; }
   .trust-subtitle { max-width:850px; margin:20px auto 0; color:var(--slis-muted); font-size:clamp(1.02rem, 2.2vw, 1.28rem); line-height:1.75; }
-  .trust-meta { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin:22px 0 0; }
-  .trust-pill { border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.09); color:#eaf6ff; border-radius:999px; padding:9px 13px; font-weight:800; }
+  .trust-meta { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin:24px auto 0; max-width:960px; }
+  .trust-pill { display:inline-flex; align-items:center; gap:8px; border:1px solid rgba(255,255,255,.20); background:linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.07)); color:#f4fbff; border-radius:999px; padding:10px 14px; font-weight:850; box-shadow:0 14px 36px rgba(0,0,0,.16); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); transition:transform .22s ease, background .22s ease, border-color .22s ease; }
+  .trust-pill::before { content:"✓"; width:20px; height:20px; display:inline-grid; place-items:center; border-radius:50%; background:rgba(52,211,153,.18); color:var(--slis-success); font-weight:950; box-shadow:0 0 0 1px rgba(52,211,153,.30) inset; }
+  .trust-pill:hover { transform:translateY(-2px); background:linear-gradient(180deg, rgba(255,255,255,.23), rgba(255,255,255,.10)); border-color:rgba(52,211,153,.34); }
   .trust-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:18px; margin:24px 0 42px; }
   .glass-card { border:1px solid var(--slis-border); background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.07)); border-radius:24px; box-shadow:0 28px 80px rgba(0,0,0,.25); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
   .policy-card { padding:24px; display:flex; flex-direction:column; min-height:260px; }
@@ -3390,6 +3392,16 @@ TRUST_CENTER_CSS = """
   .policy-card h2 { margin:18px 0 8px; font-size:1.24rem; color:#fff; }
   .policy-card p { margin:0; color:#c5d5f3; line-height:1.65; }
   .trust-button { margin-top:auto; align-self:flex-start; color:#061532; text-decoration:none; background:linear-gradient(135deg,#fff,#8bd8ff); padding:11px 15px; border-radius:999px; font-weight:950; box-shadow:0 14px 26px rgba(67,181,255,.22); }
+  .trust-statement { max-width:920px; margin:28px auto 0; padding:clamp(22px, 4vw, 34px); text-align:left; }
+  .trust-statement .statement-kicker { margin:0 0 10px; color:#fff; font-size:clamp(1.18rem, 2.5vw, 1.55rem); font-weight:900; letter-spacing:-.02em; }
+  .trust-statement p { margin:0; color:#d6e5fb; line-height:1.72; font-size:1.04rem; }
+  .trust-statement ul { display:grid; gap:10px; margin:18px 0 0; padding:0; list-style:none; }
+  .trust-statement li { display:flex; gap:10px; align-items:flex-start; color:#f2f8ff; font-weight:850; }
+  .trust-statement li::before { content:"✓"; flex:0 0 24px; width:24px; height:24px; display:inline-grid; place-items:center; border-radius:50%; color:var(--slis-success); background:rgba(52,211,153,.16); box-shadow:0 0 0 1px rgba(52,211,153,.30) inset; }
+  .trust-stats { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; margin:18px auto 0; max-width:920px; }
+  .trust-stat { padding:18px; text-align:left; }
+  .trust-stat span { display:block; color:#bcd5f6; font-size:.82rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+  .trust-stat strong { display:block; margin-top:8px; color:#fff; font-size:clamp(1.7rem, 4vw, 2.45rem); line-height:1; letter-spacing:-.045em; }
   .trust-badges { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0 0; }
   .trust-badge { display:inline-flex; align-items:center; gap:8px; padding:10px 13px; border-radius:999px; color:#f7fbff; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.075); font-weight:850; }
   .content-layout { display:grid; grid-template-columns:280px minmax(0,1fr); gap:22px; align-items:start; margin:18px 0 44px; }
@@ -3414,8 +3426,8 @@ TRUST_CENTER_CSS = """
   .slis-footer p { margin:0; color:#bed0ee; line-height:1.7; }
   .slis-footer a { color:#eaf6ff; text-decoration:none; font-weight:850; display:inline-block; margin:4px 12px 4px 0; }
   .slis-footer-bottom { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:0 0 28px; color:#9fb6dc; font-size:.93rem; }
-  @media (max-width:900px) { .trust-grid{grid-template-columns:1fr 1fr}.content-layout{grid-template-columns:1fr}.toc{position:static}.contact-list,.slis-footer-inner{grid-template-columns:1fr}.trust-topbar{align-items:flex-start; flex-direction:column}.trust-nav{justify-content:flex-start} }
-  @media (max-width:620px) { .trust-shell{width:min(100% - 22px, 1180px)}.trust-grid{grid-template-columns:1fr}.policy-card{min-height:0}.trust-brand img{width:82px}.trust-nav a{font-size:.84rem;padding:8px 10px}.policy-doc{border-radius:24px}.trust-hero{text-align:left}.trust-meta{justify-content:flex-start} }
+  @media (max-width:900px) { .trust-grid{grid-template-columns:1fr 1fr}.content-layout{grid-template-columns:1fr}.toc{position:static}.contact-list,.slis-footer-inner{grid-template-columns:1fr}.trust-topbar{align-items:flex-start; flex-direction:column}.trust-nav{justify-content:flex-start}.trust-stats{grid-template-columns:1fr 1fr} }
+  @media (max-width:620px) { .trust-shell{width:min(100% - 22px, 1180px)}.trust-grid{grid-template-columns:1fr}.policy-card{min-height:0}.trust-brand{font-size:20px}.trust-brand img{width:62px}.trust-nav a{font-size:.84rem;padding:8px 10px}.policy-doc{border-radius:24px}.trust-hero{text-align:left}.trust-meta{justify-content:flex-start}.trust-stats{grid-template-columns:1fr}.trust-stat{text-align:center} }
 </style>
 """
 
@@ -3442,15 +3454,42 @@ def trust_header() -> str:
     """
 
 
-def trust_hero(title: str | None = None, subtitle: str | None = None) -> str:
+def trust_hero(title: str | None = None, subtitle: str | None = None, show_statement: bool = False) -> str:
     hero_title = title or "SLIS Trust Center"
     hero_subtitle = subtitle or "Protecting students, parents, teachers, schools, and educational data across the Spiral Learning Intelligence System."
+    badges = [
+        "Student Data Protected",
+        "Parent Guided Learning",
+        "School Ready Platform",
+        "Secure Communications",
+        "Educational Use Only",
+    ]
+    trust_statement = ""
+    if show_statement:
+        trust_statement = """
+      <div class="glass-card trust-statement">
+        <p class="statement-kicker">Our commitment is simple:</p>
+        <p>We use educational data only to deliver learning experiences, support student success, and help parents and educators guide progress.</p>
+        <ul>
+          <li>SLIS does not sell student data.</li>
+          <li>SLIS does not provide targeted advertising to students.</li>
+          <li>SLIS is designed exclusively for educational purposes.</li>
+        </ul>
+      </div>
+      <div class="trust-stats" aria-label="SLIS protection statistics">
+        <div class="glass-card trust-stat"><span>Students Protected</span><strong class="count-up" data-count="10000" data-suffix="+">10,000+</strong></div>
+        <div class="glass-card trust-stat"><span>Learning Records Secured</span><strong class="count-up" data-count="100000" data-suffix="+">100,000+</strong></div>
+        <div class="glass-card trust-stat"><span>Educational Purpose</span><strong class="count-up" data-count="100" data-suffix="%">100%</strong></div>
+        <div class="glass-card trust-stat"><span>Data Sale Policy</span><strong>Never</strong></div>
+      </div>
+        """
     return f"""
     <section class="trust-shell trust-hero">
-      <p class="trust-eyebrow">Privacy • Safety • Student Protection</p>
+      <p class="trust-eyebrow">PRIVACY • SAFETY • STUDENT PROTECTION</p>
       <h1><span>{escape(hero_title)}</span></h1>
       <p class="trust-subtitle">{escape(hero_subtitle)}</p>
-      <div class="trust-meta"><span class="trust-pill">Effective date: {TRUST_EFFECTIVE_DATE}</span><span class="trust-pill">Meta Privacy URL: /privacy-policy</span><span class="trust-pill">Educational purpose only</span></div>
+      <div class="trust-meta">{''.join(f'<span class="trust-pill">{escape(badge)}</span>' for badge in badges)}</div>
+      {trust_statement}
     </section>
     """
 
@@ -3479,13 +3518,42 @@ def trust_center_page() -> str:
         ("🤝", "Contact & Compliance", "Contact SLIS for privacy, data, security, and support requests.", "Contact SLIS", "/contact-us"),
     ]
     card_html = "".join(f"<article class='glass-card policy-card'><div class='policy-icon'>{icon}</div><h2>{escape(name)}</h2><p>{escape(desc)}</p><a class='trust-button' href='{href}'>{escape(button)}</a></article>" for icon, name, desc, button, href in cards)
-    badges = ["Student Data Protected", "Parent Supervision", "School Controlled Learning", "HTTPS Secured", "No Sale of Student Data", "No Student Advertising", "Educational Purpose Only", "WhatsApp Cloud API Transparency"]
-    body = trust_hero() + f"""
+    body = trust_hero(show_statement=True) + f"""
     <main class="trust-shell">
       <section class="trust-grid" aria-label="SLIS policy cards">{card_html}</section>
-      <section class="glass-card security-panel"><h2>Trust badges</h2><div class="trust-badges">{''.join(f'<span class="trust-badge">✓ {escape(b)}</span>' for b in badges)}</div></section>
-      <section id="security" class="glass-card security-panel"><h2>Security & Compliance Practices</h2><p>SLIS protects student and school data with HTTPS access, restricted administrator permissions, database security controls, operational logs, careful vendor selection, and purpose-limited use of educational information.</p><p>WhatsApp Cloud API communication is used transparently for learning, registration, reminders, and support workflows. SLIS does not sell student data or create student advertising profiles.</p></section>
+      <section id="security" class="glass-card security-panel"><h2>Security & Compliance Practices</h2><p>SLIS protects student and school data with secure access, restricted administrator permissions, database security controls, operational logs, careful vendor selection, and purpose-limited use of educational information.</p><p>Secure communications are used transparently for learning, registration, reminders, and support workflows. SLIS does not sell student data or create student advertising profiles.</p></section>
     </main>
+    """ + """
+    <script>
+      (() => {
+        const counters = document.querySelectorAll('.count-up');
+        if (!counters.length) return;
+        const formatter = new Intl.NumberFormat('en-US');
+        const animate = (counter) => {
+          const target = Number(counter.dataset.count || 0);
+          const suffix = counter.dataset.suffix || '';
+          const start = performance.now();
+          const duration = 1400;
+          const tick = (now) => {
+            const progress = Math.min((now - start) / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            counter.textContent = formatter.format(Math.round(target * eased)) + suffix;
+            if (progress < 1) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        };
+        if ('IntersectionObserver' in window) {
+          const observer = new IntersectionObserver((entries, obs) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) { animate(entry.target); obs.unobserve(entry.target); }
+            });
+          }, { threshold: 0.35 });
+          counters.forEach((counter) => observer.observe(counter));
+        } else {
+          counters.forEach(animate);
+        }
+      })();
+    </script>
     """
     return page_shell("SLIS Trust Center", "Privacy, safety, student protection, security, and compliance information for Spiral Learning Intelligence System.", body)
 
