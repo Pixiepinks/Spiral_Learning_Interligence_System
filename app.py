@@ -393,6 +393,76 @@ def send_whatsapp_text(to_number: str, body: str) -> bool:
     return False
 
 
+def send_whatsapp_template(to_number, template_name, language_code, body_params) -> bool:
+    """Send a WhatsApp Cloud API template message with body text parameters."""
+    token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
+    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    to_number = (to_number or "").strip()
+    template_name = (template_name or "").strip()
+    language_code = (language_code or "").strip()
+    body_params = body_params or []
+
+    if not token or not phone_number_id:
+        app.logger.error("WhatsApp template send skipped: missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID.")
+        return False
+    if not to_number or not template_name or not language_code:
+        app.logger.error("WhatsApp template send skipped: missing destination, template name, or language code.")
+        return False
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language_code},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(param or "")}
+                        for param in body_params
+                    ],
+                }
+            ],
+        },
+    }
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=15) as resp:
+            response_body = resp.read().decode("utf-8", "ignore")
+            app.logger.info(
+                "WhatsApp template sent to=%s template=%s response=%s",
+                to_number,
+                template_name,
+                response_body,
+            )
+            return True
+    except HTTPError as exc:
+        response_body = exc.read().decode("utf-8", "ignore")
+        app.logger.error(
+            "WhatsApp template send failed to=%s template=%s status=%s response=%s",
+            to_number,
+            template_name,
+            exc.code,
+            response_body,
+        )
+    except Exception:
+        app.logger.exception("WhatsApp template send failed to=%s template=%s", to_number, template_name)
+
+    return False
+
+
 def send_whatsapp_admin_registration_alert(student):
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
     phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
@@ -989,45 +1059,39 @@ def normalize_whatsapp_recipient_number(raw_number: str | None) -> str | None:
 
 
 def send_student_whatsapp_welcome(student, school_name: str | None = None) -> bool:
-    """Send a non-fatal WhatsApp welcome message to a newly registered student."""
-    destination = normalize_whatsapp_recipient_number(student_whatsapp_number(student))
+    """Send a non-fatal WhatsApp template welcome message to a newly registered student."""
+    raw_destination = (getattr(student, "whatsapp_number", None) or "").strip()
+    if not raw_destination:
+        raw_destination = (getattr(student, "mobile", None) or "").strip()
+
+    destination = normalize_whatsapp_recipient_number(raw_destination)
     if not destination:
         app.logger.error(
             "WhatsApp student welcome skipped for student_id=%s: invalid destination number=%s",
             getattr(student, "id", None),
-            student_whatsapp_number(student),
+            raw_destination,
         )
         return False
 
-    message = f"""🎓 Welcome to SLIS – Spiral Learning Intelligence System!
-
-Dear {student.name},
-
-Your SLIS account has been created successfully.
-
-📚 Grade: {display_grade(student.grade, student.medium)}
-🏫 School: {(school_name or "-").strip() or "-"}
-
-You can start learning immediately.
-
-🌐 Login:
-https://slis-e.com/login
-
-Thank you for joining Sri Lanka's future learning platform.
-
-SLIS – Spiral Learning Intelligence System"""
-
-    sent = send_whatsapp_text(destination, message)
+    sent = send_whatsapp_template(
+        destination,
+        "slis_welcome",
+        "en_US",
+        [
+            student.name,
+            display_grade(student.grade, student.medium),
+        ],
+    )
     if sent:
         app.logger.info(
-            "WhatsApp student welcome sent for student_id=%s to=%s",
+            "WhatsApp student welcome template sent for student_id=%s to=%s",
             getattr(student, "id", None),
             destination,
         )
         return True
 
     app.logger.error(
-        "WhatsApp student welcome failed for student_id=%s to=%s",
+        "WhatsApp student welcome template failed for student_id=%s to=%s",
         getattr(student, "id", None),
         destination,
     )
