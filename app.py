@@ -344,6 +344,17 @@ def display_grade(value: str | None, medium: str = "English") -> str:
     return GRADE_LABELS_EN.get(grade, grade)
 
 
+def display_grade_with_label(grade, medium="English"):
+    normalized = normalize_grade(grade)
+    if medium == "Sinhala":
+        if normalized in {"OL", "AL"}:
+            return display_grade(normalized, medium)
+        return f"{normalized} ශ්‍රේණිය"
+    if normalized in {"OL", "AL"}:
+        return display_grade(normalized, medium)
+    return f"Grade {normalized}"
+
+
 def send_whatsapp_text(to_number: str, body: str) -> bool:
     """Send a plain text WhatsApp Cloud API message."""
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
@@ -1088,7 +1099,7 @@ def send_student_whatsapp_welcome(student, school_name: str | None = None) -> bo
         language_code,
         [
             student.name,
-            display_grade(student.grade, student.medium),
+            display_grade_with_label(student.grade, student.medium),
         ],
     )
     if sent:
