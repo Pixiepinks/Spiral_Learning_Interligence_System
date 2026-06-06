@@ -974,6 +974,66 @@ def whatsapp_wa_link_number(student) -> str:
     return re.sub(r"\D", "", student_whatsapp_number(student))
 
 
+def normalize_whatsapp_recipient_number(raw_number: str | None) -> str | None:
+    """Return the WhatsApp Cloud API recipient number without a leading plus sign."""
+    raw = (raw_number or "").strip()
+    digits = re.sub(r"\D", "", raw)
+
+    if raw.startswith("07") and len(digits) == 10:
+        digits = f"94{digits[1:]}"
+
+    if re.fullmatch(r"947\d{8}", digits):
+        return digits
+
+    return None
+
+
+def send_student_whatsapp_welcome(student, school_name: str | None = None) -> bool:
+    """Send a non-fatal WhatsApp welcome message to a newly registered student."""
+    destination = normalize_whatsapp_recipient_number(student_whatsapp_number(student))
+    if not destination:
+        app.logger.error(
+            "WhatsApp student welcome skipped for student_id=%s: invalid destination number=%s",
+            getattr(student, "id", None),
+            student_whatsapp_number(student),
+        )
+        return False
+
+    message = f"""🎓 Welcome to SLIS – Spiral Learning Intelligence System!
+
+Dear {student.name},
+
+Your SLIS account has been created successfully.
+
+📚 Grade: {display_grade(student.grade, student.medium)}
+🏫 School: {(school_name or "-").strip() or "-"}
+
+You can start learning immediately.
+
+🌐 Login:
+https://slis-e.com/login
+
+Thank you for joining Sri Lanka's future learning platform.
+
+SLIS – Spiral Learning Intelligence System"""
+
+    sent = send_whatsapp_text(destination, message)
+    if sent:
+        app.logger.info(
+            "WhatsApp student welcome sent for student_id=%s to=%s",
+            getattr(student, "id", None),
+            destination,
+        )
+        return True
+
+    app.logger.error(
+        "WhatsApp student welcome failed for student_id=%s to=%s",
+        getattr(student, "id", None),
+        destination,
+    )
+    return False
+
+
 def ensure_student_username_schema() -> None:
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
     db.session.execute(
@@ -3902,6 +3962,15 @@ def register_student():
         send_whatsapp_admin_registration_alert(student)
     except Exception:
         app.logger.exception("Unexpected WhatsApp admin notification error for student_id=%s", student.id)
+
+    try:
+        school_name = None
+        if student.school_id:
+            school = db.session.get(School, student.school_id)
+            school_name = school.school_name if school else None
+        send_student_whatsapp_welcome(student, school_name)
+    except Exception:
+        app.logger.exception("Unexpected WhatsApp student welcome error for student_id=%s", student.id)
 
     if is_form_submission:
         safe_email = quote_plus(student.email or "")
