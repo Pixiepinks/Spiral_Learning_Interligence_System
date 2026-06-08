@@ -991,7 +991,7 @@ class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     grade = db.Column(db.String(20), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
     username = db.Column(db.String(50), unique=True, nullable=True)
     parent_email = db.Column(db.String(120), nullable=True)
     mobile = db.Column(db.String(20), nullable=False)
@@ -1173,6 +1173,8 @@ def ensure_family_registration_schema() -> None:
     db.session.execute(db.text("DROP INDEX IF EXISTS student_mobile_key"))
     db.session.execute(db.text("ALTER TABLE student DROP CONSTRAINT IF EXISTS student_parent_email_key"))
     db.session.execute(db.text("DROP INDEX IF EXISTS student_parent_email_key"))
+    db.session.execute(db.text("ALTER TABLE student ALTER COLUMN email DROP NOT NULL"))
+    db.session.execute(db.text("ALTER TABLE student ALTER COLUMN parent_email DROP NOT NULL"))
     db.session.commit()
 
 
@@ -4058,8 +4060,6 @@ def register_student():
     required_fields = ["name", "grade", "medium", "password", "confirm_password"]
     if not (str(data.get("whatsapp_number", "")).strip() or str(data.get("mobile_number", "")).strip() or str(data.get("mobile", "")).strip()):
         required_fields.append("whatsapp_number")
-    if Student.email.nullable is False:
-        required_fields.append("email")
     missing_fields = [field for field in required_fields if not str(data.get(field, "")).strip()]
     if missing_fields:
         if is_form_submission:
@@ -4110,8 +4110,8 @@ def register_student():
             return jsonify({"success": False, "message": msg}), 400
         school_id = int(school_id_raw)
 
-    email = str(data.get("email", "")).strip()
-    parent_email = str(data.get("parent_email", "")).strip()
+    email = str(data.get("email", "")).strip() or None
+    parent_email = str(data.get("parent_email", "")).strip() or None
     whatsapp_number, whatsapp_error = normalize_whatsapp_number(data.get("whatsapp_number") or data.get("mobile_number") or data.get("mobile"))
     if whatsapp_error:
         if is_form_submission:
@@ -4119,7 +4119,7 @@ def register_student():
         return jsonify({"success": False, "message": whatsapp_error}), 400
     mobile = whatsapp_number
 
-    if Student.query.filter_by(email=email).first():
+    if email and Student.query.filter_by(email=email).first():
         if is_form_submission:
             return "<h2>Error: Email already exists</h2><p><a href='/register-form'>Back</a></p>", 409
         return jsonify({"success": False, "message": "Email already exists"}), 409
@@ -4313,7 +4313,7 @@ def register_student():
               <div class="brand">SLIS • Spiral Learning Intelligence System</div>
               <div class="checkmark" aria-hidden="true">✓</div>
               <h1>Account Created Successfully!</h1>
-              <p>Your login details have been sent to the student and parent email.</p>
+              <p>Your account is ready. SLIS learning updates and important alerts will be sent to your WhatsApp number.</p>
               <p class="redirecting">Redirecting to login…</p>
               <div class="progress" role="status" aria-label="Redirecting progress">
                 <div class="progress-bar"></div>

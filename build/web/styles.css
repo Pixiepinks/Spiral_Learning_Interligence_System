@@ -923,12 +923,16 @@ body {
 .register-form-grid input, .register-form-grid select { width: 100%; height: 50px; border: 1px solid rgba(80, 116, 168, 0.24); border-radius: 13px; padding: 10px 14px; font-family: "Nunito", sans-serif; font-size: 0.98rem; font-weight: 700; color: #25375d; background: #fff; outline: none; }
 .register-form-grid input:focus, .register-form-grid select:focus { border-color: #2a8cff; box-shadow: 0 0 0 4px rgba(42, 140, 255, 0.12); }
 .whatsapp-field { align-content: start; }
+.whatsapp-label-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.whatsapp-trust-badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border-radius: 999px; padding: 3px 8px; background: rgba(37, 211, 102, 0.12); color: #137d42; font-size: 0.68rem; font-weight: 900; line-height: 1.2; }
+.whatsapp-trust-badge::before { content: "✓"; }
 .whatsapp-input-wrap { position: relative; display: block; }
 .whatsapp-input-wrap input { padding-left: 42px; }
 .whatsapp-input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); z-index: 1; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: #25d366; color: #fff; box-shadow: 0 6px 12px rgba(37, 211, 102, 0.18); pointer-events: none; }
 .whatsapp-input-icon svg { width: 16px; height: 16px; fill: currentColor; }
 .whatsapp-input-wrap:focus-within input { border-color: #25d366; box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14); }
 .field-helper { margin-top: 6px; color: #64748B; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.whatsapp-family-note { color: #137d42; font-size: 11.5px; font-weight: 800; line-height: 1.35; }
 .register-privacy-box { margin-top: 10px; margin-bottom: 4px; padding: 14px 16px; border-radius: 16px; background: linear-gradient(135deg, #eef7ff, #f8fcff); border: 1px solid rgba(85, 154, 233, 0.18); color: #1c3b73; }
 .register-privacy-box p { margin: 6px 0 0; color: #526991; }
 .register-check { margin-top: 12px; display: flex; align-items: flex-start; gap: 8px; color: #334e7d; font-weight: 700; }
