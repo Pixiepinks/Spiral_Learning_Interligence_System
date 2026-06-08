@@ -3114,6 +3114,40 @@ def get_active_student_for_whatsapp_conversation(raw_number: str | None) -> Stud
     return None
 
 
+def get_whatsapp_conversation_avatar(conversation) -> dict[str, str | None]:
+    """Return the best avatar data for a WhatsApp inbox conversation.
+
+    WhatsApp Cloud API webhooks do not reliably include customer profile
+    picture URLs, so the inbox only uses SLIS student profile images when a
+    student match can confidently identify the conversation avatar.
+    """
+    matched_students = conversation.get("matched_students", []) if conversation else []
+    active_student = conversation.get("active_student") if conversation else None
+    last_message = conversation.get("last_message") if conversation else None
+    whatsapp_label = (conversation.get("display_name") if conversation else None) or (getattr(last_message, "profile_name", None) if last_message else None) or "Parent/Guardian"
+
+    selected_student = None
+    if active_student:
+        selected_student = active_student
+    elif len(matched_students) == 1:
+        selected_student = matched_students[0]
+
+    if selected_student:
+        label = selected_student.name or whatsapp_label
+        image_url = (getattr(selected_student, "profile_image_url", None) or "").strip() or None
+        return {
+            "image_url": image_url,
+            "initials": student_initials(label),
+            "label": label,
+        }
+
+    return {
+        "image_url": None,
+        "initials": student_initials(whatsapp_label),
+        "label": whatsapp_label,
+    }
+
+
 def ensure_whatsapp_messages_schema() -> None:
     db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS direction VARCHAR(20) DEFAULT 'incoming'"))
     db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE"))
@@ -8524,6 +8558,7 @@ def admin_whatsapp_inbox():
         matched_students = conversation.get("matched_students", [])
         active_student = conversation.get("active_student")
         conversation["display_name"] = conversation["last_message"].profile_name or f"Parent/Guardian +{key}"
+        conversation["avatar"] = get_whatsapp_conversation_avatar(conversation)
         conversation["search_blob"] = " ".join([
             conversation["display_name"] or "",
             key,
@@ -8558,6 +8593,19 @@ def admin_whatsapp_inbox():
         if not value:
             return "-"
         return value.strftime("%b %d, %Y · %H:%M UTC")
+
+    def render_whatsapp_avatar(avatar, large=False):
+        size_class = " large" if large else ""
+        image_url = (avatar.get("image_url") or "").strip()
+        initials = avatar.get("initials") or "WA"
+        label = avatar.get("label") or "WhatsApp contact"
+        image_html = ""
+        if image_url:
+            image_html = (
+                f'<img src="{escape(image_url)}" alt="{escape(label)} avatar" '
+                'loading="lazy" onerror="this.remove();">'
+            )
+        return f'<div class="avatar{size_class}" aria-label="{escape(label)} avatar"><span>{escape(initials)}</span>{image_html}</div>'
 
     def student_summary_grid(student):
         school_name = schools_by_id.get(student.school_id) or "Not assigned"
@@ -8637,9 +8685,10 @@ def admin_whatsapp_inbox():
         else:
             student_hint = "<span class='unmatched-pill'>Unmatched</span>"
         active_hint = f"<div class='conversation-active'>Active student: {escape(active_student.name)}</div>" if active_student and len(matched_students) > 1 else ""
+        avatar_html = render_whatsapp_avatar(conversation.get("avatar") or get_whatsapp_conversation_avatar(conversation))
         conversation_items.append(f"""
           <a class="conversation{active}" href="{url_for('admin_whatsapp_inbox', conversation=number, q=search_term)}">
-            <div class="avatar">{escape(student_initials(sender_name))}</div>
+            {avatar_html}
             <div class="conversation-main">
               <div class="conversation-top"><strong>{escape(sender_name)}</strong><time>{escape(format_dt(message_time(last)))}</time></div>
               <div class="conversation-number">Parent/guardian WhatsApp +{escape(number)} {student_hint}</div>
@@ -8655,6 +8704,9 @@ def admin_whatsapp_inbox():
         matched_students = selected_conversation.get("matched_students", [])
         active_student = selected_conversation.get("active_student")
         title = selected_conversation["display_name"]
+        selected_avatar_html = render_whatsapp_avatar(selected_conversation.get("avatar") or get_whatsapp_conversation_avatar(selected_conversation), large=True)
+        family_header_badge = f"<span class='matched family-header-badge'>Family account: {len(matched_students)} students</span>" if len(matched_students) > 1 else ""
+        active_header_hint = f"<span class='header-active-student'>Active student: {escape(active_student.name)}</span>" if active_student and len(matched_students) > 1 else ""
         selected_messages = []
         for item in selected_conversation["messages"]:
             direction = item.direction or "incoming"
@@ -8672,10 +8724,10 @@ def admin_whatsapp_inbox():
             """)
         detail_html = f"""
           <section class="detail-header">
-            <div class="avatar large">{escape(student_initials(title))}</div>
+            {selected_avatar_html}
             <div>
-              <h2>{escape(title)}</h2>
-              <p>WhatsApp +{escape(selected_number)}</p>
+              <h2>{escape(title)} {family_header_badge}</h2>
+              <p>WhatsApp +{escape(selected_number)} {active_header_hint}</p>
             </div>
           </section>
           {matched_students_card(matched_students, active_student, selected_number)}
@@ -8737,10 +8789,12 @@ def admin_whatsapp_inbox():
           .search {{ padding:18px; border-bottom:1px solid var(--line); }}
           .search input {{ width:100%; border:1px solid var(--line); border-radius:999px; padding:14px 18px; font-size:15px; outline:none; box-shadow: inset 0 1px 2px rgba(16,32,51,.04); }}
           .conversation-list {{ overflow:auto; }}
-          .conversation {{ position:relative; display:grid; grid-template-columns:48px 1fr auto; gap:12px; padding:15px 18px; color:inherit; text-decoration:none; border-bottom:1px solid #eaf0f6; }}
+          .conversation {{ position:relative; display:grid; grid-template-columns:52px 1fr auto; gap:12px; padding:15px 18px; color:inherit; text-decoration:none; border-bottom:1px solid #eaf0f6; }}
           .conversation:hover, .conversation.active {{ background:#e9fff3; }}
-          .avatar {{ width:48px; height:48px; border-radius:50%; display:grid; place-items:center; background:linear-gradient(135deg,#d9fff0,#b7d5ff); color:var(--wa-dark); font-weight:900; }}
-          .avatar.large {{ width:62px; height:62px; font-size:20px; }}
+          .avatar {{ position:relative; width:52px; height:52px; border-radius:50%; display:grid; place-items:center; overflow:hidden; background:linear-gradient(135deg,#d9fff0,#b7d5ff); color:var(--wa-dark); font-weight:900; flex:0 0 auto; }}
+          .avatar.large {{ width:64px; height:64px; font-size:20px; }}
+          .avatar img {{ position:absolute; inset:0; width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }}
+          .avatar span {{ position:relative; z-index:0; }}
           .conversation-main {{ min-width:0; }}
           .conversation-top {{ display:flex; justify-content:space-between; gap:10px; align-items:center; }}
           .conversation-top strong {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
@@ -8753,7 +8807,8 @@ def admin_whatsapp_inbox():
           .matched {{ background:#dcfce7; color:#166534; }} .unmatched-pill {{ background:#fff7ed; color:#9a3412; }}
           .detail {{ display:flex; flex-direction:column; min-width:0; background:#efeae2; background-image: radial-gradient(rgba(7,94,84,.07) 1px, transparent 1px); background-size:22px 22px; }}
           .detail-header {{ display:flex; gap:14px; align-items:center; padding:18px 22px; background:rgba(255,255,255,.92); border-bottom:1px solid var(--line); }}
-          .detail-header h2 {{ margin:0; color:var(--wa-dark); }} .detail-header p {{ margin:4px 0 0; color:var(--muted); }}
+          .detail-header h2 {{ margin:0; color:var(--wa-dark); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }} .detail-header p {{ margin:4px 0 0; color:var(--muted); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
+          .family-header-badge {{ margin-left:0; }} .header-active-student {{ color:#0f4c81; font-weight:900; }}
           .student-card {{ margin:16px 22px 0; padding:16px; background:rgba(255,255,255,.94); border:1px solid var(--line); border-radius:20px; box-shadow:0 12px 30px rgba(16,32,51,.08); }}
           .student-card.unmatched {{ border-style:dashed; }} .student-label {{ color:var(--muted); font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }}
           .student-grid {{ margin-top:10px; display:grid; grid-template-columns:90px 1fr 90px 1fr; gap:8px 12px; }}
