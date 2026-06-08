@@ -1179,6 +1179,7 @@ def ensure_family_registration_schema() -> None:
 def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
+    ensure_whatsapp_messages_schema()
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
@@ -2948,6 +2949,51 @@ class WhatsappMessage(db.Model):
     raw_payload = db.Column(db.Text, nullable=False)
     received_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    direction = db.Column(db.String(20), nullable=False, default="incoming")
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    student_id = db.Column(db.Integer, nullable=True)
+    sent_status = db.Column(db.String(50), nullable=True)
+
+
+def normalize_whatsapp_match_digits(raw_number: str | None) -> str:
+    """Normalize a WhatsApp/mobile value for inbox matching and display grouping."""
+    raw = (raw_number or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    if raw.startswith("07") and len(digits) == 10:
+        return f"94{digits[1:]}"
+    if raw.startswith("+94") and len(digits) == 11:
+        return digits
+    if len(digits) == 10 and digits.startswith("07"):
+        return f"94{digits[1:]}"
+    return digits
+
+
+def build_student_whatsapp_index(students: list[Student] | None = None) -> dict[str, Student]:
+    """Build a normalized WhatsApp/mobile lookup for fast inbox student matching."""
+    index = {}
+    for student in students if students is not None else Student.query.all():
+        for candidate in (getattr(student, "whatsapp_number", None), getattr(student, "mobile", None)):
+            normalized = normalize_whatsapp_match_digits(candidate)
+            if normalized and normalized not in index:
+                index[normalized] = student
+    return index
+
+
+def find_student_for_whatsapp_number(raw_number: str | None) -> Student | None:
+    target = normalize_whatsapp_match_digits(raw_number)
+    if not target:
+        return None
+    return build_student_whatsapp_index().get(target)
+
+
+def ensure_whatsapp_messages_schema() -> None:
+    db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS direction VARCHAR(20) DEFAULT 'incoming'"))
+    db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE"))
+    db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS student_id INTEGER NULL"))
+    db.session.execute(db.text("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS sent_status VARCHAR(50) NULL"))
+    db.session.execute(db.text("UPDATE whatsapp_messages SET direction = 'incoming' WHERE direction IS NULL OR direction = ''"))
+    db.session.execute(db.text("UPDATE whatsapp_messages SET is_read = FALSE WHERE is_read IS NULL"))
+    db.session.commit()
 
 
 def ensure_student_messages_table() -> None:
@@ -8071,6 +8117,7 @@ def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
                 app.logger.error(f"Message type: {message_type}")
                 app.logger.error(f"Message body: {body}")
 
+                matched_student = find_student_for_whatsapp_number(from_number)
                 record = WhatsappMessage(
                     wa_message_id=wa_message_id,
                     from_number=from_number,
@@ -8080,6 +8127,10 @@ def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
                     body=body,
                     raw_payload=json.dumps(message, ensure_ascii=False),
                     received_at=parse_whatsapp_timestamp(message.get("timestamp")),
+                    direction="incoming",
+                    is_read=False,
+                    student_id=matched_student.id if matched_student else None,
+                    sent_status=None,
                 )
                 db.session.add(record)
                 app.logger.error("WhatsApp message saved successfully")
@@ -8232,79 +8283,313 @@ def admin_whatsapp_subscribe_waba():
     ), status
 
 
+def _whatsapp_inbox_base_query():
+    return WhatsappMessage.query.filter(
+        db.or_(WhatsappMessage.phone_number_id.is_(None), WhatsappMessage.phone_number_id != "123456123"),
+        db.or_(WhatsappMessage.from_number.is_(None), WhatsappMessage.from_number != "16315551181"),
+        db.or_(WhatsappMessage.wa_message_id.is_(None), WhatsappMessage.wa_message_id != "ABGGFlA5Fpa"),
+    )
+
+
+@app.route("/admin/whatsapp-inbox/reply", methods=["POST"])
+def admin_whatsapp_inbox_reply():
+    auth_redirect = admin_or_school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+
+    to_number = normalize_whatsapp_match_digits(request.form.get("to_number"))
+    reply_body = (request.form.get("reply_body") or "").strip()
+    if not to_number or not reply_body:
+        flash("Please choose a conversation and type a reply before sending.", "error")
+        return redirect(url_for("admin_whatsapp_inbox", conversation=to_number or None))
+
+    matched_student = find_student_for_whatsapp_number(to_number)
+    sent = send_whatsapp_text(to_number, reply_body)
+    record = WhatsappMessage(
+        wa_message_id=None,
+        from_number=to_number,
+        profile_name="SLIS Admin",
+        phone_number_id=(os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip() or None,
+        message_type="text",
+        body=reply_body,
+        raw_payload=json.dumps({"direction": "outgoing", "body": reply_body}, ensure_ascii=False),
+        received_at=datetime.utcnow(),
+        direction="outgoing",
+        is_read=True,
+        student_id=matched_student.id if matched_student else None,
+        sent_status="sent" if sent else "failed",
+    )
+    db.session.add(record)
+    db.session.commit()
+    flash("WhatsApp reply sent." if sent else "Reply saved, but WhatsApp Cloud API sending failed. Check credentials/logs.", "success" if sent else "error")
+    return redirect(url_for("admin_whatsapp_inbox", conversation=to_number))
+
+
 @app.route("/admin/whatsapp-inbox", methods=["GET"])
 def admin_whatsapp_inbox():
     auth_redirect = admin_or_school_admin_session_required()
     if auth_redirect:
         return auth_redirect
 
-    messages = WhatsappMessage.query.order_by(WhatsappMessage.created_at.desc()).limit(250).all()
-    rows = []
-    for item in messages:
-        received_label = item.received_at.strftime("%Y-%m-%d %H:%M:%S UTC") if item.received_at else "-"
-        rows.append(
-            "<tr>"
-            f"<td>{item.id}</td>"
-            f"<td>{escape(received_label)}</td>"
-            f"<td>{escape(item.profile_name or '-')}</td>"
-            f"<td>{escape(item.from_number)}</td>"
-            f"<td>{escape(item.message_type or '-')}</td>"
-            f"<td class='message-body'>{escape(item.body or '')}</td>"
-            f"<td>{escape(item.wa_message_id or '-')}</td>"
-            "</tr>"
-        )
-    table_rows = "".join(rows) or "<tr><td colspan='7' class='empty'>No WhatsApp messages saved yet.</td></tr>"
+    search_term = (request.args.get("q") or "").strip()
+    selected_number = normalize_whatsapp_match_digits(request.args.get("conversation"))
+    messages = _whatsapp_inbox_base_query().order_by(WhatsappMessage.created_at.asc()).limit(1000).all()
+
+    conversations = {}
+    all_students = Student.query.all()
+    students_by_id = {student.id: student for student in all_students}
+    students_by_number = build_student_whatsapp_index(all_students)
+    school_ids = {student.school_id for student in students_by_id.values() if getattr(student, "school_id", None)}
+    schools_by_id = {school.id: school.school_name for school in School.query.filter(School.id.in_(school_ids)).all()} if school_ids else {}
+
+    for message in messages:
+        key = normalize_whatsapp_match_digits(message.from_number) or message.from_number
+        if not key:
+            continue
+        matched_student = students_by_id.get(message.student_id) if message.student_id else None
+        if matched_student is None:
+            matched_student = students_by_number.get(key)
+            if matched_student and message.student_id != matched_student.id:
+                message.student_id = matched_student.id
+        conversation = conversations.setdefault(key, {"messages": [], "student": matched_student})
+        if matched_student and not conversation.get("student"):
+            conversation["student"] = matched_student
+        conversation["messages"].append(message)
+    if messages:
+        db.session.commit()
+
+    def message_time(message):
+        return message.received_at or message.created_at or datetime.min
+
+    for key, conversation in conversations.items():
+        conversation["messages"].sort(key=message_time)
+        conversation["last_message"] = conversation["messages"][-1]
+        conversation["unread_count"] = sum(1 for item in conversation["messages"] if (item.direction or "incoming") == "incoming" and not item.is_read)
+        student = conversation.get("student")
+        conversation["display_name"] = (student.name if student else None) or conversation["last_message"].profile_name or key
+        conversation["search_blob"] = " ".join([
+            conversation["display_name"] or "",
+            key,
+            *(item.body or "" for item in conversation["messages"]),
+        ]).lower()
+
+    if search_term:
+        needle = search_term.lower()
+        conversations = {key: value for key, value in conversations.items() if needle in value["search_blob"]}
+
+    sorted_conversations = sorted(conversations.items(), key=lambda item: message_time(item[1]["last_message"]), reverse=True)
+    if not selected_number and sorted_conversations:
+        selected_number = sorted_conversations[0][0]
+
+    selected_conversation = conversations.get(selected_number) if selected_number else None
+    if selected_conversation:
+        unread_in_selected = [item for item in selected_conversation["messages"] if (item.direction or "incoming") == "incoming" and not item.is_read]
+        for item in unread_in_selected:
+            item.is_read = True
+        if unread_in_selected:
+            db.session.commit()
+            selected_conversation["unread_count"] = 0
+
+    total_unread = sum(value["unread_count"] for value in conversations.values())
     back_link = "/school-admin/dashboard" if session.get("school_admin_logged_in") is True and session.get("admin_logged_in") is not True else "/admin-dashboard"
+    flash_messages = get_flashed_messages(with_categories=True)
+    flash_html = "".join(f"<div class='flash {escape(category)}'>{escape(message)}</div>" for category, message in flash_messages)
+
+    def format_dt(value):
+        if not value:
+            return "-"
+        return value.strftime("%b %d, %Y · %H:%M UTC")
+
+    def student_card(student):
+        if not student:
+            return """
+              <div class="student-card unmatched">
+                <div class="student-label">Student match</div>
+                <strong>No matching student found</strong>
+                <p>SLIS compares WhatsApp numbers with student WhatsApp and mobile fields after normalizing digits.</p>
+              </div>
+            """
+        school_name = schools_by_id.get(student.school_id) or "Not assigned"
+        premium = "Premium active" if has_active_premium(student) else "Not premium"
+        return f"""
+          <div class="student-card">
+            <div class="student-label">Matched student</div>
+            <strong>{escape(student.name)}</strong>
+            <div class="student-grid">
+              <span>Grade</span><b>{escape(str(student.grade or '-'))}</b>
+              <span>School</span><b>{escape(school_name)}</b>
+              <span>Medium</span><b>{escape(student.medium or '-')}</b>
+              <span>Status</span><b class="{'premium' if has_active_premium(student) else 'standard'}">{escape(premium)}</b>
+            </div>
+          </div>
+        """
+
+    conversation_items = []
+    for number, conversation in sorted_conversations:
+        last = conversation["last_message"]
+        active = " active" if number == selected_number else ""
+        unread = conversation["unread_count"]
+        student = conversation.get("student")
+        sender_name = conversation["display_name"]
+        last_body = last.body or f"[{last.message_type or 'message'}]"
+        badge = f"<span class='unread-badge'>{unread}</span>" if unread else ""
+        student_hint = f"<span class='matched'>Student</span>" if student else "<span class='unmatched-pill'>Unmatched</span>"
+        conversation_items.append(f"""
+          <a class="conversation{active}" href="{url_for('admin_whatsapp_inbox', conversation=number, q=search_term)}">
+            <div class="avatar">{escape(student_initials(sender_name))}</div>
+            <div class="conversation-main">
+              <div class="conversation-top"><strong>{escape(sender_name)}</strong><time>{escape(format_dt(message_time(last)))}</time></div>
+              <div class="conversation-number">+{escape(number)} {student_hint}</div>
+              <div class="conversation-preview">{escape(last_body)}</div>
+            </div>
+            {badge}
+          </a>
+        """)
+    conversation_list_html = "".join(conversation_items) or "<div class='empty-list'>No real WhatsApp conversations found.</div>"
+
+    if selected_conversation:
+        student = selected_conversation.get("student")
+        title = selected_conversation["display_name"]
+        selected_messages = []
+        for item in selected_conversation["messages"]:
+            direction = item.direction or "incoming"
+            outgoing = direction == "outgoing"
+            meta_parts = [format_dt(message_time(item))]
+            if outgoing and item.sent_status:
+                meta_parts.append(item.sent_status.title())
+            selected_messages.append(f"""
+              <div class="message-row {'outgoing' if outgoing else 'incoming'}">
+                <div class="bubble">
+                  <p>{escape(item.body or f'[{item.message_type or "message"}]')}</p>
+                  <span>{escape(' · '.join(meta_parts))}</span>
+                </div>
+              </div>
+            """)
+        detail_html = f"""
+          <section class="detail-header">
+            <div class="avatar large">{escape(student_initials(title))}</div>
+            <div>
+              <h2>{escape(title)}</h2>
+              <p>WhatsApp +{escape(selected_number)}</p>
+            </div>
+          </section>
+          {student_card(student)}
+          <section class="messages">{''.join(selected_messages)}</section>
+          <form class="reply-box" method="post" action="{url_for('admin_whatsapp_inbox_reply')}">
+            <input type="hidden" name="to_number" value="{escape(selected_number)}">
+            <textarea name="reply_body" rows="3" placeholder="Type a helpful SLIS support reply…" required></textarea>
+            <button type="submit">Send WhatsApp Reply</button>
+          </form>
+        """
+    else:
+        detail_html = """
+          <section class="no-selection">
+            <div class="big-icon">💬</div>
+            <h2>Select a conversation</h2>
+            <p>Real parent and student WhatsApp messages will appear here after the webhook receives them.</p>
+          </section>
+        """
+
     subscribe_waba_form = ""
     if session.get("admin_logged_in") is True:
         subscribe_waba_form = """
-              <form method="post" action="/admin/whatsapp/subscribe-waba" class="subscribe-form">
-                <button type="submit">Subscribe WABA Webhooks</button>
-              </form>
+          <details class="settings">
+            <summary>WhatsApp settings</summary>
+            <form method="post" action="/admin/whatsapp/subscribe-waba" class="subscribe-form">
+              <p>Webhook subscription is available for setup/maintenance only.</p>
+              <button type="submit">Subscribe WABA Webhooks</button>
+            </form>
+          </details>
         """
+
     return f"""
     <!doctype html>
     <html lang="en">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>WhatsApp Inbox - SLIS Admin</title>
+        <title>Premium WhatsApp Inbox - SLIS Admin</title>
         <style>
-          body {{ font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }}
-          main {{ max-width: 1180px; margin: 0 auto; padding: 28px 18px; }}
-          .topbar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }}
-          h1 {{ margin: 0; color: #0f2a5f; }}
-          a {{ color: #184bb8; font-weight: 700; text-decoration: none; }}
-          .actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }}
-          .subscribe-form {{ margin: 0; }}
-          .subscribe-form button {{ appearance: none; border: 0; border-radius: 999px; background: #128c7e; color: #fff; cursor: pointer; font-weight: 700; padding: 10px 16px; box-shadow: 0 8px 18px rgba(18, 140, 126, .22); }}
-          .subscribe-form button:hover {{ background: #0f766e; }}
-          .card {{ background: #fff; border: 1px solid #dbe4f0; border-radius: 18px; box-shadow: 0 12px 30px rgba(15, 42, 95, .08); overflow: hidden; }}
-          table {{ width: 100%; border-collapse: collapse; }}
-          th, td {{ padding: 12px 10px; border-bottom: 1px solid #e5edf8; text-align: left; vertical-align: top; font-size: 14px; }}
-          th {{ background: #eaf1ff; color: #143878; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }}
-          .message-body {{ max-width: 420px; white-space: pre-wrap; word-break: break-word; }}
-          .empty {{ text-align: center; color: #667085; padding: 30px; }}
-          @media (max-width: 760px) {{ .card {{ overflow-x: auto; }} .topbar {{ align-items: flex-start; flex-direction: column; }} }}
+          :root {{ --wa:#25d366; --wa-dark:#075e54; --ink:#102033; --muted:#667085; --line:#d9e4ee; --panel:#ffffff; }}
+          * {{ box-sizing: border-box; }}
+          body {{ margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: linear-gradient(135deg,#e8fff4 0%,#eef4ff 48%,#fff 100%); color:var(--ink); }}
+          main {{ max-width:1440px; margin:0 auto; padding:24px; }}
+          .topbar {{ display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:18px; }}
+          h1 {{ margin:0; font-size:32px; color:var(--wa-dark); letter-spacing:-.04em; }}
+          .subtitle {{ color:var(--muted); margin:8px 0 0; }}
+          .actions {{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }}
+          .back-link {{ color:#0f4c81; font-weight:800; text-decoration:none; background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 14px; }}
+          .settings {{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:9px 12px; box-shadow:0 8px 20px rgba(7,94,84,.08); }}
+          .settings summary {{ cursor:pointer; font-weight:800; color:var(--wa-dark); }}
+          .subscribe-form p {{ margin:10px 0; color:var(--muted); font-size:13px; }}
+          .subscribe-form button, .reply-box button {{ border:0; border-radius:999px; background:linear-gradient(135deg,var(--wa),#128c7e); color:#fff; cursor:pointer; font-weight:900; padding:12px 18px; box-shadow:0 12px 24px rgba(37,211,102,.26); }}
+          .stats {{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }}
+          .stat {{ background:rgba(255,255,255,.84); border:1px solid rgba(217,228,238,.9); border-radius:18px; padding:12px 16px; min-width:140px; box-shadow:0 12px 30px rgba(16,32,51,.07); }}
+          .stat span {{ display:block; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; font-weight:800; }}
+          .stat b {{ font-size:24px; color:var(--wa-dark); }}
+          .inbox-shell {{ display:grid; grid-template-columns:410px 1fr; min-height:720px; background:rgba(255,255,255,.78); border:1px solid rgba(217,228,238,.95); border-radius:28px; overflow:hidden; box-shadow:0 24px 70px rgba(7,94,84,.13); backdrop-filter: blur(14px); }}
+          .sidebar {{ border-right:1px solid var(--line); background:#f8fbff; display:flex; flex-direction:column; min-width:0; }}
+          .search {{ padding:18px; border-bottom:1px solid var(--line); }}
+          .search input {{ width:100%; border:1px solid var(--line); border-radius:999px; padding:14px 18px; font-size:15px; outline:none; box-shadow: inset 0 1px 2px rgba(16,32,51,.04); }}
+          .conversation-list {{ overflow:auto; }}
+          .conversation {{ position:relative; display:grid; grid-template-columns:48px 1fr auto; gap:12px; padding:15px 18px; color:inherit; text-decoration:none; border-bottom:1px solid #eaf0f6; }}
+          .conversation:hover, .conversation.active {{ background:#e9fff3; }}
+          .avatar {{ width:48px; height:48px; border-radius:50%; display:grid; place-items:center; background:linear-gradient(135deg,#d9fff0,#b7d5ff); color:var(--wa-dark); font-weight:900; }}
+          .avatar.large {{ width:62px; height:62px; font-size:20px; }}
+          .conversation-main {{ min-width:0; }}
+          .conversation-top {{ display:flex; justify-content:space-between; gap:10px; align-items:center; }}
+          .conversation-top strong {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+          time {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
+          .conversation-number {{ color:#23766a; font-size:13px; margin-top:3px; }}
+          .conversation-preview {{ color:var(--muted); margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+          .unread-badge {{ align-self:center; background:#22c55e; color:white; min-width:24px; height:24px; border-radius:999px; display:grid; place-items:center; font-size:12px; font-weight:900; padding:0 7px; }}
+          .matched, .unmatched-pill {{ margin-left:6px; border-radius:999px; padding:2px 7px; font-size:11px; font-weight:900; }}
+          .matched {{ background:#dcfce7; color:#166534; }} .unmatched-pill {{ background:#fff7ed; color:#9a3412; }}
+          .detail {{ display:flex; flex-direction:column; min-width:0; background:#efeae2; background-image: radial-gradient(rgba(7,94,84,.07) 1px, transparent 1px); background-size:22px 22px; }}
+          .detail-header {{ display:flex; gap:14px; align-items:center; padding:18px 22px; background:rgba(255,255,255,.92); border-bottom:1px solid var(--line); }}
+          .detail-header h2 {{ margin:0; color:var(--wa-dark); }} .detail-header p {{ margin:4px 0 0; color:var(--muted); }}
+          .student-card {{ margin:16px 22px 0; padding:16px; background:rgba(255,255,255,.94); border:1px solid var(--line); border-radius:20px; box-shadow:0 12px 30px rgba(16,32,51,.08); }}
+          .student-card.unmatched {{ border-style:dashed; }} .student-label {{ color:var(--muted); font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }}
+          .student-grid {{ margin-top:10px; display:grid; grid-template-columns:90px 1fr 90px 1fr; gap:8px 12px; }}
+          .student-grid span {{ color:var(--muted); }} .premium {{ color:#128c7e; }} .standard {{ color:#9a3412; }}
+          .messages {{ flex:1; overflow:auto; padding:18px 22px 24px; }}
+          .message-row {{ display:flex; margin:10px 0; }} .message-row.outgoing {{ justify-content:flex-end; }} .message-row.incoming {{ justify-content:flex-start; }}
+          .bubble {{ max-width:min(620px,78%); padding:11px 13px 8px; border-radius:18px; box-shadow:0 4px 10px rgba(16,32,51,.08); }}
+          .incoming .bubble {{ background:#fff; border-top-left-radius:4px; }} .outgoing .bubble {{ background:#dcf8c6; border-top-right-radius:4px; }}
+          .bubble p {{ margin:0; white-space:pre-wrap; word-break:break-word; line-height:1.45; }} .bubble span {{ display:block; margin-top:6px; color:#667085; font-size:11px; text-align:right; }}
+          .reply-box {{ display:grid; grid-template-columns:1fr auto; gap:12px; padding:16px 22px; background:rgba(255,255,255,.95); border-top:1px solid var(--line); }}
+          .reply-box textarea {{ resize:vertical; border:1px solid var(--line); border-radius:18px; padding:14px 16px; font:inherit; min-height:54px; outline:none; }}
+          .empty-list, .no-selection {{ padding:34px; color:var(--muted); text-align:center; }} .no-selection {{ margin:auto; }} .big-icon {{ font-size:64px; }}
+          .flash {{ margin-bottom:12px; border-radius:14px; padding:12px 14px; font-weight:800; }} .flash.success {{ background:#dcfce7; color:#166534; }} .flash.error {{ background:#fee2e2; color:#991b1b; }}
+          @media (max-width: 900px) {{ main {{ padding:14px; }} .topbar {{ flex-direction:column; }} .inbox-shell {{ grid-template-columns:1fr; }} .sidebar {{ max-height:420px; border-right:0; border-bottom:1px solid var(--line); }} .student-grid {{ grid-template-columns:90px 1fr; }} .reply-box {{ grid-template-columns:1fr; }} }}
         </style>
       </head>
       <body>
         <main>
           <div class="topbar">
             <div>
-              <h1>WhatsApp Inbox</h1>
-              <p>Latest incoming WhatsApp Cloud API messages saved by SLIS.</p>
+              <h1>SLIS WhatsApp Support Inbox</h1>
+              <p class="subtitle">Premium parent/student support workspace powered by real WhatsApp Cloud API messages.</p>
             </div>
             <div class="actions">
               {subscribe_waba_form}
-              <a href="{back_link}">Back to Dashboard</a>
+              <a class="back-link" href="{back_link}">Back to Dashboard</a>
             </div>
           </div>
-          <div class="card">
-            <table>
-              <thead><tr><th>ID</th><th>Received</th><th>Name</th><th>From</th><th>Type</th><th>Message</th><th>WhatsApp ID</th></tr></thead>
-              <tbody>{table_rows}</tbody>
-            </table>
+          {flash_html}
+          <div class="stats">
+            <div class="stat"><span>Conversations</span><b>{len(conversations)}</b></div>
+            <div class="stat"><span>Unread</span><b>{total_unread}</b></div>
+            <div class="stat"><span>Live channel</span><b>WhatsApp</b></div>
+          </div>
+          <div class="inbox-shell">
+            <aside class="sidebar">
+              <form class="search" method="get" action="{url_for('admin_whatsapp_inbox')}">
+                <input type="search" name="q" value="{escape(search_term)}" placeholder="Search by name, number, or message…">
+              </form>
+              <div class="conversation-list">{conversation_list_html}</div>
+            </aside>
+            <section class="detail">{detail_html}</section>
           </div>
         </main>
       </body>
