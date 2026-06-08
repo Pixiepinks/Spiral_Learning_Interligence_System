@@ -1175,6 +1175,7 @@ def ensure_family_registration_schema() -> None:
     db.session.execute(db.text("DROP INDEX IF EXISTS student_parent_email_key"))
     db.session.execute(db.text("ALTER TABLE student ALTER COLUMN email DROP NOT NULL"))
     db.session.execute(db.text("ALTER TABLE student ALTER COLUMN parent_email DROP NOT NULL"))
+    db.session.execute(db.text("ALTER TABLE student ALTER COLUMN school_id DROP NOT NULL"))
     db.session.commit()
 
 
@@ -4012,20 +4013,7 @@ def contact_us_page() -> str:
 @app.route("/register-form/", methods=["GET", "POST"])
 def register_form() -> object:
     if request.method == "GET":
-        template_path = os.path.join(FRONTEND_BUILD_DIR, "register-form", "index.html")
-        with open(template_path, "r", encoding="utf-8") as f:
-            html = f.read()
-
-        schools = School.query.order_by(School.school_name.asc(), School.id.asc()).all()
-        school_options = "".join(
-            f'<option value="{school.id}">{escape(school.school_name)}</option>'
-            for school in schools
-        )
-        html = html.replace(
-            '<select name="school_id"><option value="">Select your school</option></select>',
-            f'<select name="school_id"><option value="">Select your school</option>{school_options}</select>',
-        )
-        return html
+        return send_from_directory(FRONTEND_BUILD_DIR, "register-form/index.html")
     return register_student()
 
 
@@ -4100,29 +4088,15 @@ def register_student():
             return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": msg}), 400
 
-    school_id_raw = str(data.get("school_id", "")).strip()
+    email = None
+    parent_email = None
     school_id = None
-    if school_id_raw:
-        if not school_id_raw.isdigit() or not School.query.get(int(school_id_raw)):
-            msg = "Invalid school selected"
-            if is_form_submission:
-                return f"<h2>Error: {msg}</h2><p><a href='/register-form'>Back</a></p>", 400
-            return jsonify({"success": False, "message": msg}), 400
-        school_id = int(school_id_raw)
-
-    email = str(data.get("email", "")).strip() or None
-    parent_email = str(data.get("parent_email", "")).strip() or None
     whatsapp_number, whatsapp_error = normalize_whatsapp_number(data.get("whatsapp_number") or data.get("mobile_number") or data.get("mobile"))
     if whatsapp_error:
         if is_form_submission:
             return f"<h2>Error: {whatsapp_error}</h2><p><a href='/register-form'>Back</a></p>", 400
         return jsonify({"success": False, "message": whatsapp_error}), 400
     mobile = whatsapp_number
-
-    if email and Student.query.filter_by(email=email).first():
-        if is_form_submission:
-            return "<h2>Error: Email already exists</h2><p><a href='/register-form'>Back</a></p>", 409
-        return jsonify({"success": False, "message": "Email already exists"}), 409
 
     student = Student(
         name=data["name"].strip(),
@@ -4141,31 +4115,11 @@ def register_student():
     db.session.flush()
     student.username = generate_student_username_for_id(student.id)
     db.session.commit()
-    recipients = []
-    if student.email:
-        recipients.append(student.email.strip().lower())
-    if student.parent_email:
-        recipients.append(student.parent_email.strip().lower())
-    recipients = list(dict.fromkeys(recipients))
-
-    if recipients:
-        try:
-            send_welcome_email(
-                student_name=student.name,
-                recipients=recipients,
-                grade=display_grade(student.grade, student.medium),
-                medium=student.medium,
-                username=student.username or "",
-                plain_password=password,
-            )
-        except Exception:
-            app.logger.exception(
-                "Failed to send welcome email for student_id=%s to recipients=%s",
-                student.id,
-                recipients,
-            )
-    else:
-        app.logger.warning("No email available for welcome email.")
+    app.logger.info(
+        "Registration completed with WhatsApp-only onboarding for student_id=%s. "
+        "School, student email, and parent email will be collected after login.",
+        student.id,
+    )
 
     try:
         send_whatsapp_admin_registration_alert(student)

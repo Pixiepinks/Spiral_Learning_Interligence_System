@@ -913,27 +913,27 @@ body {
 .register-right { padding: 28px 0px 40px; display: flex; flex-direction: column; align-items: stretch; }
 .register-login-row { align-self: flex-end; margin-bottom: 14px; display: flex; align-items: center; gap: 14px; color: #526991; font-weight: 700; }
 .register-login-row a { text-decoration: none; color: #0f63d9; border: 1px solid rgba(40, 119, 230, 0.28); border-radius: 999px; padding: 9px 22px; background: rgba(255,255,255,0.75); }
-.register-card { background: rgba(255,255,255,0.92); border: 1px solid rgba(122, 166, 224, 0.25); border-radius: 28px; padding: 24px 28px 26px; box-shadow: 0 24px 70px rgba(36, 88, 150, 0.16), inset 0 1px 0 rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
-.register-card-header { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.register-card { background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,252,255,0.94)); border: 1px solid rgba(122, 166, 224, 0.25); border-radius: 28px; padding: 26px 30px 28px; box-shadow: 0 28px 80px rgba(36, 88, 150, 0.18), inset 0 1px 0 rgba(255,255,255,0.9); backdrop-filter: blur(12px); }
+.register-card-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid rgba(122, 166, 224, 0.18); }
 .register-avatar { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(145deg, #e4f4ff, #caebff); font-size: 2rem; }
 .register-card h2 { margin: 0; font-size: clamp(1.8rem, 2.4vw, 2.6rem); color: #071f58; }
 .register-card-header p { margin: 6px 0 0; color: #4d638c; font-weight: 700; }
-.register-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.register-form-grid label { display: grid; gap: 6px; font-weight: 800; color: #102858; }
-.register-form-grid input, .register-form-grid select { width: 100%; height: 50px; border: 1px solid rgba(80, 116, 168, 0.24); border-radius: 13px; padding: 10px 14px; font-family: "Nunito", sans-serif; font-size: 0.98rem; font-weight: 700; color: #25375d; background: #fff; outline: none; }
-.register-form-grid input:focus, .register-form-grid select:focus { border-color: #2a8cff; box-shadow: 0 0 0 4px rgba(42, 140, 255, 0.12); }
+.register-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; align-items: start; }
+.register-form-grid label { display: grid; gap: 7px; font-weight: 900; color: #102858; letter-spacing: -0.01em; }
+.register-form-grid input, .register-form-grid select { width: 100%; height: 54px; border: 1px solid rgba(80, 116, 168, 0.22); border-radius: 16px; padding: 11px 15px; font-family: "Nunito", sans-serif; font-size: 0.98rem; font-weight: 800; color: #25375d; background: linear-gradient(180deg, #ffffff, #fbfdff); outline: none; box-shadow: 0 10px 24px rgba(38, 91, 150, 0.06); transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
+.register-form-grid input:focus, .register-form-grid select:focus { border-color: #2a8cff; box-shadow: 0 0 0 4px rgba(42, 140, 255, 0.12), 0 12px 28px rgba(42, 140, 255, 0.12); transform: translateY(-1px); }
 .whatsapp-field { align-content: start; }
 .whatsapp-label-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .whatsapp-trust-badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border-radius: 999px; padding: 3px 8px; background: rgba(37, 211, 102, 0.12); color: #137d42; font-size: 0.68rem; font-weight: 900; line-height: 1.2; }
 .whatsapp-trust-badge::before { content: "✓"; }
 .whatsapp-input-wrap { position: relative; display: block; }
-.whatsapp-input-wrap input { padding-left: 42px; }
+.whatsapp-input-wrap input { padding-left: 44px; }
 .whatsapp-input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); z-index: 1; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: #25d366; color: #fff; box-shadow: 0 6px 12px rgba(37, 211, 102, 0.18); pointer-events: none; }
 .whatsapp-input-icon svg { width: 16px; height: 16px; fill: currentColor; }
 .whatsapp-input-wrap:focus-within input { border-color: #25d366; box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14); }
 .field-helper { margin-top: 6px; color: #64748B; font-size: 12px; font-weight: 600; line-height: 1.4; }
 .whatsapp-family-note { color: #137d42; font-size: 11.5px; font-weight: 800; line-height: 1.35; }
-.register-privacy-box { margin-top: 10px; margin-bottom: 4px; padding: 14px 16px; border-radius: 16px; background: linear-gradient(135deg, #eef7ff, #f8fcff); border: 1px solid rgba(85, 154, 233, 0.18); color: #1c3b73; }
+.register-privacy-box { margin-top: 16px; margin-bottom: 4px; padding: 14px 16px; border-radius: 18px; background: linear-gradient(135deg, #eef7ff, #f8fcff); border: 1px solid rgba(85, 154, 233, 0.18); color: #1c3b73; }
 .register-privacy-box p { margin: 6px 0 0; color: #526991; }
 .register-check { margin-top: 12px; display: flex; align-items: flex-start; gap: 8px; color: #334e7d; font-weight: 700; }
 .register-check a { color: #0e63dc; text-decoration: none; }
