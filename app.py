@@ -1180,6 +1180,7 @@ def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
     ensure_whatsapp_messages_schema()
+    ensure_whatsapp_conversation_active_schema()
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
@@ -2968,22 +2969,60 @@ def normalize_whatsapp_match_digits(raw_number: str | None) -> str:
     return digits
 
 
-def build_student_whatsapp_index(students: list[Student] | None = None) -> dict[str, Student]:
-    """Build a normalized WhatsApp/mobile lookup for fast inbox student matching."""
-    index = {}
+def build_student_whatsapp_index(students: list[Student] | None = None) -> dict[str, list[Student]]:
+    """Build a normalized WhatsApp/mobile lookup for inbox student matching.
+
+    A parent/guardian WhatsApp number can belong to multiple students, so each
+    normalized number maps to every matching student instead of a single record.
+    """
+    index: dict[str, list[Student]] = {}
     for student in students if students is not None else Student.query.all():
+        seen_numbers = set()
         for candidate in (getattr(student, "whatsapp_number", None), getattr(student, "mobile", None)):
             normalized = normalize_whatsapp_match_digits(candidate)
-            if normalized and normalized not in index:
-                index[normalized] = student
+            if normalized and normalized not in seen_numbers:
+                index.setdefault(normalized, []).append(student)
+                seen_numbers.add(normalized)
     return index
 
 
-def find_student_for_whatsapp_number(raw_number: str | None) -> Student | None:
+def find_students_for_whatsapp_number(raw_number: str | None, students: list[Student] | None = None) -> list[Student]:
     target = normalize_whatsapp_match_digits(raw_number)
     if not target:
-        return None
-    return build_student_whatsapp_index().get(target)
+        return []
+    return build_student_whatsapp_index(students).get(target, [])
+
+
+def find_student_for_whatsapp_number(raw_number: str | None) -> Student | None:
+    matches = find_students_for_whatsapp_number(raw_number)
+    return matches[0] if len(matches) == 1 else None
+
+
+def get_conversation_messages_by_number(raw_number: str | None) -> list[WhatsappMessage]:
+    target = normalize_whatsapp_match_digits(raw_number)
+    if not target:
+        return []
+    return [
+        message
+        for message in _whatsapp_inbox_base_query().all()
+        if (normalize_whatsapp_match_digits(message.from_number) or message.from_number) == target
+    ]
+
+
+def get_active_student_for_whatsapp_conversation(raw_number: str | None) -> Student | None:
+    normalized_number = normalize_whatsapp_match_digits(raw_number)
+    if normalized_number:
+        active_student_id = load_whatsapp_active_student_map().get(normalized_number)
+        if active_student_id:
+            student = db.session.get(Student, active_student_id)
+            if student:
+                return student
+    for message in get_conversation_messages_by_number(raw_number):
+        if message.student_id:
+            student = db.session.get(Student, message.student_id)
+            if student:
+                return student
+    return None
 
 
 def ensure_whatsapp_messages_schema() -> None:
@@ -2994,6 +3033,46 @@ def ensure_whatsapp_messages_schema() -> None:
     db.session.execute(db.text("UPDATE whatsapp_messages SET direction = 'incoming' WHERE direction IS NULL OR direction = ''"))
     db.session.execute(db.text("UPDATE whatsapp_messages SET is_read = FALSE WHERE is_read IS NULL"))
     db.session.commit()
+
+
+def ensure_whatsapp_conversation_active_schema() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS whatsapp_conversation_active_students (
+                from_number VARCHAR(40) PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.commit()
+
+
+def set_active_student_for_whatsapp_conversation(raw_number: str, student_id: int) -> None:
+    normalized_number = normalize_whatsapp_match_digits(raw_number)
+    if not normalized_number:
+        return
+    db.session.execute(
+        db.text("DELETE FROM whatsapp_conversation_active_students WHERE from_number = :from_number"),
+        {"from_number": normalized_number},
+    )
+    db.session.execute(
+        db.text(
+            """
+            INSERT INTO whatsapp_conversation_active_students (from_number, student_id, updated_at)
+            VALUES (:from_number, :student_id, CURRENT_TIMESTAMP)
+            """
+        ),
+        {"from_number": normalized_number, "student_id": student_id},
+    )
+
+
+def load_whatsapp_active_student_map() -> dict[str, int]:
+    ensure_whatsapp_conversation_active_schema()
+    rows = db.session.execute(db.text("SELECT from_number, student_id FROM whatsapp_conversation_active_students")).fetchall()
+    return {row.from_number: row.student_id for row in rows}
 
 
 def ensure_student_messages_table() -> None:
@@ -8291,6 +8370,36 @@ def _whatsapp_inbox_base_query():
     )
 
 
+@app.route("/admin/whatsapp-inbox/set-active-student", methods=["POST"])
+def admin_whatsapp_inbox_set_active_student():
+    auth_redirect = admin_or_school_admin_session_required()
+    if auth_redirect:
+        return auth_redirect
+
+    conversation_number = normalize_whatsapp_match_digits(request.form.get("conversation_number"))
+    student_id = _safe_int(request.form.get("student_id"))
+    if not conversation_number or not student_id:
+        flash("Please choose a conversation and student first.", "error")
+        return redirect(url_for("admin_whatsapp_inbox", conversation=conversation_number or None))
+
+    matching_students = find_students_for_whatsapp_number(conversation_number)
+    selected_student = next((student for student in matching_students if student.id == student_id), None)
+    if not selected_student:
+        flash("Selected student is not linked to this parent/guardian WhatsApp number.", "error")
+        return redirect(url_for("admin_whatsapp_inbox", conversation=conversation_number))
+
+    updated_count = 0
+    set_active_student_for_whatsapp_conversation(conversation_number, selected_student.id)
+    for message in get_conversation_messages_by_number(conversation_number):
+        if message.student_id is None:
+            message.student_id = selected_student.id
+            updated_count += 1
+
+    db.session.commit()
+    flash(f"Active student set to {selected_student.name}. Updated {updated_count} unassigned message(s).", "success")
+    return redirect(url_for("admin_whatsapp_inbox", conversation=conversation_number))
+
+
 @app.route("/admin/whatsapp-inbox/reply", methods=["POST"])
 def admin_whatsapp_inbox_reply():
     auth_redirect = admin_or_school_admin_session_required()
@@ -8303,7 +8412,7 @@ def admin_whatsapp_inbox_reply():
         flash("Please choose a conversation and type a reply before sending.", "error")
         return redirect(url_for("admin_whatsapp_inbox", conversation=to_number or None))
 
-    matched_student = find_student_for_whatsapp_number(to_number)
+    matched_student = get_active_student_for_whatsapp_conversation(to_number) or find_student_for_whatsapp_number(to_number)
     sent = send_whatsapp_text(to_number, reply_body)
     record = WhatsappMessage(
         wa_message_id=None,
@@ -8339,6 +8448,7 @@ def admin_whatsapp_inbox():
     all_students = Student.query.all()
     students_by_id = {student.id: student for student in all_students}
     students_by_number = build_student_whatsapp_index(all_students)
+    active_student_ids_by_number = load_whatsapp_active_student_map()
     school_ids = {student.school_id for student in students_by_id.values() if getattr(student, "school_id", None)}
     schools_by_id = {school.id: school.school_name for school in School.query.filter(School.id.in_(school_ids)).all()} if school_ids else {}
 
@@ -8346,14 +8456,20 @@ def admin_whatsapp_inbox():
         key = normalize_whatsapp_match_digits(message.from_number) or message.from_number
         if not key:
             continue
-        matched_student = students_by_id.get(message.student_id) if message.student_id else None
-        if matched_student is None:
-            matched_student = students_by_number.get(key)
-            if matched_student and message.student_id != matched_student.id:
-                message.student_id = matched_student.id
-        conversation = conversations.setdefault(key, {"messages": [], "student": matched_student})
-        if matched_student and not conversation.get("student"):
-            conversation["student"] = matched_student
+        matched_students = students_by_number.get(key, [])
+        active_student = students_by_id.get(active_student_ids_by_number.get(key))
+        if active_student is None:
+            active_student = students_by_id.get(message.student_id) if message.student_id else None
+        if active_student is None and len(matched_students) == 1:
+            active_student = matched_students[0]
+            if message.student_id != active_student.id:
+                message.student_id = active_student.id
+        conversation = conversations.setdefault(
+            key,
+            {"messages": [], "matched_students": matched_students, "active_student": active_student},
+        )
+        if active_student and not conversation.get("active_student"):
+            conversation["active_student"] = active_student
         conversation["messages"].append(message)
     if messages:
         db.session.commit()
@@ -8365,11 +8481,14 @@ def admin_whatsapp_inbox():
         conversation["messages"].sort(key=message_time)
         conversation["last_message"] = conversation["messages"][-1]
         conversation["unread_count"] = sum(1 for item in conversation["messages"] if (item.direction or "incoming") == "incoming" and not item.is_read)
-        student = conversation.get("student")
-        conversation["display_name"] = (student.name if student else None) or conversation["last_message"].profile_name or key
+        matched_students = conversation.get("matched_students", [])
+        active_student = conversation.get("active_student")
+        conversation["display_name"] = conversation["last_message"].profile_name or f"Parent/Guardian +{key}"
         conversation["search_blob"] = " ".join([
             conversation["display_name"] or "",
             key,
+            active_student.name if active_student else "",
+            *(student.name for student in matched_students),
             *(item.body or "" for item in conversation["messages"]),
         ]).lower()
 
@@ -8400,46 +8519,91 @@ def admin_whatsapp_inbox():
             return "-"
         return value.strftime("%b %d, %Y · %H:%M UTC")
 
-    def student_card(student):
-        if not student:
-            return """
-              <div class="student-card unmatched">
-                <div class="student-label">Student match</div>
-                <strong>No matching student found</strong>
-                <p>SLIS compares WhatsApp numbers with student WhatsApp and mobile fields after normalizing digits.</p>
-              </div>
-            """
+    def student_summary_grid(student):
         school_name = schools_by_id.get(student.school_id) or "Not assigned"
-        premium = "Premium active" if has_active_premium(student) else "Not premium"
+        is_premium = has_active_premium(student)
+        premium = "Premium active" if is_premium else "Not premium"
         return f"""
-          <div class="student-card">
-            <div class="student-label">Matched student</div>
-            <strong>{escape(student.name)}</strong>
             <div class="student-grid">
               <span>Grade</span><b>{escape(str(student.grade or '-'))}</b>
               <span>School</span><b>{escape(school_name)}</b>
               <span>Medium</span><b>{escape(student.medium or '-')}</b>
-              <span>Status</span><b class="{'premium' if has_active_premium(student) else 'standard'}">{escape(premium)}</b>
+              <span>Status</span><b class="{'premium' if is_premium else 'standard'}">{escape(premium)}</b>
             </div>
+        """
+
+    def matched_students_card(matched_students, active_student, selected_number):
+        if not matched_students:
+            return """
+              <div class="student-card unmatched">
+                <div class="student-label">Student match</div>
+                <strong>No matching student found</strong>
+                <p>SLIS compares the parent/guardian WhatsApp number with student WhatsApp and mobile fields after normalizing digits.</p>
+              </div>
+            """
+        if len(matched_students) == 1:
+            student = matched_students[0]
+            return f"""
+              <div class="student-card">
+                <div class="student-label">Matched student</div>
+                <strong>{escape(student.name)}</strong>
+                {student_summary_grid(student)}
+              </div>
+            """
+
+        rows = []
+        for student in matched_students:
+            is_active = active_student and active_student.id == student.id
+            active_badge = "<span class='active-student-badge'>Active student</span>" if is_active else ""
+            button = "<button type='button' class='active-button current' disabled>Active student</button>" if is_active else f"""
+              <form method="post" action="{url_for('admin_whatsapp_inbox_set_active_student')}" class="set-active-form">
+                <input type="hidden" name="conversation_number" value="{escape(selected_number)}">
+                <input type="hidden" name="student_id" value="{student.id}">
+                <button type="submit" class="active-button">Set active student</button>
+              </form>
+            """
+            rows.append(f"""
+              <div class="family-student">
+                <div>
+                  <strong>{escape(student.name)}</strong>{active_badge}
+                  {student_summary_grid(student)}
+                </div>
+                {button}
+              </div>
+            """)
+        return f"""
+          <div class="student-card family-card">
+            <div class="student-label">Matched students ({len(matched_students)})</div>
+            <p class="family-note">This is a family-level conversation. Choose the student this conversation should be assigned to.</p>
+            {''.join(rows)}
           </div>
         """
+
 
     conversation_items = []
     for number, conversation in sorted_conversations:
         last = conversation["last_message"]
         active = " active" if number == selected_number else ""
         unread = conversation["unread_count"]
-        student = conversation.get("student")
+        matched_students = conversation.get("matched_students", [])
+        active_student = conversation.get("active_student")
         sender_name = conversation["display_name"]
         last_body = last.body or f"[{last.message_type or 'message'}]"
         badge = f"<span class='unread-badge'>{unread}</span>" if unread else ""
-        student_hint = f"<span class='matched'>Student</span>" if student else "<span class='unmatched-pill'>Unmatched</span>"
+        if len(matched_students) > 1:
+            student_hint = f"<span class='matched'>Family account: {len(matched_students)} students</span>"
+        elif len(matched_students) == 1:
+            student_hint = "<span class='matched'>Student</span>"
+        else:
+            student_hint = "<span class='unmatched-pill'>Unmatched</span>"
+        active_hint = f"<div class='conversation-active'>Active student: {escape(active_student.name)}</div>" if active_student and len(matched_students) > 1 else ""
         conversation_items.append(f"""
           <a class="conversation{active}" href="{url_for('admin_whatsapp_inbox', conversation=number, q=search_term)}">
             <div class="avatar">{escape(student_initials(sender_name))}</div>
             <div class="conversation-main">
               <div class="conversation-top"><strong>{escape(sender_name)}</strong><time>{escape(format_dt(message_time(last)))}</time></div>
-              <div class="conversation-number">+{escape(number)} {student_hint}</div>
+              <div class="conversation-number">Parent/guardian WhatsApp +{escape(number)} {student_hint}</div>
+              {active_hint}
               <div class="conversation-preview">{escape(last_body)}</div>
             </div>
             {badge}
@@ -8448,7 +8612,8 @@ def admin_whatsapp_inbox():
     conversation_list_html = "".join(conversation_items) or "<div class='empty-list'>No real WhatsApp conversations found.</div>"
 
     if selected_conversation:
-        student = selected_conversation.get("student")
+        matched_students = selected_conversation.get("matched_students", [])
+        active_student = selected_conversation.get("active_student")
         title = selected_conversation["display_name"]
         selected_messages = []
         for item in selected_conversation["messages"]:
@@ -8473,7 +8638,7 @@ def admin_whatsapp_inbox():
               <p>WhatsApp +{escape(selected_number)}</p>
             </div>
           </section>
-          {student_card(student)}
+          {matched_students_card(matched_students, active_student, selected_number)}
           <section class="messages">{''.join(selected_messages)}</section>
           <form class="reply-box" method="post" action="{url_for('admin_whatsapp_inbox_reply')}">
             <input type="hidden" name="to_number" value="{escape(selected_number)}">
@@ -8541,6 +8706,7 @@ def admin_whatsapp_inbox():
           .conversation-top strong {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
           time {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
           .conversation-number {{ color:#23766a; font-size:13px; margin-top:3px; }}
+          .conversation-active {{ color:#0f4c81; font-size:12px; font-weight:800; margin-top:3px; }}
           .conversation-preview {{ color:var(--muted); margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
           .unread-badge {{ align-self:center; background:#22c55e; color:white; min-width:24px; height:24px; border-radius:999px; display:grid; place-items:center; font-size:12px; font-weight:900; padding:0 7px; }}
           .matched, .unmatched-pill {{ margin-left:6px; border-radius:999px; padding:2px 7px; font-size:11px; font-weight:900; }}
@@ -8552,6 +8718,13 @@ def admin_whatsapp_inbox():
           .student-card.unmatched {{ border-style:dashed; }} .student-label {{ color:var(--muted); font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }}
           .student-grid {{ margin-top:10px; display:grid; grid-template-columns:90px 1fr 90px 1fr; gap:8px 12px; }}
           .student-grid span {{ color:var(--muted); }} .premium {{ color:#128c7e; }} .standard {{ color:#9a3412; }}
+          .family-note {{ margin:6px 0 14px; color:var(--muted); }}
+          .family-student {{ display:grid; grid-template-columns:1fr auto; gap:16px; align-items:center; padding:14px 0; border-top:1px solid #eaf0f6; }}
+          .family-student:first-of-type {{ border-top:0; }}
+          .active-student-badge {{ display:inline-block; margin-left:8px; border-radius:999px; padding:3px 8px; background:#dcfce7; color:#166534; font-size:11px; font-weight:900; }}
+          .set-active-form {{ margin:0; }}
+          .active-button {{ border:0; border-radius:999px; background:#0f766e; color:#fff; cursor:pointer; font-weight:900; padding:10px 14px; white-space:nowrap; }}
+          .active-button.current {{ background:#e2e8f0; color:#475569; cursor:default; }}
           .messages {{ flex:1; overflow:auto; padding:18px 22px 24px; }}
           .message-row {{ display:flex; margin:10px 0; }} .message-row.outgoing {{ justify-content:flex-end; }} .message-row.incoming {{ justify-content:flex-start; }}
           .bubble {{ max-width:min(620px,78%); padding:11px 13px 8px; border-radius:18px; box-shadow:0 4px 10px rgba(16,32,51,.08); }}
