@@ -7949,6 +7949,7 @@ def parse_whatsapp_timestamp(value) -> datetime | None:
             return None
         return datetime.utcfromtimestamp(int(value))
     except (TypeError, ValueError, OSError):
+        app.logger.exception("WhatsApp webhook processing failed")
         app.logger.error("WhatsApp webhook contained invalid timestamp=%s", value)
         return None
 
@@ -7961,6 +7962,7 @@ def queue_whatsapp_auto_reply(to_number: str, message_id: int) -> None:
                 "Thank you for contacting SLIS. We received your WhatsApp message and our team will respond soon.",
             )
         except Exception:
+            app.logger.exception("WhatsApp webhook processing failed")
             app.logger.exception("WhatsApp webhook auto reply failed for message_id=%s", message_id)
 
     threading.Thread(target=_send_reply, daemon=True).start()
@@ -7997,17 +7999,25 @@ def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
                     app.logger.info("WhatsApp webhook duplicate ignored: wa_message_id=%s", wa_message_id)
                     continue
 
+                wa_id = from_number
+                message_type = message.get("type")
+                body = extract_whatsapp_message_body(message)
+                app.logger.error(f"Saving WhatsApp message from {wa_id}")
+                app.logger.error(f"Message type: {message_type}")
+                app.logger.error(f"Message body: {body}")
+
                 record = WhatsappMessage(
                     wa_message_id=wa_message_id,
                     from_number=from_number,
                     profile_name=contacts_by_wa_id.get(from_number),
                     phone_number_id=phone_number_id,
-                    message_type=message.get("type"),
-                    body=extract_whatsapp_message_body(message),
+                    message_type=message_type,
+                    body=body,
                     raw_payload=json.dumps(message, ensure_ascii=False),
                     received_at=parse_whatsapp_timestamp(message.get("timestamp")),
                 )
                 db.session.add(record)
+                app.logger.error("WhatsApp message saved successfully")
                 saved_messages.append(record)
     if saved_messages:
         db.session.commit()
@@ -8044,7 +8054,12 @@ def whatsapp_webhook():
         )
         return Response("Forbidden", status=403, mimetype="text/plain")
 
-    payload = request.get_json(silent=True)
+    data = request.get_json(silent=True)
+    app.logger.error("=" * 80)
+    app.logger.error("WHATSAPP WEBHOOK RECEIVED")
+    app.logger.error(json.dumps(data, indent=2))
+    app.logger.error("=" * 80)
+    payload = data
     app.logger.info("WHATSAPP_WEBHOOK_POST_RECEIVED payload=%s", payload)
     if not isinstance(payload, dict):
         app.logger.error("WhatsApp webhook POST failed: invalid or missing JSON payload.")
@@ -8059,6 +8074,7 @@ def whatsapp_webhook():
         app.logger.info("WHATSAPP_WEBHOOK_SAVED count=%s", len(saved_messages))
     except Exception:
         db.session.rollback()
+        app.logger.exception("WhatsApp webhook processing failed")
         app.logger.exception("WhatsApp webhook POST failed while saving payload=%s", payload)
         return jsonify({"success": False, "message": "Webhook processing failed"}), 500
 
