@@ -404,21 +404,93 @@ def send_whatsapp_text(to_number: str, body: str) -> bool:
     return False
 
 
-def send_whatsapp_template(to_number, template_name, language_code, body_params) -> bool:
-    """Send a WhatsApp Cloud API template message with body text parameters."""
+def send_whatsapp_template(
+    to_number,
+    template_name,
+    language_code,
+    body_params,
+    header_image_url: str | None = None,
+    button_url_param: str | None = None,
+    button_index: int | str = 0,
+) -> bool:
+    """Send a WhatsApp Cloud API template message with optional header/button components."""
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
     phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
     to_number = (to_number or "").strip()
     template_name = (template_name or "").strip()
     language_code = (language_code or "").strip()
     body_params = body_params or []
+    header_image_url = (header_image_url or "").strip()
+    button_url_param = (button_url_param or "").strip()
+    has_image_header = bool(header_image_url)
+
+    app.logger.info(
+        "WhatsApp template send requested template=%s language=%s destination=%s body_params_count=%s image_header_present=%s",
+        template_name or "<missing>",
+        language_code or "<missing>",
+        to_number or "<missing>",
+        len(body_params),
+        has_image_header,
+    )
 
     if not token or not phone_number_id:
-        app.logger.error("WhatsApp template send skipped: missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID.")
+        app.logger.error(
+            "WhatsApp template send skipped: missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID "
+            "template=%s language=%s destination=%s body_params_count=%s image_header_present=%s",
+            template_name or "<missing>",
+            language_code or "<missing>",
+            to_number or "<missing>",
+            len(body_params),
+            has_image_header,
+        )
         return False
     if not to_number or not template_name or not language_code:
-        app.logger.error("WhatsApp template send skipped: missing destination, template name, or language code.")
+        app.logger.error(
+            "WhatsApp template send skipped: missing destination, template name, or language code "
+            "template=%s language=%s destination=%s body_params_count=%s image_header_present=%s",
+            template_name or "<missing>",
+            language_code or "<missing>",
+            to_number or "<missing>",
+            len(body_params),
+            has_image_header,
+        )
         return False
+
+    components = []
+    if has_image_header:
+        components.append(
+            {
+                "type": "header",
+                "parameters": [
+                    {
+                        "type": "image",
+                        "image": {"link": header_image_url},
+                    }
+                ],
+            }
+        )
+
+    components.append(
+        {
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": str(param or "")}
+                for param in body_params
+            ],
+        }
+    )
+
+    if button_url_param:
+        components.append(
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": str(button_index),
+                "parameters": [
+                    {"type": "text", "text": button_url_param},
+                ],
+            }
+        )
 
     payload = {
         "messaging_product": "whatsapp",
@@ -427,15 +499,7 @@ def send_whatsapp_template(to_number, template_name, language_code, body_params)
         "template": {
             "name": template_name,
             "language": {"code": language_code},
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": str(param or "")}
-                        for param in body_params
-                    ],
-                }
-            ],
+            "components": components,
         },
     }
     url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
@@ -453,23 +517,39 @@ def send_whatsapp_template(to_number, template_name, language_code, body_params)
         with urlopen(req, timeout=15) as resp:
             response_body = resp.read().decode("utf-8", "ignore")
             app.logger.info(
-                "WhatsApp template sent to=%s template=%s response=%s",
+                "WhatsApp template sent destination=%s template=%s language=%s body_params_count=%s "
+                "image_header_present=%s response=%s",
                 to_number,
                 template_name,
+                language_code,
+                len(body_params),
+                has_image_header,
                 response_body,
             )
             return True
     except HTTPError as exc:
         response_body = exc.read().decode("utf-8", "ignore")
         app.logger.error(
-            "WhatsApp template send failed to=%s template=%s status=%s response=%s",
+            "WhatsApp template send failed destination=%s template=%s language=%s status=%s "
+            "body_params_count=%s image_header_present=%s meta_error_response=%s",
             to_number,
             template_name,
+            language_code,
             exc.code,
+            len(body_params),
+            has_image_header,
             response_body,
         )
     except Exception:
-        app.logger.exception("WhatsApp template send failed to=%s template=%s", to_number, template_name)
+        app.logger.exception(
+            "WhatsApp template send failed destination=%s template=%s language=%s body_params_count=%s "
+            "image_header_present=%s",
+            to_number,
+            template_name,
+            language_code,
+            len(body_params),
+            has_image_header,
+        )
 
     return False
 
@@ -1084,23 +1164,29 @@ def send_student_whatsapp_welcome(student, school_name: str | None = None) -> bo
         )
         return False
 
-    template_name = os.environ.get("WHATSAPP_STUDENT_WELCOME_TEMPLATE", "slis_welcome")
+    template_name = os.environ.get("WHATSAPP_STUDENT_WELCOME_TEMPLATE", "slis_account_created_v2")
     language_code = os.environ.get("WHATSAPP_STUDENT_WELCOME_LANGUAGE", "en")
+    header_image_url = os.environ.get("WHATSAPP_STUDENT_WELCOME_IMAGE_URL", "")
+    body_params = [
+        student.name,
+        display_grade_with_label(student.grade, student.medium),
+        student.username or "",
+    ]
     app.logger.info(
-        "Student WhatsApp welcome template=%s language=%s destination=%s",
+        "Student WhatsApp welcome template=%s language=%s destination=%s body_params_count=%s image_header_present=%s",
         template_name,
         language_code,
         destination,
+        len(body_params),
+        bool((header_image_url or "").strip()),
     )
 
     sent = send_whatsapp_template(
         destination,
         template_name,
         language_code,
-        [
-            student.name,
-            display_grade_with_label(student.grade, student.medium),
-        ],
+        body_params,
+        header_image_url=header_image_url,
     )
     if sent:
         app.logger.info(
