@@ -7928,6 +7928,71 @@ def admin_or_school_admin_session_required():
     return redirect(url_for("admin_login"))
 
 
+def mask_secret(value: str | None) -> str:
+    secret = (value or "").strip()
+    if not secret:
+        return ""
+    if len(secret) <= 8:
+        return "****"
+    return f"{secret[:4]}...{secret[-4:]}"
+
+
+def render_whatsapp_waba_subscription_result(
+    waba_id_present: bool,
+    access_token_present: bool,
+    meta_status_code: int | None,
+    meta_response_body: str,
+    success: bool,
+    error_message: str = "",
+):
+    status_label = str(meta_status_code) if meta_status_code is not None else "Not called"
+    result_class = "success" if success else "failure"
+    result_label = "Success" if success else "Failure"
+    safe_error = escape(error_message)
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Subscribe WABA Webhooks - SLIS Admin</title>
+        <style>
+          body {{ font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }}
+          main {{ max-width: 920px; margin: 0 auto; padding: 28px 18px; }}
+          a {{ color: #184bb8; font-weight: 700; text-decoration: none; }}
+          .card {{ background: #fff; border: 1px solid #dbe4f0; border-radius: 18px; box-shadow: 0 12px 30px rgba(15, 42, 95, .08); padding: 24px; }}
+          .badge {{ display: inline-block; border-radius: 999px; padding: 7px 12px; color: #fff; font-weight: 700; }}
+          .success {{ background: #067647; }}
+          .failure {{ background: #b42318; }}
+          dl {{ display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 10px 16px; }}
+          dt {{ font-weight: 700; color: #0f2a5f; }}
+          dd {{ margin: 0; }}
+          pre {{ white-space: pre-wrap; word-break: break-word; background: #101828; color: #f9fafb; padding: 16px; border-radius: 12px; overflow-x: auto; }}
+          .error {{ color: #b42318; font-weight: 700; }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <p><a href="/admin/whatsapp-inbox">Back to WhatsApp Inbox</a></p>
+          <div class="card">
+            <h1>Subscribe WABA Webhooks</h1>
+            <p><span class="badge {result_class}">{result_label}</span></p>
+            {'<p class="error">' + safe_error + '</p>' if error_message else ''}
+            <dl>
+              <dt>WABA ID present</dt><dd>{'yes' if waba_id_present else 'no'}</dd>
+              <dt>Access token present</dt><dd>{'yes' if access_token_present else 'no'}</dd>
+              <dt>Meta response status code</dt><dd>{escape(status_label)}</dd>
+              <dt>Meta response body</dt><dd></dd>
+            </dl>
+            <pre>{escape(meta_response_body or '')}</pre>
+            <p>After a successful subscription, send a real WhatsApp message to +94 70 573 5777 and check Railway logs for <strong>POST /webhook/whatsapp</strong>.</p>
+          </div>
+        </main>
+      </body>
+    </html>
+    """
+
+
 def extract_whatsapp_message_body(message: dict) -> str:
     message_type = message.get("type")
     if message_type == "text":
@@ -8084,6 +8149,89 @@ def whatsapp_webhook():
     return jsonify({"success": True, "saved": len(saved_messages)}), 200
 
 
+@app.route("/admin/whatsapp/subscribe-waba", methods=["POST"])
+def admin_whatsapp_subscribe_waba():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    waba_id = (os.environ.get("WHATSAPP_WABA_ID") or "").strip()
+    access_token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
+    waba_id_present = bool(waba_id)
+    access_token_present = bool(access_token)
+
+    if not waba_id_present or not access_token_present:
+        missing = []
+        if not waba_id_present:
+            missing.append("WHATSAPP_WABA_ID")
+        if not access_token_present:
+            missing.append("WHATSAPP_ACCESS_TOKEN")
+        error_message = f"Missing required environment variable(s): {', '.join(missing)}."
+        app.logger.error(
+            "WhatsApp WABA subscription skipped: waba_id_present=%s access_token_present=%s masked_token=%s",
+            waba_id_present,
+            access_token_present,
+            mask_secret(access_token),
+        )
+        return render_whatsapp_waba_subscription_result(
+            waba_id_present,
+            access_token_present,
+            None,
+            error_message,
+            False,
+            error_message,
+        ), 400
+
+    url = f"https://graph.facebook.com/v25.0/{quote_plus(waba_id)}/subscribed_apps"
+    req = Request(
+        url,
+        data=b"",
+        method="POST",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    meta_status_code = None
+    meta_response_body = ""
+    success = False
+    error_message = ""
+    try:
+        with urlopen(req, timeout=30) as response:
+            meta_status_code = response.status
+            meta_response_body = response.read().decode("utf-8", "replace")
+            success = 200 <= meta_status_code < 300
+    except HTTPError as exc:
+        meta_status_code = exc.code
+        meta_response_body = exc.read().decode("utf-8", "replace")
+        error_message = exc.reason or "Meta Graph API request failed."
+    except URLError as exc:
+        error_message = f"Meta Graph API connection failed: {exc.reason}"
+        meta_response_body = error_message
+    except Exception as exc:
+        app.logger.exception("WhatsApp WABA subscription failed unexpectedly for waba_id=%s", waba_id)
+        error_message = f"Unexpected error: {exc}"
+        meta_response_body = error_message
+
+    app.logger.info(
+        "WhatsApp WABA subscription Meta response waba_id=%s status=%s body=%s",
+        waba_id,
+        meta_status_code,
+        meta_response_body,
+    )
+
+    if not success and not error_message:
+        error_message = "Meta Graph API returned a non-success status code."
+
+    status = 200 if success else 502
+    return render_whatsapp_waba_subscription_result(
+        waba_id_present,
+        access_token_present,
+        meta_status_code,
+        meta_response_body,
+        success,
+        error_message,
+    ), status
+
+
 @app.route("/admin/whatsapp-inbox", methods=["GET"])
 def admin_whatsapp_inbox():
     auth_redirect = admin_or_school_admin_session_required()
@@ -8107,6 +8255,13 @@ def admin_whatsapp_inbox():
         )
     table_rows = "".join(rows) or "<tr><td colspan='7' class='empty'>No WhatsApp messages saved yet.</td></tr>"
     back_link = "/school-admin/dashboard" if session.get("school_admin_logged_in") is True and session.get("admin_logged_in") is not True else "/admin-dashboard"
+    subscribe_waba_form = ""
+    if session.get("admin_logged_in") is True:
+        subscribe_waba_form = """
+              <form method="post" action="/admin/whatsapp/subscribe-waba" class="subscribe-form">
+                <button type="submit">Subscribe WABA Webhooks</button>
+              </form>
+        """
     return f"""
     <!doctype html>
     <html lang="en">
@@ -8120,6 +8275,10 @@ def admin_whatsapp_inbox():
           .topbar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }}
           h1 {{ margin: 0; color: #0f2a5f; }}
           a {{ color: #184bb8; font-weight: 700; text-decoration: none; }}
+          .actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }}
+          .subscribe-form {{ margin: 0; }}
+          .subscribe-form button {{ appearance: none; border: 0; border-radius: 999px; background: #128c7e; color: #fff; cursor: pointer; font-weight: 700; padding: 10px 16px; box-shadow: 0 8px 18px rgba(18, 140, 126, .22); }}
+          .subscribe-form button:hover {{ background: #0f766e; }}
           .card {{ background: #fff; border: 1px solid #dbe4f0; border-radius: 18px; box-shadow: 0 12px 30px rgba(15, 42, 95, .08); overflow: hidden; }}
           table {{ width: 100%; border-collapse: collapse; }}
           th, td {{ padding: 12px 10px; border-bottom: 1px solid #e5edf8; text-align: left; vertical-align: top; font-size: 14px; }}
@@ -8136,7 +8295,10 @@ def admin_whatsapp_inbox():
               <h1>WhatsApp Inbox</h1>
               <p>Latest incoming WhatsApp Cloud API messages saved by SLIS.</p>
             </div>
-            <a href="{back_link}">Back to Dashboard</a>
+            <div class="actions">
+              {subscribe_waba_form}
+              <a href="{back_link}">Back to Dashboard</a>
+            </div>
           </div>
           <div class="card">
             <table>
