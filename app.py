@@ -7966,6 +7966,15 @@ def queue_whatsapp_auto_reply(to_number: str, message_id: int) -> None:
     threading.Thread(target=_send_reply, daemon=True).start()
 
 
+def count_incoming_whatsapp_messages(payload: dict) -> int:
+    count = 0
+    for entry in payload.get("entry", []) or []:
+        for change in entry.get("changes", []) or []:
+            value = change.get("value") or {}
+            count += len(value.get("messages", []) or [])
+    return count
+
+
 def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
     saved_messages = []
     for entry in payload.get("entry", []) or []:
@@ -8005,6 +8014,18 @@ def save_incoming_whatsapp_messages(payload: dict) -> list[WhatsappMessage]:
     return saved_messages
 
 
+@app.route("/webhook/whatsapp/status", methods=["GET"])
+def whatsapp_webhook_status():
+    verify_token = (os.environ.get("WHATSAPP_VERIFY_TOKEN") or "").strip()
+    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    lines = [
+        "webhook route active",
+        f"verify token configured {'yes' if verify_token else 'no'}",
+        f"whatsapp phone number id configured {'yes' if phone_number_id else 'no'}",
+    ]
+    return Response("\n".join(lines), status=200, mimetype="text/plain")
+
+
 @app.route("/webhook/whatsapp", methods=["GET", "POST"])
 def whatsapp_webhook():
     if request.method == "GET":
@@ -8024,12 +8045,18 @@ def whatsapp_webhook():
         return Response("Forbidden", status=403, mimetype="text/plain")
 
     payload = request.get_json(silent=True)
+    app.logger.info("WHATSAPP_WEBHOOK_POST_RECEIVED payload=%s", payload)
     if not isinstance(payload, dict):
         app.logger.error("WhatsApp webhook POST failed: invalid or missing JSON payload.")
         return jsonify({"success": False, "message": "Invalid JSON payload"}), 400
 
+    message_count = count_incoming_whatsapp_messages(payload)
+    if message_count == 0:
+        app.logger.info("WHATSAPP_WEBHOOK_NO_MESSAGES payload=%s", payload)
+
     try:
         saved_messages = save_incoming_whatsapp_messages(payload)
+        app.logger.info("WHATSAPP_WEBHOOK_SAVED count=%s", len(saved_messages))
     except Exception:
         db.session.rollback()
         app.logger.exception("WhatsApp webhook POST failed while saving payload=%s", payload)
