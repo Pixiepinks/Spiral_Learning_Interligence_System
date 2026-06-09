@@ -41,6 +41,7 @@ MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
 MAX_PAYMENT_PROOF_UPLOAD_SIZE = 5 * 1024 * 1024
 QUESTION_IMAGE_BUCKET = "question-images"
 PAYMENT_PROOF_BUCKET = "payment-proofs"
+PAYMENT_ASSETS_BUCKET = "payment-assets"
 SUBSCRIPTION_PLAN_AMOUNTS = {"monthly": 490, "annual": 3500}
 SUBSCRIPTION_PLAN_DAYS = {"monthly": 30, "annual": 365}
 SRI_LANKA_TZ = ZoneInfo("Asia/Colombo")
@@ -1101,6 +1102,18 @@ class Student(db.Model):
     profile_image_url = db.Column(db.Text, nullable=True)
 
 
+class PaymentSettings(db.Model):
+    __tablename__ = "payment_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    bank_name = db.Column(db.Text, nullable=True)
+    account_name = db.Column(db.Text, nullable=True)
+    account_number = db.Column(db.Text, nullable=True)
+    branch = db.Column(db.Text, nullable=True)
+    qr_code_url = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
+
+
 class SubscriptionPayment(db.Model):
     __tablename__ = "subscription_payments"
 
@@ -1334,6 +1347,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
     ensure_subscription_payment_schema()
+    ensure_payment_settings_schema()
     db.session.commit()
     ensure_student_username_schema()
     ensure_whatsapp_number_schema()
@@ -1361,6 +1375,57 @@ IMAGE_CONTENT_TYPE_BY_EXT = {
     "webp": "image/webp",
 }
 PAYMENT_PROOF_CONTENT_TYPE_BY_EXT = {**IMAGE_CONTENT_TYPE_BY_EXT, "pdf": "application/pdf"}
+
+
+def upload_payment_qr_to_supabase(file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid QR code filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "Invalid QR code type. Allowed: png, jpg, jpeg, webp."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_SIZE:
+        return None, "QR code image must be 2MB or less."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY before uploading a QR code."
+
+    qr_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    object_name = f"qr-codes/{uuid.uuid4().hex}.{ext}"
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{PAYMENT_ASSETS_BUCKET}/{object_name}"
+    req = Request(
+        upload_url,
+        data=qr_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": IMAGE_CONTENT_TYPE_BY_EXT.get(ext, file_storage.mimetype or "application/octet-stream"),
+            "x-upsert": "false",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            if resp.status not in {200, 201}:
+                return None, "QR code upload failed."
+    except HTTPError as exc:
+        return None, f"QR code upload failed: {exc.read().decode('utf-8', 'ignore') or exc.reason}"
+    except URLError as exc:
+        return None, f"QR code upload failed: {exc.reason}"
+
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{PAYMENT_ASSETS_BUCKET}/{object_name}"
+    return public_url, None
 
 
 def upload_payment_proof_to_supabase(student_id: int, plan_type: str, file_storage) -> tuple[str | None, str | None]:
@@ -3768,6 +3833,60 @@ def ensure_subscription_payment_schema() -> None:
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_subscription_payments_student ON subscription_payments (student_id)"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_subscription_payments_status_created ON subscription_payments (status, created_at DESC)"))
     db.session.commit()
+
+
+DEFAULT_PAYMENT_SETTINGS = {
+    "bank_name": "Bank Of Ceylon",
+    "account_name": "Prakash Vijayanga Withanachchi",
+    "account_number": "0087243174",
+    "branch": "Homagama",
+}
+
+
+def ensure_payment_settings_schema() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS payment_settings (
+                id INTEGER PRIMARY KEY,
+                bank_name TEXT,
+                account_name TEXT,
+                account_number TEXT,
+                branch TEXT,
+                qr_code_url TEXT,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS bank_name TEXT"))
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS account_name TEXT"))
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS account_number TEXT"))
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS branch TEXT"))
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS qr_code_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE payment_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"))
+    existing_count = db.session.execute(db.text("SELECT COUNT(*) FROM payment_settings")).scalar() or 0
+    if existing_count == 0:
+        db.session.execute(
+            db.text(
+                """
+                INSERT INTO payment_settings (id, bank_name, account_name, account_number, branch, qr_code_url, updated_at)
+                VALUES (1, :bank_name, :account_name, :account_number, :branch, '', CURRENT_TIMESTAMP)
+                """
+            ),
+            DEFAULT_PAYMENT_SETTINGS,
+        )
+    db.session.commit()
+
+
+def get_payment_settings() -> PaymentSettings:
+    settings = PaymentSettings.query.order_by(PaymentSettings.id.asc()).first()
+    if settings:
+        return settings
+    settings = PaymentSettings(id=1, qr_code_url="", updated_at=datetime.utcnow(), **DEFAULT_PAYMENT_SETTINGS)
+    db.session.add(settings)
+    db.session.commit()
+    return settings
 
 
 def has_active_premium(student: Student | None) -> bool:
@@ -10767,6 +10886,7 @@ def admin_dashboard():
         <p><a href='/admin/messages'>Send Student Messages</a></p>
         <p><a href='/admin/whatsapp-inbox'>WhatsApp Inbox</a></p>
         <p><a href='/admin/premium'>Premium Management</a></p>
+        <p><a href='/admin/payment-settings'>Payment Settings</a></p>
         <p><a href='/admin/create-school-admin'>Create School Admin</a></p>
         <p><a href='/admin/schools'>Manage Schools</a></p>
         <h2>System Settings</h2>
@@ -11201,8 +11321,16 @@ def render_admin_lesson_preview_shell(inner_html: str) -> str:
 
 
 def render_subscription_page(student: Student, message: str = "") -> str:
-    qr_path = os.path.join(app.root_path, "static", "images", "slis-payment-qr.png")
-    qr_html = "<img src='/static/images/slis-payment-qr.png' alt='SLIS QR payment code' style='max-width:220px;border-radius:18px;border:1px solid #dbeafe;background:#fff;padding:10px;'>" if os.path.exists(qr_path) else "<div class='qr-missing'>QR code coming soon</div>"
+    settings = get_payment_settings()
+    qr_html = (
+        f"<img src='{escape(settings.qr_code_url or '')}' alt='SLIS QR payment code' style='max-width:220px;border-radius:18px;border:1px solid #dbeafe;background:#fff;padding:10px;'>"
+        if settings.qr_code_url
+        else "<div class='qr-missing'>QR code coming soon</div>"
+    )
+    bank_name = escape(settings.bank_name or "")
+    account_name = escape(settings.account_name or "")
+    account_number = escape(settings.account_number or "")
+    branch = escape(settings.branch or "")
     message_html = f"<div class='success-msg'>{escape(message)}</div>" if message else ""
     inner_html = f"""
     <style>
@@ -11224,8 +11352,8 @@ def render_subscription_page(student: Student, message: str = "") -> str:
           <h3>Payment Methods / ගෙවීම් ක්‍රම</h3>
           <ul><li>Bank Deposit / Bank Transfer</li><li>QR Payment</li><li>Card payments coming soon.</li></ul>
           <div class='bank-box'>
-            <strong>Bank details (placeholders)</strong><br>
-            Bank Name: [ADD BANK NAME]<br>Account Name: [ADD ACCOUNT NAME]<br>Account Number: [ADD ACCOUNT NUMBER]<br>Branch: [ADD BRANCH]
+            <strong>Bank details</strong><br>
+            Bank Name: {bank_name}<br>Account Name: {account_name}<br>Account Number: {account_number}<br>Branch: {branch}
           </div>
         </div>
         <div class='premium-card'>
@@ -11257,6 +11385,7 @@ def subscribe():
     if not student_id:
         return redirect(url_for("login"))
     ensure_subscription_payment_schema()
+    ensure_payment_settings_schema()
     student = db.session.get(Student, student_id)
     if not student:
         session.pop("student_id", None)
@@ -11270,6 +11399,7 @@ def subscribe_payment_proof():
     if not student_id:
         return redirect(url_for("login"))
     ensure_subscription_payment_schema()
+    ensure_payment_settings_schema()
     student = db.session.get(Student, student_id)
     if not student:
         session.pop("student_id", None)
@@ -11299,6 +11429,84 @@ def activate_student_subscription(student: Student, days: int) -> date:
     student.subscription_status = "active"
     student.subscription_valid_until = new_end
     return new_end
+
+def render_admin_payment_settings_page(settings: PaymentSettings, message: str = "", is_error: bool = False) -> str:
+    qr_preview = (
+        f"<img src='{escape(settings.qr_code_url or '')}' alt='Current payment QR code' style='max-width:240px;border:1px solid #dbeafe;border-radius:18px;padding:10px;background:#fff;'>"
+        if settings.qr_code_url
+        else "<div style='width:240px;height:240px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:#e2e8f0;color:#475569;font-weight:900;text-align:center;'>QR code coming soon</div>"
+    )
+    message_html = ""
+    if message:
+        color = ("#991b1b", "#fee2e2", "#fecaca") if is_error else ("#166534", "#dcfce7", "#86efac")
+        message_html = f"<div style='margin:12px 0;padding:12px 14px;border-radius:14px;color:{color[0]};background:{color[1]};border:1px solid {color[2]};font-weight:800;'>{escape(message)}</div>"
+    return f"""
+    <!doctype html>
+    <html lang='en'>
+      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Payment Settings</title></head>
+      <body style='font-family:Arial,sans-serif;color:#0f172a;background:#f8fafc;margin:0;padding:22px;'>
+        <main style='max-width:920px;margin:0 auto;background:#fff;border:1px solid #dbeafe;border-radius:22px;padding:22px;box-shadow:0 14px 40px rgba(15,23,42,.08);'>
+          <h1>Payment Settings</h1>
+          <p><a href='/admin-dashboard'>Admin Dashboard</a> | <a href='/admin/premium'>Premium Management</a> | <a href='/admin/subscription-payments'>Subscription Payments</a></p>
+          {message_html}
+          <form method='post' enctype='multipart/form-data'>
+            <div style='display:grid;grid-template-columns:1fr 280px;gap:24px;align-items:start;'>
+              <section>
+                <label style='display:block;font-weight:800;margin-top:12px;'>Bank Name
+                  <input name='bank_name' value='{escape(settings.bank_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
+                </label>
+                <label style='display:block;font-weight:800;margin-top:12px;'>Account Name
+                  <input name='account_name' value='{escape(settings.account_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
+                </label>
+                <label style='display:block;font-weight:800;margin-top:12px;'>Account Number
+                  <input name='account_number' value='{escape(settings.account_number or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
+                </label>
+                <label style='display:block;font-weight:800;margin-top:12px;'>Branch
+                  <input name='branch' value='{escape(settings.branch or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
+                </label>
+                <label style='display:block;font-weight:800;margin-top:12px;'>Upload QR code image
+                  <input type='file' name='qr_code' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp' style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
+                </label>
+                <p style='color:#64748b;font-size:13px;'>Allowed: png, jpg, jpeg, webp. Max size 2MB. Uploads are saved in Supabase bucket <strong>payment-assets</strong>.</p>
+                <button type='submit' style='margin-top:14px;border:0;border-radius:999px;background:#2563eb;color:#fff;padding:12px 20px;font-weight:900;cursor:pointer;'>Save Payment Settings</button>
+              </section>
+              <aside>
+                <h2 style='margin-top:0;'>Current QR Preview</h2>
+                {qr_preview}
+                <p style='word-break:break-all;color:#64748b;font-size:13px;'>{escape(settings.qr_code_url or "No QR code URL saved yet.")}</p>
+              </aside>
+            </div>
+          </form>
+        </main>
+      </body>
+    </html>
+    """
+
+
+@app.route("/admin/payment-settings", methods=["GET", "POST"])
+def admin_payment_settings():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_payment_settings_schema()
+    settings = get_payment_settings()
+    if request.method == "POST":
+        settings.bank_name = (request.form.get("bank_name") or "").strip()
+        settings.account_name = (request.form.get("account_name") or "").strip()
+        settings.account_number = (request.form.get("account_number") or "").strip()
+        settings.branch = (request.form.get("branch") or "").strip()
+        qr_file = request.files.get("qr_code")
+        if qr_file and qr_file.filename:
+            qr_url, upload_error = upload_payment_qr_to_supabase(qr_file)
+            if upload_error:
+                db.session.rollback()
+                return render_admin_payment_settings_page(settings, upload_error, True), 400
+            settings.qr_code_url = qr_url
+        settings.updated_at = datetime.utcnow()
+        db.session.commit()
+        return render_admin_payment_settings_page(settings, "Payment settings updated successfully.")
+    return render_admin_payment_settings_page(settings)
+
 
 @app.route("/admin/premium", methods=["GET"])
 def admin_premium():
@@ -11330,7 +11538,7 @@ def admin_premium():
 
     return f"""
     <h1>Premium Management</h1>
-    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/subscription-payments'>Review Subscription Payments</a></p>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/subscription-payments'>Review Subscription Payments</a> | <a href='/admin/payment-settings'>Payment Settings</a></p>
     <table style='border-collapse:collapse;width:100%;font-size:13px;'>
       <thead>
         <tr>
@@ -11401,7 +11609,7 @@ def admin_subscription_payments():
     )
     return f"""
     <h1>Subscription Payments</h1>
-    <p><a href='/admin/premium'>Back to Premium Management</a> | <a href='/admin-dashboard'>Admin Dashboard</a></p>
+    <p><a href='/admin/premium'>Back to Premium Management</a> | <a href='/admin/payment-settings'>Payment Settings</a> | <a href='/admin-dashboard'>Admin Dashboard</a></p>
     <table style='border-collapse:collapse;width:100%;font-size:13px;'>
       <thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student name</th><th style='border:1px solid #ccc;padding:8px;'>Username</th><th style='border:1px solid #ccc;padding:8px;'>WhatsApp number</th><th style='border:1px solid #ccc;padding:8px;'>Plan</th><th style='border:1px solid #ccc;padding:8px;'>Amount</th><th style='border:1px solid #ccc;padding:8px;'>Method</th><th style='border:1px solid #ccc;padding:8px;'>Proof link</th><th style='border:1px solid #ccc;padding:8px;'>Status</th><th style='border:1px solid #ccc;padding:8px;'>Created at</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
       <tbody>{table_rows if table_rows else "<tr><td colspan='10' style='border:1px solid #ccc;padding:8px;'>No payment proofs yet.</td></tr>"}</tbody>
