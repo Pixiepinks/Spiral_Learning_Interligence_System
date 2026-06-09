@@ -10,6 +10,7 @@ import base64
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from fractions import Fraction
+from types import SimpleNamespace
 from html import escape
 from io import BytesIO
 from urllib.error import HTTPError, URLError
@@ -35,8 +36,13 @@ db = SQLAlchemy(app)
 UPLOAD_DIR = os.path.join(app.root_path, "static", "images", "questions")
 UPLOAD_URL_PREFIX = "/static/images/questions/"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+ALLOWED_PAYMENT_PROOF_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "pdf"}
 MAX_IMAGE_UPLOAD_SIZE = 2 * 1024 * 1024
+MAX_PAYMENT_PROOF_UPLOAD_SIZE = 5 * 1024 * 1024
 QUESTION_IMAGE_BUCKET = "question-images"
+PAYMENT_PROOF_BUCKET = "payment-proofs"
+SUBSCRIPTION_PLAN_AMOUNTS = {"monthly": 490, "annual": 3500}
+SUBSCRIPTION_PLAN_DAYS = {"monthly": 30, "annual": 365}
 SRI_LANKA_TZ = ZoneInfo("Asia/Colombo")
 
 
@@ -1095,6 +1101,21 @@ class Student(db.Model):
     profile_image_url = db.Column(db.Text, nullable=True)
 
 
+class SubscriptionPayment(db.Model):
+    __tablename__ = "subscription_payments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, index=True)
+    plan_type = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)
+    payment_method = db.Column(db.String(30), nullable=False)
+    proof_url = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    admin_note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+
 def generate_student_username_for_id(student_id: int) -> str:
     year = datetime.utcnow().year
     return f"SLIS{year}{student_id:05d}"
@@ -1270,6 +1291,7 @@ def run_startup_migrations() -> None:
     db.create_all()
     ensure_whatsapp_messages_schema()
     ensure_whatsapp_conversation_active_schema()
+    db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS is_premium_only BOOLEAN DEFAULT FALSE"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
@@ -1311,6 +1333,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_en = COALESCE(NULLIF(correct_answer_en, ''), correct_answer) WHERE correct_answer_en IS NULL OR correct_answer_en = ''"))
     db.session.execute(db.text("UPDATE question_sub_questions SET correct_answer_si = COALESCE(NULLIF(correct_answer_si, ''), correct_answer) WHERE correct_answer_si IS NULL OR correct_answer_si = ''"))
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
+    ensure_subscription_payment_schema()
     db.session.commit()
     ensure_student_username_schema()
     ensure_whatsapp_number_schema()
@@ -1337,6 +1360,59 @@ IMAGE_CONTENT_TYPE_BY_EXT = {
     "jpeg": "image/jpeg",
     "webp": "image/webp",
 }
+PAYMENT_PROOF_CONTENT_TYPE_BY_EXT = {**IMAGE_CONTENT_TYPE_BY_EXT, "pdf": "application/pdf"}
+
+
+def upload_payment_proof_to_supabase(student_id: int, plan_type: str, file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, "Please upload a bank slip, transfer slip, or QR payment proof."
+
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid proof filename."
+
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_PAYMENT_PROOF_EXTENSIONS:
+        return None, "Invalid proof type. Allowed: png, jpg, jpeg, webp, pdf."
+
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_PAYMENT_PROOF_UPLOAD_SIZE:
+        return None, "Payment proof must be 5MB or less."
+
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+
+    proof_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    safe_plan = secure_filename(plan_type) or "subscription"
+    object_name = f"student-{student_id}/{safe_plan}/{uuid.uuid4().hex}.{ext}"
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{PAYMENT_PROOF_BUCKET}/{object_name}"
+    req = Request(
+        upload_url,
+        data=proof_bytes,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": PAYMENT_PROOF_CONTENT_TYPE_BY_EXT.get(ext, file_storage.mimetype or "application/octet-stream"),
+            "x-upsert": "false",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            if resp.status not in {200, 201}:
+                return None, "Payment proof upload failed."
+    except HTTPError as exc:
+        return None, f"Payment proof upload failed: {exc.read().decode('utf-8', 'ignore') or exc.reason}"
+    except URLError as exc:
+        return None, f"Payment proof upload failed: {exc.reason}"
+
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{PAYMENT_PROOF_BUCKET}/{object_name}"
+    return public_url, None
 
 
 def upload_lesson_image_to_supabase(lesson_id: int, slide_ref: int | str, file_storage) -> tuple[str | None, str | None]:
@@ -2862,6 +2938,7 @@ class Lesson(db.Model):
     estimated_minutes = db.Column(db.Integer, nullable=False, default=10)
     xp_reward = db.Column(db.Integer, nullable=False, default=10)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    is_premium_only = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -3655,7 +3732,41 @@ def ensure_streak_columns() -> None:
 def ensure_subscription_columns() -> None:
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS is_premium BOOLEAN"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_end_date DATE"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
     db.session.execute(db.text("UPDATE student SET is_premium = FALSE WHERE is_premium IS NULL"))
+    db.session.commit()
+
+
+def ensure_subscription_payment_schema() -> None:
+    db.session.execute(
+        db.text(
+            """
+            CREATE TABLE IF NOT EXISTS subscription_payments (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL,
+                plan_type VARCHAR(20) NOT NULL,
+                amount INTEGER NOT NULL,
+                payment_method VARCHAR(30) NOT NULL,
+                proof_url TEXT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                admin_note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP NULL
+            )
+            """
+        )
+    )
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS plan_type VARCHAR(20) NOT NULL DEFAULT 'monthly'"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS amount INTEGER NOT NULL DEFAULT 490"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) NOT NULL DEFAULT 'bank_transfer'"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS proof_url TEXT NOT NULL DEFAULT ''"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS admin_note TEXT"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"))
+    db.session.execute(db.text("ALTER TABLE subscription_payments ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP NULL"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_subscription_payments_student ON subscription_payments (student_id)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_subscription_payments_status_created ON subscription_payments (status, created_at DESC)"))
     db.session.commit()
 
 
@@ -3676,6 +3787,8 @@ def expire_subscription_if_needed(student: Student | None) -> bool:
         return False
     student.is_premium = False
     student.subscription_end_date = None
+    student.subscription_status = "inactive"
+    student.subscription_valid_until = None
     db.session.commit()
     return True
 
@@ -6528,6 +6641,7 @@ def ensure_chapter_learning_tables() -> None:
                 content_body_si TEXT,
                 is_required BOOLEAN NOT NULL DEFAULT TRUE,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                is_premium_only BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
@@ -6671,6 +6785,7 @@ def ensure_lesson_engine_tables() -> None:
     )
     db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS description_en TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS description_si TEXT"))
+    db.session.execute(db.text("ALTER TABLE lesson ADD COLUMN IF NOT EXISTS is_premium_only BOOLEAN DEFAULT FALSE"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_en TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS content_si TEXT"))
     db.session.execute(db.text("ALTER TABLE lesson_slide ADD COLUMN IF NOT EXISTS image_url TEXT"))
@@ -11059,26 +11174,155 @@ def admin_send_message():
     return redirect("/admin/messages?status=sent")
 
 
+def is_admin_lesson_preview() -> bool:
+    return session.get("admin_logged_in") is True
+
+
+def is_lesson_locked_for_student(lesson: Lesson | None, student: Student | None) -> bool:
+    return bool(lesson and getattr(lesson, "is_premium_only", False) and not is_admin_lesson_preview() and not has_active_premium(student))
+
+
+def premium_locked_json_response():
+    return jsonify({
+        "ok": False,
+        "success": False,
+        "error": "Premium subscription required",
+        "premium_required": True,
+        "subscribe_url": url_for("subscribe"),
+    }), 403
+
+
+def render_admin_lesson_preview_shell(inner_html: str) -> str:
+    return f"""
+    <!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Admin Lesson Preview</title><style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.admin-preview-bar{{position:sticky;top:0;z-index:9999;background:#111827;color:#fff;padding:10px 16px;display:flex;gap:14px;align-items:center}}.admin-preview-bar a{{color:#bfdbfe;font-weight:800;text-decoration:none}}.dashboard-content-inner{{padding:16px}}</style></head>
+    <body><div class='admin-preview-bar'><strong>Admin Preview</strong><a href='/admin/lesson-builder'>Back to Lesson Builder</a></div><div class='dashboard-content-inner'>{inner_html}</div></body></html>
+    """
+
+
+def render_subscription_page(student: Student, message: str = "") -> str:
+    qr_path = os.path.join(app.root_path, "static", "images", "slis-payment-qr.png")
+    qr_html = "<img src='/static/images/slis-payment-qr.png' alt='SLIS QR payment code' style='max-width:220px;border-radius:18px;border:1px solid #dbeafe;background:#fff;padding:10px;'>" if os.path.exists(qr_path) else "<div class='qr-missing'>QR code coming soon</div>"
+    message_html = f"<div class='success-msg'>{escape(message)}</div>" if message else ""
+    inner_html = f"""
+    <style>
+      .premium-wrap{{max-width:1040px;margin:18px auto;padding:22px;border-radius:28px;background:linear-gradient(135deg,#eff6ff,#fff7ed);box-shadow:0 22px 70px rgba(30,64,175,.15);border:1px solid rgba(59,130,246,.18)}}
+      .premium-hero{{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;align-items:stretch}}.premium-card{{background:rgba(255,255,255,.88);border:1px solid #dbeafe;border-radius:24px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.08)}}
+      .premium-badge{{display:inline-flex;align-items:center;gap:8px;background:#fef3c7;color:#92400e;border-radius:999px;padding:8px 12px;font-weight:900}}.premium-title{{font-size:34px;margin:14px 0 8px;color:#102a72}}.premium-sub{{font-size:16px;color:#475569;line-height:1.55}}.plans{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}}.plan{{border:2px solid #dbeafe;border-radius:20px;padding:16px;background:#fff}}.plan strong{{display:block;font-size:18px;color:#1e3a8a}}.price{{font-size:28px;font-weight:1000;color:#0f172a;margin-top:6px}}.discount{{background:#dcfce7;color:#166534;border-radius:14px;padding:10px 12px;font-weight:900;margin-top:12px}}.bank-box{{background:#f8fafc;border:1px dashed #94a3b8;border-radius:18px;padding:14px;line-height:1.8}}.qr-missing{{display:flex;align-items:center;justify-content:center;width:220px;height:220px;border-radius:18px;background:#e2e8f0;color:#475569;font-weight:900;text-align:center}}.pay-form label{{display:block;font-weight:800;margin-top:12px;color:#334155}}.pay-form select,.pay-form input[type=file],.pay-form textarea{{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:14px;padding:11px;background:#fff;margin-top:6px}}.pay-btn{{border:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;padding:13px 20px;font-weight:1000;margin-top:16px;cursor:pointer;box-shadow:0 12px 28px rgba(37,99,235,.25)}}.success-msg{{padding:14px 16px;border-radius:18px;background:#dcfce7;color:#166534;font-weight:900;border:1px solid #86efac;margin-bottom:16px}}@media(max-width:800px){{.premium-hero,.plans{{grid-template-columns:1fr}}}}
+    </style>
+    <section class='premium-wrap'>
+      {message_html}
+      <div class='premium-hero'>
+        <div class='premium-card'>
+          <span class='premium-badge'>⭐ Premium Learning / ප්‍රිමියම් පාඩම්</span>
+          <h1 class='premium-title'>Unlock this Premium Lesson</h1>
+          <p class='premium-sub'>Dear parent and student, choose a plan, make a bank transfer/deposit or QR payment, then upload your proof. SLIS team will verify and activate access.</p>
+          <div class='plans'>
+            <div class='plan'><strong>Monthly Subscription</strong><div class='price'>Rs.490</div><small>30 days premium access</small></div>
+            <div class='plan'><strong>Annual Subscription</strong><div class='price'>Rs.3,500</div><small>365 days premium access</small><div class='discount'>40% discount on annual subscription, limited time only.</div></div>
+          </div>
+          <h3>Payment Methods / ගෙවීම් ක්‍රම</h3>
+          <ul><li>Bank Deposit / Bank Transfer</li><li>QR Payment</li><li>Card payments coming soon.</li></ul>
+          <div class='bank-box'>
+            <strong>Bank details (placeholders)</strong><br>
+            Bank Name: [ADD BANK NAME]<br>Account Name: [ADD ACCOUNT NAME]<br>Account Number: [ADD ACCOUNT NUMBER]<br>Branch: [ADD BRANCH]
+          </div>
+        </div>
+        <div class='premium-card'>
+          <h2>Upload Payment Proof</h2>
+          <div style='margin-bottom:14px;'>{qr_html}</div>
+          <form class='pay-form' action='/subscribe/payment-proof' method='post' enctype='multipart/form-data'>
+            <label>Plan / සැලැස්ම
+              <select name='plan_type' required><option value='monthly'>Monthly - Rs.490</option><option value='annual'>Annual - Rs.3,500</option></select>
+            </label>
+            <label>Payment Method / ගෙවූ ක්‍රමය
+              <select name='payment_method' required><option value='bank_transfer'>Bank Deposit / Bank Transfer</option><option value='qr_payment'>QR Payment</option></select>
+            </label>
+            <label>Upload proof / රිසිට්පත උඩුගත කරන්න
+              <input type='file' name='proof' accept='.png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf' required>
+            </label>
+            <p style='color:#64748b;font-size:13px;'>Allowed: png, jpg, jpeg, webp, pdf. Max size 5MB.</p>
+            <button class='pay-btn' type='submit'>Submit proof for verification</button>
+          </form>
+        </div>
+      </div>
+    </section>
+    """
+    return render_student_dashboard_shell(inner_html, active_nav="my_subjects")
+
+
+@app.route("/subscribe", methods=["GET"])
+def subscribe():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_subscription_payment_schema()
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+    return render_subscription_page(student, session.pop("subscription_payment_success", ""))
+
+
+@app.route("/subscribe/payment-proof", methods=["POST"])
+def subscribe_payment_proof():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    ensure_subscription_payment_schema()
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+    plan_type = (request.form.get("plan_type") or "").strip().lower()
+    payment_method = (request.form.get("payment_method") or "").strip().lower()
+    if plan_type not in SUBSCRIPTION_PLAN_AMOUNTS:
+        return render_subscription_page(student, "Please select a valid monthly or annual plan."), 400
+    if payment_method not in {"bank_transfer", "qr_payment"}:
+        return render_subscription_page(student, "Please select Bank Transfer or QR Payment."), 400
+    proof_url, upload_error = upload_payment_proof_to_supabase(student.id, plan_type, request.files.get("proof"))
+    if upload_error:
+        return render_subscription_page(student, upload_error), 400
+    payment = SubscriptionPayment(student_id=student.id, plan_type=plan_type, amount=SUBSCRIPTION_PLAN_AMOUNTS[plan_type], payment_method=payment_method, proof_url=proof_url, status="pending", created_at=datetime.utcnow())
+    db.session.add(payment)
+    db.session.commit()
+    session["subscription_payment_success"] = "Payment proof uploaded. SLIS team will activate your subscription after verification."
+    return redirect(url_for("subscribe"))
+
+
+def activate_student_subscription(student: Student, days: int) -> date:
+    today = date.today()
+    current_end = student.subscription_end_date if student.subscription_end_date and student.subscription_end_date >= today else today
+    new_end = current_end + timedelta(days=days)
+    student.is_premium = True
+    student.subscription_end_date = new_end
+    student.subscription_status = "active"
+    student.subscription_valid_until = new_end
+    return new_end
+
 @app.route("/admin/premium", methods=["GET"])
 def admin_premium():
     admin_redirect = admin_session_required()
     if admin_redirect:
         return admin_redirect
+    ensure_subscription_columns()
 
     students = Student.query.order_by(Student.created_at.desc(), Student.id.desc()).all()
     student_rows = "".join(
         f"""
         <tr>
           <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name or '')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(str(student.grade or ''))}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium or '')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.email or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.parent_email or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) or '-')}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{'Yes' if student.is_premium else 'No'}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.subscription_end_date.strftime('%Y-%m-%d') if student.subscription_end_date else '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/activate-premium/{student.id}'>Activate 30 Days</a> | <a href='/admin/deactivate-premium/{student.id}' onclick="return confirm('Deactivate premium access for this student?');">Deactivate</a></td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.subscription_status or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{student.subscription_valid_until.strftime('%Y-%m-%d') if student.subscription_valid_until else '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/activate-premium/{student.id}'>Activate 30 Days</a> | <a href='/admin/activate-premium-annual/{student.id}'>Annual Activate</a> | <a href='/admin/deactivate-premium/{student.id}' onclick="return confirm('Deactivate premium access for this student?');">Deactivate</a></td>
         </tr>
         """
         for student in students
@@ -11086,23 +11330,14 @@ def admin_premium():
 
     return f"""
     <h1>Premium Management</h1>
-    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
-    <table style='border-collapse:collapse;width:100%;'>
+    <p><a href='/admin-dashboard'>Back to Admin Dashboard</a> | <a href='/admin/subscription-payments'>Review Subscription Payments</a></p>
+    <table style='border-collapse:collapse;width:100%;font-size:13px;'>
       <thead>
         <tr>
-          <th style='border:1px solid #ccc;padding:8px;'>ID</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Name</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Grade</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Medium</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Email</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Parent Email</th>
-          <th style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</th>
-          <th style='border:1px solid #ccc;padding:8px;'>is_premium</th>
-          <th style='border:1px solid #ccc;padding:8px;'>subscription_end_date</th>
-          <th style='border:1px solid #ccc;padding:8px;'>Action</th>
+          <th style='border:1px solid #ccc;padding:8px;'>ID</th><th style='border:1px solid #ccc;padding:8px;'>Name</th><th style='border:1px solid #ccc;padding:8px;'>Grade</th><th style='border:1px solid #ccc;padding:8px;'>Medium</th><th style='border:1px solid #ccc;padding:8px;'>Email</th><th style='border:1px solid #ccc;padding:8px;'>Parent Email</th><th style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</th><th style='border:1px solid #ccc;padding:8px;'>is_premium</th><th style='border:1px solid #ccc;padding:8px;'>subscription_end_date</th><th style='border:1px solid #ccc;padding:8px;'>subscription_status</th><th style='border:1px solid #ccc;padding:8px;'>subscription_valid_until</th><th style='border:1px solid #ccc;padding:8px;'>Action</th>
         </tr>
       </thead>
-      <tbody>{student_rows if student_rows else "<tr><td colspan='10' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
+      <tbody>{student_rows if student_rows else "<tr><td colspan='12' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
     </table>
     """
 
@@ -11112,14 +11347,95 @@ def admin_activate_premium(student_id: int):
     admin_redirect = admin_session_required()
     if admin_redirect:
         return admin_redirect
-
+    ensure_subscription_columns()
     student = Student.query.get_or_404(student_id)
-    student.is_premium = True
-    student.subscription_end_date = date.today() + timedelta(days=30)
+    activate_student_subscription(student, 30)
     db.session.commit()
     return redirect("/admin/premium")
 
 
+@app.route("/admin/activate-premium-annual/<int:student_id>", methods=["GET"])
+def admin_activate_premium_annual(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_subscription_columns()
+    student = Student.query.get_or_404(student_id)
+    activate_student_subscription(student, 365)
+    db.session.commit()
+    return redirect("/admin/premium")
+
+
+@app.route("/admin/subscription-payments", methods=["GET"])
+def admin_subscription_payments():
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_subscription_payment_schema()
+    rows = (
+        db.session.query(SubscriptionPayment, Student)
+        .outerjoin(Student, Student.id == SubscriptionPayment.student_id)
+        .order_by(SubscriptionPayment.created_at.desc(), SubscriptionPayment.id.desc())
+        .all()
+    )
+    status_styles = {"pending": "#fef3c7", "approved": "#dcfce7", "rejected": "#fee2e2"}
+    table_rows = "".join(
+        f"""
+        <tr style='background:{status_styles.get(payment.status, '#fff')}'>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name if student else 'Unknown')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape((student.username if student else '') or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) if student else '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(payment.plan_type)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>Rs.{payment.amount}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(payment.payment_method)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='{escape(payment.proof_url)}' target='_blank' rel='noopener'>View proof</a></td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(payment.status)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else '-'}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>
+            <form action='/admin/subscription-payments/{payment.id}/approve' method='post' style='display:inline;'><button type='submit' {'disabled' if payment.status == 'approved' else ''}>Approve</button></form>
+            <form action='/admin/subscription-payments/{payment.id}/reject' method='post' style='display:inline-block;margin-top:6px;'><input type='text' name='admin_note' placeholder='Optional note' value='{escape(payment.admin_note or '')}'><button type='submit' {'disabled' if payment.status == 'rejected' else ''}>Reject</button></form>
+          </td>
+        </tr>
+        """
+        for payment, student in rows
+    )
+    return f"""
+    <h1>Subscription Payments</h1>
+    <p><a href='/admin/premium'>Back to Premium Management</a> | <a href='/admin-dashboard'>Admin Dashboard</a></p>
+    <table style='border-collapse:collapse;width:100%;font-size:13px;'>
+      <thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student name</th><th style='border:1px solid #ccc;padding:8px;'>Username</th><th style='border:1px solid #ccc;padding:8px;'>WhatsApp number</th><th style='border:1px solid #ccc;padding:8px;'>Plan</th><th style='border:1px solid #ccc;padding:8px;'>Amount</th><th style='border:1px solid #ccc;padding:8px;'>Method</th><th style='border:1px solid #ccc;padding:8px;'>Proof link</th><th style='border:1px solid #ccc;padding:8px;'>Status</th><th style='border:1px solid #ccc;padding:8px;'>Created at</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead>
+      <tbody>{table_rows if table_rows else "<tr><td colspan='10' style='border:1px solid #ccc;padding:8px;'>No payment proofs yet.</td></tr>"}</tbody>
+    </table>
+    """
+
+
+@app.route("/admin/subscription-payments/<int:payment_id>/approve", methods=["POST"])
+def admin_subscription_payment_approve(payment_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_subscription_payment_schema()
+    payment = SubscriptionPayment.query.get_or_404(payment_id)
+    student = Student.query.get_or_404(payment.student_id)
+    activate_student_subscription(student, SUBSCRIPTION_PLAN_DAYS.get(payment.plan_type, 30))
+    payment.status = "approved"
+    payment.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    return redirect(url_for("admin_subscription_payments"))
+
+
+@app.route("/admin/subscription-payments/<int:payment_id>/reject", methods=["POST"])
+def admin_subscription_payment_reject(payment_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    ensure_subscription_payment_schema()
+    payment = SubscriptionPayment.query.get_or_404(payment_id)
+    payment.status = "rejected"
+    payment.admin_note = (request.form.get("admin_note") or "").strip() or None
+    payment.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    return redirect(url_for("admin_subscription_payments"))
 
 
 @app.route("/admin/schools", methods=["GET"])
@@ -12433,14 +12749,17 @@ def build_manual_interim_slide_html(slide: LessonSlide, questions: list[Question
 @app.route("/student/lesson/<int:lesson_id>", methods=["GET"])
 def student_lesson_page(lesson_id: int):
     student_id = session.get("student_id")
-    if not student_id:
+    admin_preview = is_admin_lesson_preview()
+    if not student_id and not admin_preview:
         return redirect(url_for("login"))
     ensure_lesson_engine_tables()
 
-    student = db.session.get(Student, student_id)
+    student = db.session.get(Student, student_id) if student_id else SimpleNamespace(id=0, name="Admin Preview", medium="English", grade="-", is_premium=True, subscription_end_date=None)
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return "<h2>Lesson not found.</h2>", 404
+    if is_lesson_locked_for_student(lesson, student):
+        return render_subscription_page(student)
     chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
     if not chapter:
         return "<h2>Chapter not found for lesson.</h2>", 404
@@ -13542,6 +13861,8 @@ def student_lesson_page(lesson_id: int):
       const aiClose = document.getElementById("aiHelperClose"); const aiCard = document.getElementById("aiHelperCard"); aiClose?.addEventListener("click", () => {{ aiCard.style.display = "none"; }}); document.querySelectorAll(".ai-helper-btn").forEach((btn)=>btn.addEventListener("click", async ()=>{{ const t=btn.dataset.aiAction||"hint"; const slide = slides[currentIndex]; const res=await fetch("/student/lesson/" + lessonId + "/ai-assist",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{slide_id:slide?.id,assistance_type:t}})}}); const data=await res.json().catch(()=>null); const panel=document.getElementById("aiHelperPanel"); if(panel) panel.textContent=(data&&data.text)?data.text:"Let's keep trying together."; if (aiCard) aiCard.style.display = "block"; }}));
       renderSlide();
     </script>"""
+    if admin_preview and not session.get("student_id"):
+        return render_admin_lesson_preview_shell(inner_html)
     return render_student_dashboard_shell(inner_html, active_nav="my_subjects")
 
 
@@ -13555,6 +13876,8 @@ def student_lesson_manual_interim_test_submit(lesson_id: int):
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return jsonify({"ok": False, "error": "Lesson not found"}), 404
+    if is_lesson_locked_for_student(lesson, student):
+        return premium_locked_json_response()
     slide_id = int(request.form.get("slide_id") or 0)
     slide = LessonSlide.query.filter_by(id=slide_id, lesson_id=lesson.id, slide_type="manual_interim_test", is_active=True).first()
     if not slide:
@@ -13614,6 +13937,8 @@ def student_lesson_interactive_video_answer_submit(lesson_id: int):
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return jsonify({"ok": False, "error": "Lesson not found"}), 404
+    if is_lesson_locked_for_student(lesson, student):
+        return premium_locked_json_response()
     slide_id = int(request.form.get("slide_id") or 0)
     question_id = int(request.form.get("question_id") or 0)
     slide = LessonSlide.query.filter_by(id=slide_id, lesson_id=lesson.id, slide_type="interactive_video", is_active=True).first()
@@ -13667,6 +13992,8 @@ def student_lesson_finish(lesson_id: int):
         lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
         if not lesson:
             return jsonify({"success": False, "error": "Lesson not found"}), 404
+        if is_lesson_locked_for_student(lesson, student):
+            return premium_locked_json_response()
 
         progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=lesson.id).first()
         if not progress:
@@ -13726,6 +14053,8 @@ def student_lesson_progress_update(lesson_id: int):
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
+    if is_lesson_locked_for_student(lesson, student):
+        return premium_locked_json_response()
 
     payload = request.get_json(silent=True) or {}
     current_slide_order = int(payload.get("current_slide_order") or 1)
@@ -13771,6 +14100,8 @@ def student_lesson_answer_submit(lesson_id: int):
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
+    if is_lesson_locked_for_student(lesson, student):
+        return premium_locked_json_response()
     payload = request.get_json(silent=True) or {}
     slide_id = int(payload.get("slide_id") or 0)
     selected_answer = (payload.get("selected_answer") or "").strip()
@@ -13824,6 +14155,8 @@ def student_lesson_ai_assist(lesson_id: int):
     lesson = Lesson.query.filter_by(id=lesson_id, is_active=True).first()
     if not lesson:
         return jsonify({"success": False, "ok": False, "error": "Lesson not found"}), 404
+    if is_lesson_locked_for_student(lesson, student):
+        return premium_locked_json_response()
     payload = request.get_json(silent=True) or {}
     slide_id = int(payload.get("slide_id") or 0)
     assistance_type = str(payload.get("assistance_type") or "hint").strip().lower() or "hint"
@@ -13891,7 +14224,7 @@ def admin_lesson_builder():
 
     subjects = get_subjects_for_grade(grade, active_only=True) if grade else []
     rows = "".join(
-        f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/lesson/{lesson.id}/edit'>Edit Lesson</a> | <a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
+        f"<tr><td>{escape(term.grade)}</td><td>{escape(term.subject)}</td><td>{escape(module.module_name_en)}</td><td>{escape(chapter.chapter_name_en)}</td><td>{lesson.lesson_order}</td><td>{escape(lesson.lesson_title_en)}</td><td>{'Yes' if lesson.is_premium_only else 'No'}</td><td>{'Yes' if lesson.is_active else 'No'}</td><td><a href='/admin/lesson-builder/lesson/{lesson.id}/edit'>Edit Lesson</a> | <a href='/admin/lesson-builder/{lesson.id}/slides'>Manage Slides</a> | <a href='/student/lesson/{lesson.id}'>Preview Lesson</a></td></tr>"
         for lesson, chapter, module, term, _ in lessons
     )
     success_message = session.pop("lesson_builder_success", "")
@@ -13908,8 +14241,8 @@ def admin_lesson_builder():
       <button type='submit'>Filter</button>
     </form>
     <table border='1' cellpadding='6'>
-      <tr><th>Grade</th><th>Subject</th><th>Module</th><th>Chapter</th><th>Lesson Order</th><th>Lesson Title</th><th>Active</th><th>Actions</th></tr>
-      {rows or '<tr><td colspan=8>No lessons found</td></tr>'}
+      <tr><th>Grade</th><th>Subject</th><th>Module</th><th>Chapter</th><th>Lesson Order</th><th>Lesson Title</th><th>Premium Only</th><th>Active</th><th>Actions</th></tr>
+      {rows or '<tr><td colspan=9>No lessons found</td></tr>'}
     </table>
     """
 
@@ -13932,6 +14265,7 @@ def admin_lesson_builder_new():
             estimated_minutes=int((request.form.get("estimated_minutes") or "10")),
             xp_reward=int((request.form.get("xp_reward") or "10")),
             is_active=_parse_bool_form(request.form.get("is_active"), True),
+            is_premium_only=_parse_bool_form(request.form.get("is_premium_only"), False),
         )
         db.session.add(lesson)
         db.session.commit()
@@ -13980,6 +14314,7 @@ def admin_lesson_builder_new():
       <label>Thumbnail URL <input type='url' name='thumbnail_url'></label><br><br>
       <label>Estimated Minutes <input type='number' name='estimated_minutes' value='10' min='1'></label><br><br>
       <label>XP Reward <input type='number' name='xp_reward' value='10' min='0'></label><br><br>
+      <label><input type='checkbox' name='is_premium_only' value='1'> Premium Only Lesson</label><br><br>
       <label><input type='checkbox' name='is_active' value='1' checked> Is Active</label><br><br>
       <button type='submit'>Save Lesson</button>
     </form>
@@ -14096,6 +14431,7 @@ def admin_lesson_builder_edit(lesson_id: int):
                 lesson.description_en = (request.form.get("description_en") or "").strip() or None
                 lesson.description_si = (request.form.get("description_si") or "").strip() or None
                 lesson.estimated_minutes = estimated_minutes
+                lesson.is_premium_only = _parse_bool_form(request.form.get("is_premium_only"), False)
                 lesson.is_active = _parse_bool_form(request.form.get("is_active"), False)
                 db.session.commit()
                 session["lesson_builder_success"] = f"Lesson '{lesson.lesson_title_en}' updated successfully."
@@ -14129,6 +14465,7 @@ def admin_lesson_builder_edit(lesson_id: int):
     )
     error_html = f"<p style='padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;'>{escape(error_message)}</p>" if error_message else ""
     checked = "checked" if lesson.is_active else ""
+    premium_checked = "checked" if lesson.is_premium_only else ""
 
     return f"""
     <h1>Edit Lesson</h1>
@@ -14145,6 +14482,7 @@ def admin_lesson_builder_edit(lesson_id: int):
       <label>Description EN<br><textarea name='description_en' rows='4' cols='70'>{escape(lesson.description_en or "")}</textarea></label><br><br>
       <label>Description SI<br><textarea name='description_si' rows='4' cols='70'>{escape(lesson.description_si or "")}</textarea></label><br><br>
       <label>Estimated Duration <input type='number' name='estimated_minutes' value='{lesson.estimated_minutes or 10}' min='1'> minutes</label><br><br>
+      <label><input type='checkbox' name='is_premium_only' value='1' {premium_checked}> Premium Only Lesson</label><br><br>
       <label><input type='checkbox' name='is_active' value='1' {checked}> Is Active</label><br><br>
       <button type='submit'>Save Lesson</button>
     </form>
@@ -15412,6 +15750,8 @@ def admin_deactivate_premium(student_id: int):
     student = Student.query.get_or_404(student_id)
     student.is_premium = False
     student.subscription_end_date = None
+    student.subscription_status = "inactive"
+    student.subscription_valid_until = None
     db.session.commit()
     return redirect("/admin/premium")
 
