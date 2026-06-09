@@ -1,0 +1,85 @@
+{
+  "slide_type": "shape_flag_sorting",
+  "activity_type": "shape_flag_sorting",
+  "title_en": "Shape Flag Sorting",
+  "title_si": "හැඩ කොඩි වෙන් කිරීම",
+  "instruction_si": "කොඩි හැඩය අනුව වෙන් කර නිවැරදි වැලට අලවන්න.",
+  "instruction_en": "Sort the flags by shape and stick them on the correct rope.",
+  "success_message_si": "සුපිරි වැඩක්! ඔබ එකම හැඩයේ කොඩි නිවැරදිව වෙන් කර වැලට අලවා ඇත.",
+  "success_message_en": "Great job! You sorted and stuck every shape flag on the correct rope.",
+  "try_again_message_si": "එම හැඩයට ගැලපෙන තැන තෝරන්න.",
+  "flags": [
+    {
+      "id": "green-square-1",
+      "shape": "square",
+      "color": "green",
+      "label_en": "Green square flag 1",
+      "label_si": "කොළ චතුරස්‍ර කොඩිය 1",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/green-square-flag-1.png"
+    },
+    {
+      "id": "green-square-2",
+      "shape": "square",
+      "color": "green",
+      "label_en": "Green square flag 2",
+      "label_si": "කොළ චතුරස්‍ර කොඩිය 2",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/green-square-flag-2.png"
+    },
+    {
+      "id": "green-square-3",
+      "shape": "square",
+      "color": "green",
+      "label_en": "Green square flag 3",
+      "label_si": "කොළ චතුරස්‍ර කොඩිය 3",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/green-square-flag-3.png"
+    },
+    {
+      "id": "red-rectangle-1",
+      "shape": "rectangle",
+      "color": "red",
+      "label_en": "Red rectangle flag 1",
+      "label_si": "රතු සෘජුකෝණාස්‍ර කොඩිය 1",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/red-rectangle-flag-1.png"
+    },
+    {
+      "id": "red-rectangle-2",
+      "shape": "rectangle",
+      "color": "red",
+      "label_en": "Red rectangle flag 2",
+      "label_si": "රතු සෘජුකෝණාස්‍ර කොඩිය 2",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/red-rectangle-flag-2.png"
+    },
+    {
+      "id": "red-rectangle-3",
+      "shape": "rectangle",
+      "color": "red",
+      "label_en": "Red rectangle flag 3",
+      "label_si": "රතු සෘජුකෝණාස්‍ර කොඩිය 3",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/red-rectangle-flag-3.png"
+    },
+    {
+      "id": "blue-triangle-1",
+      "shape": "triangle",
+      "color": "blue",
+      "label_en": "Blue triangle flag 1",
+      "label_si": "නිල් ත්‍රිකෝණ කොඩිය 1",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/blue-triangle-flag-1.png"
+    },
+    {
+      "id": "blue-triangle-2",
+      "shape": "triangle",
+      "color": "blue",
+      "label_en": "Blue triangle flag 2",
+      "label_si": "නිල් ත්‍රිකෝණ කොඩිය 2",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/blue-triangle-flag-2.png"
+    },
+    {
+      "id": "blue-triangle-3",
+      "shape": "triangle",
+      "color": "blue",
+      "label_en": "Blue triangle flag 3",
+      "label_si": "නිල් ත්‍රිකෝණ කොඩිය 3",
+      "image_url": "https://YOUR_SUPABASE_URL/storage/v1/object/public/lesson-images/blue-triangle-flag-3.png"
+    }
+  ]
+}
