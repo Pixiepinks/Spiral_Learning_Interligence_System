@@ -1430,7 +1430,7 @@ def upload_payment_qr_to_supabase(file_storage) -> tuple[str | None, str | None]
 
 def upload_payment_proof_to_supabase(student_id: int, plan_type: str, file_storage) -> tuple[str | None, str | None]:
     if not file_storage or not file_storage.filename:
-        return None, "Please upload a bank slip, transfer slip, or QR payment proof."
+        return None, "Please upload a bank deposit or bank transfer slip."
 
     original_name = secure_filename(file_storage.filename)
     if not original_name:
@@ -11322,54 +11322,88 @@ def render_admin_lesson_preview_shell(inner_html: str) -> str:
 
 def render_subscription_page(student: Student, message: str = "") -> str:
     settings = get_payment_settings()
-    qr_html = (
-        f"<img src='{escape(settings.qr_code_url or '')}' alt='SLIS QR payment code' style='max-width:220px;border-radius:18px;border:1px solid #dbeafe;background:#fff;padding:10px;'>"
-        if settings.qr_code_url
-        else "<div class='qr-missing'>QR code coming soon</div>"
-    )
-    bank_name = escape(settings.bank_name or "")
-    account_name = escape(settings.account_name or "")
-    account_number = escape(settings.account_number or "")
-    branch = escape(settings.branch or "")
+    bank_name = escape(settings.bank_name or "Not configured")
+    account_name = escape(settings.account_name or "Not configured")
+    account_number = escape(settings.account_number or "Not configured")
+    branch = escape(settings.branch or "Not configured")
     message_html = f"<div class='success-msg'>{escape(message)}</div>" if message else ""
     inner_html = f"""
     <style>
-      .premium-wrap{{max-width:1040px;margin:18px auto;padding:22px;border-radius:28px;background:linear-gradient(135deg,#eff6ff,#fff7ed);box-shadow:0 22px 70px rgba(30,64,175,.15);border:1px solid rgba(59,130,246,.18)}}
-      .premium-hero{{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;align-items:stretch}}.premium-card{{background:rgba(255,255,255,.88);border:1px solid #dbeafe;border-radius:24px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.08)}}
-      .premium-badge{{display:inline-flex;align-items:center;gap:8px;background:#fef3c7;color:#92400e;border-radius:999px;padding:8px 12px;font-weight:900}}.premium-title{{font-size:34px;margin:14px 0 8px;color:#102a72}}.premium-sub{{font-size:16px;color:#475569;line-height:1.55}}.plans{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}}.plan{{border:2px solid #dbeafe;border-radius:20px;padding:16px;background:#fff}}.plan strong{{display:block;font-size:18px;color:#1e3a8a}}.price{{font-size:28px;font-weight:1000;color:#0f172a;margin-top:6px}}.discount{{background:#dcfce7;color:#166534;border-radius:14px;padding:10px 12px;font-weight:900;margin-top:12px}}.bank-box{{background:#f8fafc;border:1px dashed #94a3b8;border-radius:18px;padding:14px;line-height:1.8}}.qr-missing{{display:flex;align-items:center;justify-content:center;width:220px;height:220px;border-radius:18px;background:#e2e8f0;color:#475569;font-weight:900;text-align:center}}.pay-form label{{display:block;font-weight:800;margin-top:12px;color:#334155}}.pay-form select,.pay-form input[type=file],.pay-form textarea{{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:14px;padding:11px;background:#fff;margin-top:6px}}.pay-btn{{border:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;padding:13px 20px;font-weight:1000;margin-top:16px;cursor:pointer;box-shadow:0 12px 28px rgba(37,99,235,.25)}}.success-msg{{padding:14px 16px;border-radius:18px;background:#dcfce7;color:#166534;font-weight:900;border:1px solid #86efac;margin-bottom:16px}}@media(max-width:800px){{.premium-hero,.plans{{grid-template-columns:1fr}}}}
+      .premium-wrap{{max-width:1180px;margin:18px auto;padding:clamp(16px,3vw,30px);border-radius:34px;background:linear-gradient(135deg,#eff6ff 0%,#ffffff 52%,#e0f2fe 100%);box-shadow:0 26px 80px rgba(30,64,175,.16);border:1px solid rgba(59,130,246,.18)}}
+      .premium-hero{{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:22px;align-items:stretch}}
+      .premium-card{{background:rgba(255,255,255,.92);border:1px solid rgba(191,219,254,.95);border-radius:28px;padding:clamp(20px,3vw,30px);box-shadow:0 18px 42px rgba(15,23,42,.09)}}
+      .premium-badge{{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#dbeafe,#eef2ff);color:#1e3a8a;border:1px solid #bfdbfe;border-radius:999px;padding:9px 14px;font-weight:1000;font-size:13px;letter-spacing:.02em}}
+      .premium-title{{font-size:clamp(30px,4vw,46px);line-height:1.05;margin:16px 0 10px;color:#0f2f6f;letter-spacing:-.04em}}
+      .premium-sub{{font-size:16px;color:#475569;line-height:1.65;margin:0 0 16px}}
+      .trust-note{{display:grid;gap:6px;margin:18px 0;padding:15px 16px;border-radius:20px;background:#ecfdf5;border:1px solid #bbf7d0;color:#166534;font-weight:900;line-height:1.45}}
+      .section-title{{margin:24px 0 12px;color:#0f172a;font-size:20px}}
+      .plans{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px;align-items:stretch}}
+      .plan{{position:relative;display:flex;flex-direction:column;min-height:172px;border:2px solid #dbeafe;border-radius:24px;padding:18px;background:linear-gradient(180deg,#fff,#f8fbff)}}
+      .plan.featured{{border-color:#60a5fa;box-shadow:0 16px 34px rgba(37,99,235,.13)}}
+      .plan strong{{display:block;font-size:19px;color:#1e3a8a}}
+      .price{{font-size:32px;font-weight:1000;color:#0f172a;margin:8px 0 4px;letter-spacing:-.03em}}
+      .plan small{{color:#64748b;font-weight:800;margin-top:auto}}
+      .discount{{align-self:flex-start;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;border-radius:999px;padding:7px 11px;font-weight:1000;font-size:12px;margin-bottom:12px;box-shadow:0 10px 22px rgba(249,115,22,.24)}}
+      .bank-box{{display:grid;gap:10px;background:#f8fafc;border:1px dashed #93c5fd;border-radius:22px;padding:18px;line-height:1.55}}
+      .bank-row{{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid #e2e8f0}}
+      .bank-row:last-child{{border-bottom:0}}
+      .bank-label{{color:#64748b;font-weight:900}}
+      .bank-value{{color:#0f172a;font-weight:1000;word-break:break-word}}
+      .instructions{{margin:14px 0 0;padding-left:20px;color:#475569;line-height:1.7}}
+      .upload-card{{position:sticky;top:14px}}
+      .pay-form label{{display:block;font-weight:900;margin-top:14px;color:#334155}}
+      .pay-form select,.pay-form input[type=file]{{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:16px;padding:13px;background:#fff;margin-top:7px;font-size:15px}}
+      .method-lock{{margin-top:7px;border:1px solid #bfdbfe;border-radius:16px;background:#eff6ff;padding:13px;color:#1e3a8a;font-weight:1000}}
+      .accepted-note{{color:#64748b;font-size:13px;line-height:1.5;margin:10px 0 0}}
+      .pay-btn{{width:100%;border:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;padding:15px 22px;font-weight:1000;margin-top:18px;cursor:pointer;box-shadow:0 16px 32px rgba(37,99,235,.28);font-size:16px}}
+      .pay-btn:hover{{transform:translateY(-1px);box-shadow:0 18px 38px rgba(37,99,235,.34)}}
+      .success-msg{{padding:14px 16px;border-radius:18px;background:#dcfce7;color:#166534;font-weight:900;border:1px solid #86efac;margin-bottom:16px}}
+      @media(max-width:860px){{.premium-hero,.plans{{grid-template-columns:1fr}}.upload-card{{position:static}}.bank-row{{grid-template-columns:1fr;gap:3px}}}}
     </style>
     <section class='premium-wrap'>
       {message_html}
       <div class='premium-hero'>
         <div class='premium-card'>
-          <span class='premium-badge'>⭐ Premium Learning / ප්‍රිමියම් පාඩම්</span>
+          <span class='premium-badge'>🔒 Premium Lesson Locked / ප්‍රිමියම් පාඩම අගුළු දමා ඇත</span>
           <h1 class='premium-title'>Unlock this Premium Lesson</h1>
-          <p class='premium-sub'>Dear parent and student, choose a plan, make a bank transfer/deposit or QR payment, then upload your proof. SLIS team will verify and activate access.</p>
+          <p class='premium-sub'>Choose a plan, pay by bank deposit or bank transfer, then upload your slip. අපගේ බැංකු ගිණුමට මුදල් තැන්පත් කර හෝ බැංකු මාරු කිරීමෙන් පසු රිසිට්පත උඩුගත කරන්න.</p>
+          <div class='trust-note'>
+            <span>Your access will be activated after payment verification.</span>
+            <span>ගෙවීම් තහවුරු කිරීමෙන් පසු ඔබගේ ප්‍රවේශය සක්‍රීය කරනු ලැබේ.</span>
+          </div>
           <div class='plans'>
             <div class='plan'><strong>Monthly Subscription</strong><div class='price'>Rs.490</div><small>30 days premium access</small></div>
-            <div class='plan'><strong>Annual Subscription</strong><div class='price'>Rs.3,500</div><small>365 days premium access</small><div class='discount'>40% discount on annual subscription, limited time only.</div></div>
+            <div class='plan featured'><div class='discount'>Best value annual discount</div><strong>Annual Subscription</strong><div class='price'>Rs.3,500</div><small>365 days premium access</small></div>
           </div>
-          <h3>Payment Methods / ගෙවීම් ක්‍රම</h3>
-          <ul><li>Bank Deposit / Bank Transfer</li><li>QR Payment</li><li>Card payments coming soon.</li></ul>
-          <div class='bank-box'>
-            <strong>Bank details</strong><br>
-            Bank Name: {bank_name}<br>Account Name: {account_name}<br>Account Number: {account_number}<br>Branch: {branch}
+          <h2 class='section-title'>Pay by Bank Deposit / Bank Transfer</h2>
+          <h3 class='section-title' style='margin-top:0;font-size:17px;'>බැංකු තැන්පතු / බැංකු මාරු කිරීම මඟින් ගෙවන්න</h3>
+          <div class='bank-box' aria-label='Bank details'>
+            <div class='bank-row'><span class='bank-label'>Bank Name</span><span class='bank-value'>{bank_name}</span></div>
+            <div class='bank-row'><span class='bank-label'>Account Name</span><span class='bank-value'>{account_name}</span></div>
+            <div class='bank-row'><span class='bank-label'>Account Number</span><span class='bank-value'>{account_number}</span></div>
+            <div class='bank-row'><span class='bank-label'>Branch</span><span class='bank-value'>{branch}</span></div>
           </div>
+          <ul class='instructions'>
+            <li>Use your student name or phone number as the transfer reference when possible.</li>
+            <li>හැකි නම් බැංකු මාරු කිරීමේ reference ලෙස ශිෂ්‍ය නම හෝ දුරකථන අංකය යොදන්න.</li>
+            <li>After payment, upload a clear photo or PDF of the bank deposit / transfer slip.</li>
+          </ul>
         </div>
-        <div class='premium-card'>
-          <h2>Upload Payment Proof</h2>
-          <div style='margin-bottom:14px;'>{qr_html}</div>
+        <div class='premium-card upload-card'>
+          <span class='premium-badge'>📤 Verification Upload</span>
+          <h2 class='section-title'>Upload Payment Proof</h2>
+          <p class='premium-sub'>Submit your bank slip here. SLIS admins will review it and activate monthly or annual premium access.</p>
           <form class='pay-form' action='/subscribe/payment-proof' method='post' enctype='multipart/form-data'>
             <label>Plan / සැලැස්ම
               <select name='plan_type' required><option value='monthly'>Monthly - Rs.490</option><option value='annual'>Annual - Rs.3,500</option></select>
             </label>
-            <label>Payment Method / ගෙවූ ක්‍රමය
-              <select name='payment_method' required><option value='bank_transfer'>Bank Deposit / Bank Transfer</option><option value='qr_payment'>QR Payment</option></select>
-            </label>
-            <label>Upload proof / රිසිට්පත උඩුගත කරන්න
+            <input type='hidden' name='payment_method' value='bank_transfer'>
+            <label>Payment Method / ගෙවූ ක්‍රමය</label>
+            <div class='method-lock'>Bank Deposit / Bank Transfer</div>
+            <label>Upload bank deposit / transfer slip
               <input type='file' name='proof' accept='.png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf' required>
             </label>
-            <p style='color:#64748b;font-size:13px;'>Allowed: png, jpg, jpeg, webp, pdf. Max size 5MB.</p>
+            <p class='accepted-note'>Accepted: PNG, JPG, WEBP, PDF. Max 5MB.</p>
             <button class='pay-btn' type='submit'>Submit proof for verification</button>
           </form>
         </div>
@@ -11405,11 +11439,11 @@ def subscribe_payment_proof():
         session.pop("student_id", None)
         return redirect(url_for("login"))
     plan_type = (request.form.get("plan_type") or "").strip().lower()
-    payment_method = (request.form.get("payment_method") or "").strip().lower()
+    payment_method = (request.form.get("payment_method") or "bank_transfer").strip().lower()
     if plan_type not in SUBSCRIPTION_PLAN_AMOUNTS:
         return render_subscription_page(student, "Please select a valid monthly or annual plan."), 400
-    if payment_method not in {"bank_transfer", "qr_payment"}:
-        return render_subscription_page(student, "Please select Bank Transfer or QR Payment."), 400
+    if payment_method != "bank_transfer":
+        return render_subscription_page(student, "Please use Bank Deposit / Bank Transfer for this payment."), 400
     proof_url, upload_error = upload_payment_proof_to_supabase(student.id, plan_type, request.files.get("proof"))
     if upload_error:
         return render_subscription_page(student, upload_error), 400
@@ -11431,11 +11465,6 @@ def activate_student_subscription(student: Student, days: int) -> date:
     return new_end
 
 def render_admin_payment_settings_page(settings: PaymentSettings, message: str = "", is_error: bool = False) -> str:
-    qr_preview = (
-        f"<img src='{escape(settings.qr_code_url or '')}' alt='Current payment QR code' style='max-width:240px;border:1px solid #dbeafe;border-radius:18px;padding:10px;background:#fff;'>"
-        if settings.qr_code_url
-        else "<div style='width:240px;height:240px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:#e2e8f0;color:#475569;font-weight:900;text-align:center;'>QR code coming soon</div>"
-    )
     message_html = ""
     if message:
         color = ("#991b1b", "#fee2e2", "#fecaca") if is_error else ("#166534", "#dcfce7", "#86efac")
@@ -11444,38 +11473,28 @@ def render_admin_payment_settings_page(settings: PaymentSettings, message: str =
     <!doctype html>
     <html lang='en'>
       <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Payment Settings</title></head>
-      <body style='font-family:Arial,sans-serif;color:#0f172a;background:#f8fafc;margin:0;padding:22px;'>
-        <main style='max-width:920px;margin:0 auto;background:#fff;border:1px solid #dbeafe;border-radius:22px;padding:22px;box-shadow:0 14px 40px rgba(15,23,42,.08);'>
-          <h1>Payment Settings</h1>
+      <body style='font-family:Arial,sans-serif;color:#0f172a;background:linear-gradient(135deg,#eff6ff,#f8fafc);margin:0;padding:22px;'>
+        <main style='max-width:820px;margin:0 auto;background:#fff;border:1px solid #dbeafe;border-radius:24px;padding:24px;box-shadow:0 18px 48px rgba(15,23,42,.09);'>
+          <h1 style='margin-bottom:6px;'>Payment Settings</h1>
+          <p style='color:#64748b;margin-top:0;'>Manage the bank details shown to students on the premium subscription page.</p>
           <p><a href='/admin-dashboard'>Admin Dashboard</a> | <a href='/admin/premium'>Premium Management</a> | <a href='/admin/subscription-payments'>Subscription Payments</a></p>
           {message_html}
-          <form method='post' enctype='multipart/form-data'>
-            <div style='display:grid;grid-template-columns:1fr 280px;gap:24px;align-items:start;'>
-              <section>
-                <label style='display:block;font-weight:800;margin-top:12px;'>Bank Name
-                  <input name='bank_name' value='{escape(settings.bank_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
-                </label>
-                <label style='display:block;font-weight:800;margin-top:12px;'>Account Name
-                  <input name='account_name' value='{escape(settings.account_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
-                </label>
-                <label style='display:block;font-weight:800;margin-top:12px;'>Account Number
-                  <input name='account_number' value='{escape(settings.account_number or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
-                </label>
-                <label style='display:block;font-weight:800;margin-top:12px;'>Branch
-                  <input name='branch' value='{escape(settings.branch or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
-                </label>
-                <label style='display:block;font-weight:800;margin-top:12px;'>Upload QR code image
-                  <input type='file' name='qr_code' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp' style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:12px;'>
-                </label>
-                <p style='color:#64748b;font-size:13px;'>Allowed: png, jpg, jpeg, webp. Max size 2MB. Uploads are saved in Supabase bucket <strong>payment-assets</strong>.</p>
-                <button type='submit' style='margin-top:14px;border:0;border-radius:999px;background:#2563eb;color:#fff;padding:12px 20px;font-weight:900;cursor:pointer;'>Save Payment Settings</button>
-              </section>
-              <aside>
-                <h2 style='margin-top:0;'>Current QR Preview</h2>
-                {qr_preview}
-                <p style='word-break:break-all;color:#64748b;font-size:13px;'>{escape(settings.qr_code_url or "No QR code URL saved yet.")}</p>
-              </aside>
-            </div>
+          <form method='post'>
+            <section style='display:grid;gap:14px;'>
+              <label style='display:block;font-weight:800;'>Bank Name
+                <input name='bank_name' value='{escape(settings.bank_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px;border:1px solid #cbd5e1;border-radius:14px;'>
+              </label>
+              <label style='display:block;font-weight:800;'>Account Name
+                <input name='account_name' value='{escape(settings.account_name or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px;border:1px solid #cbd5e1;border-radius:14px;'>
+              </label>
+              <label style='display:block;font-weight:800;'>Account Number
+                <input name='account_number' value='{escape(settings.account_number or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px;border:1px solid #cbd5e1;border-radius:14px;'>
+              </label>
+              <label style='display:block;font-weight:800;'>Branch
+                <input name='branch' value='{escape(settings.branch or "")}' required style='display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px;border:1px solid #cbd5e1;border-radius:14px;'>
+              </label>
+              <button type='submit' style='justify-self:start;margin-top:6px;border:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;padding:13px 22px;font-weight:900;cursor:pointer;box-shadow:0 12px 24px rgba(37,99,235,.22);'>Save Payment Settings</button>
+            </section>
           </form>
         </main>
       </body>
@@ -11495,13 +11514,6 @@ def admin_payment_settings():
         settings.account_name = (request.form.get("account_name") or "").strip()
         settings.account_number = (request.form.get("account_number") or "").strip()
         settings.branch = (request.form.get("branch") or "").strip()
-        qr_file = request.files.get("qr_code")
-        if qr_file and qr_file.filename:
-            qr_url, upload_error = upload_payment_qr_to_supabase(qr_file)
-            if upload_error:
-                db.session.rollback()
-                return render_admin_payment_settings_page(settings, upload_error, True), 400
-            settings.qr_code_url = qr_url
         settings.updated_at = datetime.utcnow()
         db.session.commit()
         return render_admin_payment_settings_page(settings, "Payment settings updated successfully.")
