@@ -42,6 +42,7 @@ MAX_PAYMENT_PROOF_UPLOAD_SIZE = 5 * 1024 * 1024
 QUESTION_IMAGE_BUCKET = "question-images"
 PAYMENT_PROOF_BUCKET = "payment-proofs"
 PAYMENT_ASSETS_BUCKET = "payment-assets"
+STUDENT_PROFILE_IMAGE_BUCKET = "student-profile-images"
 SUBSCRIPTION_PLAN_AMOUNTS = {"monthly": 490, "annual": 3500}
 SUBSCRIPTION_PLAN_DAYS = {"monthly": 30, "annual": 365}
 SRI_LANKA_TZ = ZoneInfo("Asia/Colombo")
@@ -1100,6 +1101,7 @@ class Student(db.Model):
     subscription_status = db.Column(db.String(30), nullable=False, default="active")
     subscription_valid_until = db.Column(db.Date, nullable=True)
     profile_image_url = db.Column(db.Text, nullable=True)
+    ui_language = db.Column(db.String(20), nullable=True)
 
 
 class PaymentSettings(db.Model):
@@ -1127,6 +1129,65 @@ class SubscriptionPayment(db.Model):
     admin_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     reviewed_at = db.Column(db.DateTime, nullable=True)
+
+
+class StudentNotificationPreference(db.Model):
+    __tablename__ = "student_notification_preferences"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    assignment_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    quiz_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    live_class_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    new_lesson_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    whatsapp_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    email_notifications = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
+
+
+class StudentLearningPreference(db.Model):
+    __tablename__ = "student_learning_preferences"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    autoplay_videos = db.Column(db.Boolean, nullable=False, default=True)
+    preferred_video_quality = db.Column(db.String(20), nullable=False, default="auto")
+    show_english_terms = db.Column(db.Boolean, nullable=False, default=True)
+    show_sinhala_terms = db.Column(db.Boolean, nullable=False, default=True)
+    dark_mode = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
+
+
+class StudentLoginLog(db.Model):
+    __tablename__ = "student_login_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    logged_in_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentSupportRequest(db.Model):
+    __tablename__ = "student_support_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, index=True)
+    subject = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(30), nullable=False, default="open")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StudentAchievementSetting(db.Model):
+    __tablename__ = "student_achievement_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    public_profile = db.Column(db.Boolean, nullable=False, default=False)
+    show_rank_on_leaderboard = db.Column(db.Boolean, nullable=False, default=True)
+    show_achievements_to_others = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
 
 
 def generate_student_username_for_id(student_id: int) -> str:
@@ -1299,6 +1360,79 @@ def ensure_family_registration_schema() -> None:
     db.session.commit()
 
 
+def ensure_student_settings_schema() -> None:
+    """Create settings-related student tables and optional columns safely."""
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS ui_language VARCHAR(20)"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS school_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS class_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS batch_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS group_id INTEGER"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS last_activity_date DATE"))
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_notification_preferences (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL UNIQUE,
+            assignment_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            quiz_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            live_class_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            new_lesson_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            whatsapp_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_notification_preferences_student_id ON student_notification_preferences (student_id)"))
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_learning_preferences (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL UNIQUE,
+            autoplay_videos BOOLEAN NOT NULL DEFAULT TRUE,
+            preferred_video_quality VARCHAR(20) NOT NULL DEFAULT 'auto',
+            show_english_terms BOOLEAN NOT NULL DEFAULT TRUE,
+            show_sinhala_terms BOOLEAN NOT NULL DEFAULT TRUE,
+            dark_mode BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_learning_preferences_student_id ON student_learning_preferences (student_id)"))
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_login_logs (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL,
+            ip_address VARCHAR(64),
+            user_agent TEXT,
+            logged_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_login_logs_student_id ON student_login_logs (student_id, logged_in_at DESC)"))
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_support_requests (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL,
+            subject VARCHAR(200) NOT NULL,
+            message TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_support_requests_student_id ON student_support_requests (student_id, created_at DESC)"))
+    db.session.execute(db.text("""
+        CREATE TABLE IF NOT EXISTS student_achievement_settings (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL UNIQUE,
+            public_profile BOOLEAN NOT NULL DEFAULT FALSE,
+            show_rank_on_leaderboard BOOLEAN NOT NULL DEFAULT TRUE,
+            show_achievements_to_others BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_student_achievement_settings_student_id ON student_achievement_settings (student_id)"))
+    db.session.commit()
+
+
 def run_startup_migrations() -> None:
     """Apply safe, idempotent schema/data migrations required at runtime."""
     db.create_all()
@@ -1348,6 +1482,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_question_sub_questions_question ON question_sub_questions (question_id, display_order, id)"))
     ensure_subscription_payment_schema()
     ensure_payment_settings_schema()
+    ensure_student_settings_schema()
     db.session.commit()
     ensure_student_username_schema()
     ensure_whatsapp_number_schema()
@@ -1361,6 +1496,136 @@ def student_initials(name: str | None) -> str:
     if len(parts) == 1:
         return parts[0][:2].upper()
     return f"{parts[0][0]}{parts[1][0]}".upper()
+
+
+def get_notification_preferences(student_id: int) -> StudentNotificationPreference:
+    pref = StudentNotificationPreference.query.filter_by(student_id=student_id).first()
+    if not pref:
+        pref = StudentNotificationPreference(student_id=student_id)
+        db.session.add(pref)
+        db.session.commit()
+    return pref
+
+
+def get_learning_preferences(student_id: int) -> StudentLearningPreference:
+    pref = StudentLearningPreference.query.filter_by(student_id=student_id).first()
+    if not pref:
+        pref = StudentLearningPreference(student_id=student_id)
+        db.session.add(pref)
+        db.session.commit()
+    return pref
+
+
+def get_achievement_settings(student_id: int) -> StudentAchievementSetting:
+    settings = StudentAchievementSetting.query.filter_by(student_id=student_id).first()
+    if not settings:
+        settings = StudentAchievementSetting(student_id=student_id)
+        db.session.add(settings)
+        db.session.commit()
+    return settings
+
+
+def get_subscription_payment_history(student_id: int):
+    try:
+        return (
+            SubscriptionPayment.query.filter_by(student_id=student_id)
+            .order_by(SubscriptionPayment.created_at.desc(), SubscriptionPayment.id.desc())
+            .limit(10)
+            .all()
+        )
+    except Exception:
+        db.session.rollback()
+        return []
+
+
+def get_latest_student_login_log(student_id: int):
+    try:
+        return (
+            StudentLoginLog.query.filter_by(student_id=student_id)
+            .order_by(StudentLoginLog.logged_in_at.desc(), StudentLoginLog.id.desc())
+            .first()
+        )
+    except Exception:
+        db.session.rollback()
+        return None
+
+
+def record_student_login_log(student_id: int) -> None:
+    try:
+        db.session.add(StudentLoginLog(student_id=student_id, ip_address=get_request_ip_address(), user_agent=(request.headers.get("User-Agent") or "")[:2000]))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def get_request_ip_address() -> str:
+    forwarded_for = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    return forwarded_for or request.headers.get("X-Real-IP") or request.remote_addr or "Unknown"
+
+
+def format_student_settings_date(value, include_time: bool = False) -> str:
+    if not value:
+        return "Not available"
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M") if include_time else value.strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return str(value)
+
+
+def calculate_subscription_days_remaining(student) -> int | None:
+    expiry = getattr(student, "subscription_valid_until", None) or getattr(student, "subscription_end_date", None)
+    if isinstance(expiry, datetime):
+        expiry = expiry.date()
+    if isinstance(expiry, date):
+        return max(0, (expiry - date.today()).days)
+    return None
+
+
+def truthy_form_value(name: str) -> bool:
+    return (request.form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+
+
+def validate_optional_email(value: str, label: str) -> str | None:
+    clean = (value or "").strip()
+    if clean and "@" not in clean:
+        return f"{label} must contain @."
+    return None
+
+
+def upload_student_profile_image_to_supabase(student_id: int, file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+    original_name = secure_filename(file_storage.filename)
+    if not original_name:
+        return None, "Invalid profile photo filename."
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "Profile photo must be png, jpg, jpeg, or webp."
+    file_storage.stream.seek(0, os.SEEK_END)
+    size = file_storage.stream.tell()
+    file_storage.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_SIZE:
+        return None, "Profile photo size must be 2MB or less."
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
+    supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+    image_bytes = file_storage.read()
+    file_storage.stream.seek(0)
+    object_name = f"students/{student_id}/{uuid.uuid4().hex}.{ext}"
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{STUDENT_PROFILE_IMAGE_BUCKET}/{object_name}"
+    content_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}.get(ext, file_storage.mimetype or "application/octet-stream")
+    req = Request(upload_url, data=image_bytes, method="POST", headers={"Authorization": f"Bearer {supabase_key}", "apikey": supabase_key, "Content-Type": content_type, "x-upsert": "true"})
+    try:
+        with urlopen(req, timeout=30) as resp:
+            if resp.status not in {200, 201}:
+                return None, "Profile photo upload failed."
+    except HTTPError as exc:
+        return None, f"Profile photo upload failed: {exc.read().decode('utf-8', 'ignore') or exc.reason}"
+    except URLError as exc:
+        return None, f"Profile photo upload failed: {exc.reason}"
+    return f"{supabase_url.rstrip('/')}/storage/v1/object/public/{STUDENT_PROFILE_IMAGE_BUCKET}/{object_name}", None
 
 
 LESSON_IMAGE_BUCKET = (os.environ.get("SUPABASE_BUCKET") or "lesson-images").strip() or "lesson-images"
@@ -5440,6 +5705,10 @@ def login():
 
     expired_now = expire_subscription_if_needed(student)
     session["student_id"] = student.id
+    session["student_login_time"] = datetime.utcnow().isoformat()
+    student.last_activity_date = date.today()
+    db.session.commit()
+    record_student_login_log(student.id)
     if expired_now:
         session["subscription_expired_message"] = get_subscription_expired_message(student.medium)
     return redirect(url_for("student_dashboard"))
@@ -10529,6 +10798,211 @@ def admin_live_class_attendance(live_class_id: int):
     return f"<h1>Attendance: {escape(live_class.title_en)}</h1><p><a href='/admin/live-classes'>Back</a></p><table border='1' cellpadding='6'><tr><th>Student name</th><th>Grade</th><th>Join time</th><th>Access status</th><th>Subscription status</th><th>Allowed/blocked reason</th></tr>{''.join(rows) or '<tr><td colspan=6>No attendance logs yet.</td></tr>'}</table>"
 
 
+@app.route("/student/settings", methods=["GET", "POST"])
+def student_settings_page():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    try:
+        ensure_student_settings_schema()
+    except Exception:
+        db.session.rollback()
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        try:
+            if action == "update_profile":
+                name = (request.form.get("name") or "").strip()
+                email = (request.form.get("email") or "").strip()
+                parent_email = (request.form.get("parent_email") or "").strip()
+                medium = (request.form.get("medium") or student.medium or "English").strip()
+                whatsapp_raw = (request.form.get("whatsapp_number") or "").strip()
+                email_error = validate_optional_email(email, "Email") or validate_optional_email(parent_email, "Parent Email")
+                if email_error:
+                    flash(email_error, "error")
+                    return redirect(url_for("student_settings_page"))
+                whatsapp_number, whatsapp_error = normalize_whatsapp_number(whatsapp_raw) if whatsapp_raw else (None, None)
+                if whatsapp_error:
+                    flash(whatsapp_error, "error")
+                    return redirect(url_for("student_settings_page"))
+                if not name:
+                    flash("Student Name is required.", "error")
+                    return redirect(url_for("student_settings_page"))
+                if medium not in SUPPORTED_MEDIA:
+                    medium = "English"
+                profile_url, profile_error = upload_student_profile_image_to_supabase(student.id, request.files.get("profile_photo"))
+                if profile_error:
+                    flash(profile_error, "error")
+                    return redirect(url_for("student_settings_page"))
+                student.name = name
+                student.email = email or None
+                student.parent_email = parent_email or None
+                student.medium = medium
+                if whatsapp_number:
+                    student.whatsapp_number = whatsapp_number
+                    student.mobile = whatsapp_number
+                if profile_url:
+                    student.profile_image_url = profile_url
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Profile updated successfully.", "success")
+            elif action == "change_password":
+                current_password = request.form.get("current_password") or ""
+                new_password = request.form.get("new_password") or ""
+                confirm_password = request.form.get("confirm_password") or ""
+                if not student.password_hash or not check_password_hash(student.password_hash, current_password):
+                    flash("Current password is incorrect.", "error")
+                elif len(new_password) < 6:
+                    flash("New password must be at least 6 characters.", "error")
+                elif new_password != confirm_password:
+                    flash("Password confirmation does not match.", "error")
+                else:
+                    student.password_hash = generate_password_hash(new_password)
+                    student.last_activity_date = date.today()
+                    db.session.commit()
+                    flash("Password changed successfully.", "success")
+            elif action == "logout_all_devices":
+                session.clear()
+                flash("You have been logged out securely.", "success")
+                return redirect(url_for("login"))
+            elif action == "update_language":
+                ui_language = (request.form.get("ui_language") or "English").strip()
+                if ui_language not in {"Sinhala", "English"}:
+                    ui_language = "English"
+                if hasattr(student, "ui_language"):
+                    student.ui_language = ui_language
+                else:
+                    student.medium = ui_language
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Language preferences saved.", "success")
+            elif action == "update_notifications":
+                pref = get_notification_preferences(student.id)
+                for field in ["assignment_notifications", "quiz_notifications", "live_class_notifications", "new_lesson_notifications", "whatsapp_notifications", "email_notifications"]:
+                    setattr(pref, field, truthy_form_value(field))
+                pref.updated_at = datetime.utcnow()
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Notification preferences saved.", "success")
+            elif action == "update_learning_preferences":
+                pref = get_learning_preferences(student.id)
+                pref.autoplay_videos = truthy_form_value("autoplay_videos")
+                quality = (request.form.get("preferred_video_quality") or "auto").strip()
+                pref.preferred_video_quality = quality if quality in {"auto", "360p", "720p", "1080p"} else "auto"
+                pref.show_english_terms = truthy_form_value("show_english_terms")
+                pref.show_sinhala_terms = truthy_form_value("show_sinhala_terms")
+                pref.dark_mode = truthy_form_value("dark_mode")
+                pref.updated_at = datetime.utcnow()
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Learning preferences saved.", "success")
+            elif action == "update_parent_contact":
+                parent_email = (request.form.get("parent_email") or "").strip()
+                whatsapp_raw = (request.form.get("whatsapp_number") or "").strip()
+                email_error = validate_optional_email(parent_email, "Parent Email")
+                if email_error:
+                    flash(email_error, "error")
+                    return redirect(url_for("student_settings_page"))
+                whatsapp_number, whatsapp_error = normalize_whatsapp_number(whatsapp_raw) if whatsapp_raw else (None, None)
+                if whatsapp_error:
+                    flash(whatsapp_error, "error")
+                    return redirect(url_for("student_settings_page"))
+                student.parent_email = parent_email or None
+                if whatsapp_number:
+                    student.whatsapp_number = whatsapp_number
+                    student.mobile = whatsapp_number
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Parent communication details updated.", "success")
+            elif action == "submit_support_request":
+                subject = (request.form.get("subject") or "").strip()
+                message = (request.form.get("message") or "").strip()
+                if not subject or not message:
+                    flash("Support subject and message are required.", "error")
+                else:
+                    db.session.add(StudentSupportRequest(student_id=student.id, subject=subject[:200], message=message, status="open"))
+                    student.last_activity_date = date.today()
+                    db.session.commit()
+                    flash("Your support request has been submitted.", "success")
+            elif action == "update_achievement_settings":
+                settings = get_achievement_settings(student.id)
+                settings.public_profile = truthy_form_value("public_profile")
+                settings.show_rank_on_leaderboard = truthy_form_value("show_rank_on_leaderboard")
+                settings.show_achievements_to_others = truthy_form_value("show_achievements_to_others")
+                settings.updated_at = datetime.utcnow()
+                student.last_activity_date = date.today()
+                db.session.commit()
+                flash("Achievement settings saved.", "success")
+            else:
+                flash("Unknown settings action.", "error")
+        except Exception as exc:
+            db.session.rollback()
+            flash("Settings could not be saved. Please try again or contact support.", "error")
+        return redirect(url_for("student_settings_page"))
+
+    notifications = get_notification_preferences(student.id)
+    learning = get_learning_preferences(student.id)
+    achievements = get_achievement_settings(student.id)
+    payments = get_subscription_payment_history(student.id)
+    latest_login = get_latest_student_login_log(student.id)
+    days_remaining = calculate_subscription_days_remaining(student)
+    expiry = getattr(student, "subscription_valid_until", None) or getattr(student, "subscription_end_date", None)
+    current_plan = "Premium" if getattr(student, "is_premium", False) else "Free"
+    subscription_status = getattr(student, "subscription_status", None) or ("active" if getattr(student, "is_premium", False) else "free")
+    profile_image_url = getattr(student, "profile_image_url", None) or ""
+    initials = student_initials(getattr(student, "name", ""))
+    account_created = format_student_settings_date(getattr(student, "created_at", None), True)
+    last_activity = format_student_settings_date(getattr(student, "last_activity_date", None))
+    current_login_time = session.get("student_login_time") or "Current session"
+    flash_html = "".join(f"<div class='settings-flash {escape(cat)}'>{escape(msg)}</div>" for cat, msg in get_flashed_messages(with_categories=True))
+
+    def val(value, default="Not provided"):
+        text = "" if value is None else str(value)
+        return escape(text if text else default)
+
+    def checked(value):
+        return "checked" if value else ""
+
+    def setting_row(label, value):
+        return f"<div class='settings-info-row'><span>{label}</span><strong>{value}</strong></div>"
+
+    payment_rows = []
+    for payment in payments:
+        proof = f"<a href='{escape(payment.proof_url)}' target='_blank' rel='noopener'>View proof</a>" if getattr(payment, "proof_url", None) else "—"
+        payment_rows.append(f"<tr><td>{format_student_settings_date(payment.created_at)}</td><td>{val(payment.plan_type).title()}</td><td>Rs. {val(payment.amount)}</td><td>{val(payment.payment_method)}</td><td><span class='settings-badge'>{val(payment.status)}</span></td><td>{proof}</td></tr>")
+    payment_history_html = "".join(payment_rows) or "<tr><td colspan='6'>No payment history available.</td></tr>"
+
+    nav_items = [("profile", "Profile"), ("security", "Security"), ("subscription", "Subscription"), ("language", "Language"), ("notifications", "Notifications"), ("learning", "Learning"), ("parent", "Parent"), ("device", "Device"), ("support", "Support"), ("about", "About"), ("achievements", "Achievements")]
+    nav_html = "".join(f"<a href='#{key}'>{label}</a>" for key, label in nav_items)
+
+    content_html = f"""
+    <style>
+      .settings-page{{display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start}}.settings-hero{{grid-column:1/-1;background:linear-gradient(135deg,#0f347a,#2563eb 70%,#60a5fa);color:#fff;border-radius:28px;padding:26px;box-shadow:0 18px 44px rgba(37,99,235,.22);overflow:hidden;position:relative}}.settings-hero h1{{margin:0 0 8px;font-size:32px}}.settings-hero p{{margin:0;color:#dbeafe;max-width:760px;line-height:1.55}}.settings-mini-nav{{position:sticky;top:14px;background:rgba(255,255,255,.9);border:1px solid rgba(219,234,254,.9);border-radius:22px;padding:12px;box-shadow:0 14px 35px rgba(15,23,42,.08);display:flex;flex-direction:column;gap:6px}}.settings-mini-nav a{{text-decoration:none;color:#1e3a8a;font-weight:900;border-radius:14px;padding:10px 12px;background:#f8fbff}}.settings-mini-nav a:hover{{background:#dbeafe}}.settings-stack{{display:flex;flex-direction:column;gap:18px}}.settings-card{{background:rgba(255,255,255,.94);border:1px solid rgba(219,234,254,.9);border-radius:24px;padding:20px;box-shadow:0 16px 40px rgba(15,23,42,.08)}}.settings-card h2{{margin:0 0 6px;color:#0f347a;font-size:23px}}.settings-card p.muted{{margin:0 0 16px;color:#64748b}}.settings-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}.settings-field{{display:flex;flex-direction:column;gap:7px}}.settings-field label{{font-weight:900;color:#334155}}.settings-field input,.settings-field select,.settings-field textarea{{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px 12px;font:inherit;background:#fff;color:#0f172a}}.settings-btn{{border:0;border-radius:14px;background:#2563eb;color:#fff;font-weight:900;padding:11px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 10px 24px rgba(37,99,235,.22)}}.settings-btn.secondary{{background:#e0f2fe;color:#075985;box-shadow:none}}.settings-btn.danger{{background:#dc2626}}.settings-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}}.settings-profile-head{{display:flex;gap:16px;align-items:center;margin:12px 0 18px}}.settings-profile-photo{{width:96px;height:96px;border-radius:28px;background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-size:30px;font-weight:1000;overflow:hidden;border:4px solid #fff;box-shadow:0 14px 30px rgba(15,23,42,.12)}}.settings-profile-photo img{{width:100%;height:100%;object-fit:cover}}.settings-info-list{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}}.settings-info-row{{background:#f8fbff;border:1px solid #dbeafe;border-radius:16px;padding:12px}}.settings-info-row span{{display:block;color:#64748b;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.03em}}.settings-info-row strong{{display:block;color:#0f172a;margin-top:4px;word-break:break-word}}.settings-toggle-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}.settings-toggle{{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#f8fbff;border:1px solid #dbeafe;border-radius:16px;padding:12px;font-weight:900}}.settings-toggle input{{width:20px;height:20px}}.settings-badge{{display:inline-flex;border-radius:999px;background:#dbeafe;color:#1e3a8a;padding:5px 10px;font-weight:900;font-size:12px}}.discount-badge{{background:#fef3c7;color:#92400e}}.settings-table-wrap{{overflow:auto;border-radius:16px;border:1px solid #dbeafe}}.settings-table{{width:100%;border-collapse:collapse;background:#fff;min-width:680px}}.settings-table th,.settings-table td{{padding:11px 12px;border-bottom:1px solid #e2e8f0;text-align:left}}.settings-table th{{background:#eff6ff;color:#1e3a8a;font-size:12px;text-transform:uppercase}}.settings-flash{{border-radius:14px;padding:12px 14px;font-weight:900;margin-bottom:10px}}.settings-flash.success{{background:#dcfce7;color:#166534}}.settings-flash.error{{background:#fee2e2;color:#991b1b}}.support-cards{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}.support-card{{background:linear-gradient(135deg,#eff6ff,#fff);border:1px solid #dbeafe;border-radius:18px;padding:14px}}.support-card strong{{display:block;color:#0f347a;margin-bottom:4px}}@media(max-width:920px){{.settings-page{{grid-template-columns:1fr}}.settings-mini-nav{{position:static;flex-direction:row;overflow:auto}}.settings-mini-nav a{{white-space:nowrap}}}}@media(max-width:680px){{.settings-grid,.settings-info-list,.settings-toggle-grid,.support-cards{{grid-template-columns:1fr}}.settings-hero h1{{font-size:26px}}.settings-card{{padding:16px;border-radius:20px}}}}
+    </style>
+    <section class='settings-page'>
+      <div class='settings-hero'><h1>Student Settings · ශිෂ්‍ය සැකසුම්</h1><p>Manage your SLIS profile, security, subscription, parent communication, learning preferences, notifications, support, and achievements in one secure place.</p></div>
+      <nav class='settings-mini-nav' aria-label='Settings sections'>{nav_html}</nav>
+      <div class='settings-stack'>{flash_html}
+        <section class='settings-card' id='profile'><h2>1. My Profile · මගේ පැතිකඩ</h2><p class='muted'>Update parent/student contact information and your profile photo.</p><div class='settings-profile-head'><div class='settings-profile-photo'>{f"<img src='{escape(profile_image_url)}' alt='Profile photo'>" if profile_image_url else initials}</div><div><h3>{val(student.name)}</h3><span class='settings-badge'>{val(student.username, 'Registration number pending')}</span></div></div><div class='settings-info-list'>{setting_row('Grade', val(student.grade))}{setting_row('Medium', val(student.medium))}{setting_row('School ID', 'Linked' if getattr(student,'school_id',None) else 'Not assigned')}{setting_row('Class ID', 'Linked' if getattr(student,'class_id',None) else 'Not assigned')}{setting_row('Batch ID', 'Linked' if getattr(student,'batch_id',None) else 'Not assigned')}{setting_row('Group ID', 'Linked' if getattr(student,'group_id',None) else 'Not assigned')}{setting_row('Email', val(student.email))}{setting_row('WhatsApp Number', val(student_whatsapp_number(student)))}</div><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='update_profile'><div class='settings-grid'><div class='settings-field'><label>Student Name</label><input name='name' value='{val(student.name, '')}' required></div><div class='settings-field'><label>Email</label><input name='email' value='{val(student.email, '')}'></div><div class='settings-field'><label>WhatsApp Number</label><input name='whatsapp_number' value='{val(student_whatsapp_number(student), '')}'></div><div class='settings-field'><label>Parent Email</label><input name='parent_email' value='{val(student.parent_email, '')}'></div><div class='settings-field'><label>Medium</label><select name='medium'><option {'selected' if student.medium=='English' else ''}>English</option><option {'selected' if student.medium=='Sinhala' else ''}>Sinhala</option></select></div><div class='settings-field'><label>Profile Photo (png/jpg/jpeg/webp, max 2MB)</label><input type='file' name='profile_photo' accept='.png,.jpg,.jpeg,.webp'></div></div><div class='settings-actions'><button class='settings-btn' type='submit'>Save Profile</button></div></form></section>
+        <section class='settings-card' id='security'><h2>2. Account Security</h2><div class='settings-info-list'>{setting_row('Account created', account_created)}{setting_row('Last activity', last_activity)}</div><form method='post'><input type='hidden' name='action' value='change_password'><div class='settings-grid'><div class='settings-field'><label>Current Password</label><input type='password' name='current_password' required></div><div class='settings-field'><label>New Password (minimum 6 characters)</label><input type='password' name='new_password' minlength='6' required></div><div class='settings-field'><label>Confirm New Password</label><input type='password' name='confirm_password' minlength='6' required></div></div><div class='settings-actions'><button class='settings-btn' type='submit'>Change Password</button></div></form><form method='post'><input type='hidden' name='action' value='logout_all_devices'><div class='settings-actions'><button class='settings-btn danger' type='submit'>Logout from all devices</button></div></form></section>
+        <section class='settings-card' id='subscription'><h2>3. Subscription & Billing</h2><div class='settings-info-list'>{setting_row('Current Plan', current_plan)}{setting_row('Subscription Status', val(subscription_status).title())}{setting_row('Valid Until / Expiry Date', format_student_settings_date(expiry))}{setting_row('Days Remaining', str(days_remaining) if days_remaining is not None else 'Not available')}{setting_row('Monthly Plan', 'Rs.490')}{setting_row('Annual Plan', "Rs.3,500 <span class='settings-badge discount-badge'>40% discount, limited time only</span>")}</div><div class='settings-actions'><a class='settings-btn' href='/subscribe'>Upgrade / Renew Premium</a></div><h3>Payment History</h3><div class='settings-table-wrap'><table class='settings-table'><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Payment Method</th><th>Status</th><th>Proof</th></tr></thead><tbody>{payment_history_html}</tbody></table></div></section>
+        <section class='settings-card' id='language'><h2>4. Language Preferences</h2><p class='muted'>Learning medium: <strong>{val(student.medium)}</strong></p><form method='post'><input type='hidden' name='action' value='update_language'><div class='settings-field'><label>Interface / UI Language</label><select name='ui_language'><option {'selected' if (getattr(student,'ui_language',None) or student.medium)=='English' else ''}>English</option><option {'selected' if (getattr(student,'ui_language',None) or student.medium)=='Sinhala' else ''}>Sinhala</option></select></div><div class='settings-actions'><button class='settings-btn' type='submit'>Save Language</button></div></form></section>
+        <section class='settings-card' id='notifications'><h2>5. Notifications</h2><form method='post'><input type='hidden' name='action' value='update_notifications'><div class='settings-toggle-grid'>{''.join([f"<label class='settings-toggle'><span>{label}</span><input type='checkbox' name='{field}' {checked(getattr(notifications, field))}></label>" for field,label in [('assignment_notifications','Assignment Notifications'),('quiz_notifications','Quiz Notifications'),('live_class_notifications','Live Class Notifications'),('new_lesson_notifications','New Lesson Notifications'),('whatsapp_notifications','WhatsApp Notifications'),('email_notifications','Email Notifications')]])}</div><div class='settings-actions'><button class='settings-btn' type='submit'>Save Notifications</button></div></form></section>
+        <section class='settings-card' id='learning'><h2>6. Learning Preferences</h2><form method='post'><input type='hidden' name='action' value='update_learning_preferences'><div class='settings-grid'><div class='settings-field'><label>Video Quality</label><select name='preferred_video_quality'>{''.join([f"<option value='{q}' {'selected' if learning.preferred_video_quality==q else ''}>{q.upper() if q=='auto' else q}</option>" for q in ['auto','360p','720p','1080p']])}</select></div></div><div class='settings-toggle-grid'>{''.join([f"<label class='settings-toggle'><span>{label}</span><input type='checkbox' name='{field}' {checked(getattr(learning, field))}></label>" for field,label in [('autoplay_videos','Auto Play Videos'),('show_english_terms','Show English Terms'),('show_sinhala_terms','Show Sinhala Terms'),('dark_mode','Dark Mode')]])}</div><div class='settings-actions'><button class='settings-btn' type='submit'>Save Learning Preferences</button></div></form></section>
+        <section class='settings-card' id='parent'><h2>7. Parent Communication</h2><div class='settings-info-list'>{setting_row('Parent WhatsApp Number', val(student_whatsapp_number(student)))}{setting_row('Parent Email', val(student.parent_email))}{setting_row('Student WhatsApp Number', val(student_whatsapp_number(student)))}</div><form method='post'><input type='hidden' name='action' value='update_parent_contact'><div class='settings-grid'><div class='settings-field'><label>Parent Email</label><input name='parent_email' value='{val(student.parent_email, '')}'></div><div class='settings-field'><label>Student / Parent WhatsApp Number</label><input name='whatsapp_number' value='{val(student_whatsapp_number(student), '')}'></div></div><div class='settings-actions'><button class='settings-btn' type='submit'>Update Contact</button><a class='settings-btn secondary' href='https://wa.me/94703755777' target='_blank' rel='noopener'>WhatsApp SLIS Support</a><a class='settings-btn secondary' href='mailto:support@slis-e.com'>Email Support</a></div></form></section>
+        <section class='settings-card' id='device'><h2>8. Device Information</h2><div class='settings-info-list'>{setting_row('Current browser / user agent', val(request.headers.get('User-Agent')))}{setting_row('Current IP address', val(get_request_ip_address()))}{setting_row('Current login/session time', val(current_login_time))}{setting_row('Last login log', format_student_settings_date(getattr(latest_login,'logged_in_at',None), True))}{setting_row('Account created', account_created)}{setting_row('Last activity', last_activity)}</div></section>
+        <section class='settings-card' id='support'><h2>9. Help & Support</h2><div class='support-cards'><div class='support-card'><strong>WhatsApp Support</strong>070 375 5777</div><div class='support-card'><strong>Website</strong>slis-e.com</div><div class='support-card'><strong>Email</strong>support@slis-e.com</div></div><div class='settings-actions'><button class='settings-btn secondary' type='button'>FAQ</button><button class='settings-btn secondary' type='button'>Report a Problem</button></div><form method='post'><input type='hidden' name='action' value='submit_support_request'><div class='settings-grid'><div class='settings-field'><label>Subject</label><input name='subject' required></div><div class='settings-field'><label>Message</label><textarea name='message' rows='4' required></textarea></div></div><div class='settings-actions'><button class='settings-btn' type='submit'>Submit Support Request</button></div></form></section>
+        <section class='settings-card' id='about'><h2>10. About SLIS</h2><div class='settings-info-list'>{setting_row('Name', 'Spiral Learning Intelligence System')}{setting_row('Version', '1.0')}{setting_row('Website', 'slis-e.com')}{setting_row('WhatsApp', '070 375 5777')}{setting_row('Tagline', 'Learn Smarter. Grow Faster.')}</div><p class='muted'>SLIS is a future-focused online learning system aligned with the Sri Lankan government syllabus.</p><p class='muted'>SLIS යනු ශ්‍රී ලංකා රජයේ විෂය නිර්දේශයට ගැළපෙන අනාගතය මූලික කරගත් මාර්ගගත ඉගෙනුම් පද්ධතියකි.</p></section>
+        <section class='settings-card' id='achievements'><h2>11. Achievement Settings</h2><form method='post'><input type='hidden' name='action' value='update_achievement_settings'><div class='settings-toggle-grid'>{''.join([f"<label class='settings-toggle'><span>{label}</span><input type='checkbox' name='{field}' {checked(getattr(achievements, field))}></label>" for field,label in [('public_profile','Public Profile'),('show_rank_on_leaderboard','Show Rank on Leaderboard'),('show_achievements_to_others','Show Achievements to Others')]])}</div><div class='settings-actions'><button class='settings-btn' type='submit'>Save Achievement Settings</button></div></form></section>
+      </div>
+    </section>
+    """
+    return render_student_dashboard_shell(content_html, active_nav="settings")
+
 @app.route("/student/live-classes", methods=["GET"])
 def student_live_classes():
     student_id = session.get("student_id")
@@ -12319,7 +12793,6 @@ def student_messages_page():
 @app.route("/student/progress", methods=["GET"])
 @app.route("/student/calendar", methods=["GET"])
 @app.route("/student/achievements", methods=["GET"])
-@app.route("/student/settings", methods=["GET"])
 def student_shell_pages():
     student_id = session.get("student_id")
     if not student_id:
