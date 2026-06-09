@@ -11384,9 +11384,10 @@ def render_subscription_page(student: Student, message: str = "") -> str:
             <div class='bank-row'><span class='bank-label'>Branch</span><span class='bank-value'>{branch}</span></div>
           </div>
           <ul class='instructions'>
-            <li>Use your student name or phone number as the transfer reference when possible.</li>
-            <li>හැකි නම් බැංකු මාරු කිරීමේ reference ලෙස ශිෂ්‍ය නම හෝ දුරකථන අංකය යොදන්න.</li>
+            <li>Use your Student Registration Number / Username as the bank transfer reference.</li>
+            <li>බැංකු මාරු කිරීමේ reference ලෙස ඔබගේ ශිෂ්‍ය ලියාපදිංචි අංකය / Username යොදන්න.</li>
             <li>After payment, upload a clear photo or PDF of the bank deposit / transfer slip.</li>
+            <li>ගෙවීමෙන් පසු, බැංකු තැන්පතු පත්‍රයේ / බැංකු මාරු කිරීමේ රිසිට්පතේ පැහැදිලි ඡායාරූපයක් හෝ PDF ගොනුවක් උඩුගත කරන්න.</li>
           </ul>
         </div>
         <div class='premium-card upload-card'>
@@ -11400,7 +11401,7 @@ def render_subscription_page(student: Student, message: str = "") -> str:
             <input type='hidden' name='payment_method' value='bank_transfer'>
             <label>Payment Method / ගෙවූ ක්‍රමය</label>
             <div class='method-lock'>Bank Deposit / Bank Transfer</div>
-            <label>Upload bank deposit / transfer slip
+            <label>Upload bank deposit / transfer slip / බැංකු තැන්පතු / බැංකු මාරු කිරීමේ රිසිට්පත උඩුගත කරන්න
               <input type='file' name='proof' accept='.png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf' required>
             </label>
             <p class='accepted-note'>Accepted: PNG, JPG, WEBP, PDF. Max 5MB.</p>
