@@ -1705,6 +1705,158 @@ def validate_drag_color_match_activity(items: list[dict], drop_zones: list[dict]
             return f"Hand {index} needs an accept_color."
     return None
 
+
+def parse_sort_by_size_mango_baskets_activity(activity_json: str | dict | None) -> dict:
+    if not activity_json:
+        return {}
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    if not isinstance(payload, dict):
+        return {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or payload.get("slide_type") or "").strip().lower()
+    if activity_type != "sort_by_size_drag_drop":
+        return {}
+
+    containers = []
+    for fallback_id, fallback_label_si, fallback_label_en in (("big", "ලොකු අඹ", "Big Mangoes"), ("small", "කුඩා අඹ", "Small Mangoes")):
+        source = next((c for c in (payload.get("containers") or []) if isinstance(c, dict) and str(c.get("id") or "").strip().lower() == fallback_id), {})
+        containers.append({
+            "id": fallback_id,
+            "label_si": str(source.get("label_si") or fallback_label_si).strip(),
+            "label_en": str(source.get("label_en") or fallback_label_en).strip(),
+            "image_url": str(source.get("image_url") or "").strip(),
+        })
+
+    items = []
+    for index, item in enumerate(payload.get("items") or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        size = str(item.get("size") or item.get("target") or "").strip().lower()
+        if size not in {"big", "small"}:
+            continue
+        image_url = str(item.get("image_url") or "").strip()
+        items.append({
+            "id": str(item.get("id") or f"{size}_mango_{index}").strip() or f"{size}_mango_{index}",
+            "target": size,
+            "image_url": image_url,
+            "size": size,
+        })
+
+    normalized_payload = dict(payload)
+    normalized_payload["type"] = "sort_by_size_drag_drop"
+    normalized_payload["slide_type"] = "sort_by_size_drag_drop"
+    normalized_payload["activity_type"] = "sort_by_size_drag_drop"
+    normalized_payload["title_en"] = str(payload.get("title_en") or "Sort the Mangoes").strip()
+    normalized_payload["title_si"] = str(payload.get("title_si") or "අඹ ගෙඩි වර්ග කරමු").strip()
+    normalized_payload["instruction_en"] = str(payload.get("instruction_en") or "Look at the size of each mango and drag it to the correct basket.").strip()
+    normalized_payload["instruction_si"] = str(payload.get("instruction_si") or "අඹ ගෙඩිවල ප්‍රමාණය බලලා නිවැරදි කූඩයට දමන්න.").strip()
+    normalized_payload["background_image_url"] = str(payload.get("background_image_url") or "").strip()
+    normalized_payload["containers"] = containers
+    normalized_payload["items"] = items
+    normalized_payload["success_message_en"] = str(payload.get("success_message_en") or "You sorted the mangoes correctly!").strip()
+    normalized_payload["success_message_si"] = str(payload.get("success_message_si") or "ඔබ අඹ ගෙඩි නිවැරදිව වර්ග කර ඇත!").strip()
+    normalized_payload["try_again_message_en"] = str(payload.get("try_again_message_en") or "Try again.").strip()
+    normalized_payload["try_again_message_si"] = str(payload.get("try_again_message_si") or "නැවත උත්සාහ කරන්න.").strip()
+    return normalized_payload
+
+
+def default_sort_by_size_mango_baskets_payload(title_en: str | None = None, title_si: str | None = None, instruction_en: str | None = None, instruction_si: str | None = None) -> dict:
+    return parse_sort_by_size_mango_baskets_activity({
+        "type": "sort_by_size_drag_drop",
+        "slide_type": "sort_by_size_drag_drop",
+        "activity_type": "sort_by_size_drag_drop",
+        "title_en": title_en or "Sort the Mangoes",
+        "title_si": title_si or "අඹ ගෙඩි වර්ග කරමු",
+        "instruction_en": instruction_en or "Look at the size of each mango and drag it to the correct basket.",
+        "instruction_si": instruction_si or "අඹ ගෙඩිවල ප්‍රමාණය බලලා නිවැරදි කූඩයට දමන්න.",
+        "background_image_url": "",
+        "containers": [
+            {"id": "big", "label_si": "ලොකු අඹ", "label_en": "Big Mangoes", "image_url": ""},
+            {"id": "small", "label_si": "කුඩා අඹ", "label_en": "Small Mangoes", "image_url": ""},
+        ],
+        "items": [],
+        "success_message_en": "You sorted the mangoes correctly!",
+        "success_message_si": "ඔබ අඹ ගෙඩි නිවැරදිව වර්ග කර ඇත!",
+        "try_again_message_en": "Try again.",
+        "try_again_message_si": "නැවත උත්සාහ කරන්න.",
+    })
+
+
+def build_sort_by_size_mango_baskets_activity_json(
+    base_payload: dict | None,
+    background_image_url: str,
+    big_mango_image_url: str,
+    small_mango_image_url: str,
+    big_basket_image_url: str,
+    small_basket_image_url: str,
+    big_count: int,
+    small_count: int,
+    big_label_si: str,
+    big_label_en: str,
+    small_label_si: str,
+    small_label_en: str,
+    title_en: str | None = None,
+    title_si: str | None = None,
+    instruction_en: str | None = None,
+    instruction_si: str | None = None,
+    success_message_en: str | None = None,
+    success_message_si: str | None = None,
+    try_again_message_en: str | None = None,
+    try_again_message_si: str | None = None,
+) -> str:
+    payload = parse_sort_by_size_mango_baskets_activity(base_payload) or default_sort_by_size_mango_baskets_payload(title_en, title_si, instruction_en, instruction_si)
+    big_count = max(0, min(12, int(big_count or 0)))
+    small_count = max(0, min(12, int(small_count or 0)))
+    items = []
+    for index in range(1, big_count + 1):
+        items.append({"id": f"big_mango_{index}", "target": "big", "image_url": big_mango_image_url, "size": "big"})
+    for index in range(1, small_count + 1):
+        items.append({"id": f"small_mango_{index}", "target": "small", "image_url": small_mango_image_url, "size": "small"})
+    payload.update({
+        "type": "sort_by_size_drag_drop",
+        "slide_type": "sort_by_size_drag_drop",
+        "activity_type": "sort_by_size_drag_drop",
+        "title_en": (title_en if title_en is not None else payload.get("title_en") or "Sort the Mangoes").strip(),
+        "title_si": (title_si if title_si is not None else payload.get("title_si") or "අඹ ගෙඩි වර්ග කරමු").strip(),
+        "instruction_en": (instruction_en if instruction_en is not None else payload.get("instruction_en") or "Look at the size of each mango and drag it to the correct basket.").strip(),
+        "instruction_si": (instruction_si if instruction_si is not None else payload.get("instruction_si") or "අඹ ගෙඩිවල ප්‍රමාණය බලලා නිවැරදි කූඩයට දමන්න.").strip(),
+        "background_image_url": str(background_image_url or "").strip(),
+        "containers": [
+            {"id": "big", "label_si": (big_label_si or "ලොකු අඹ").strip(), "label_en": (big_label_en or "Big Mangoes").strip(), "image_url": str(big_basket_image_url or "").strip()},
+            {"id": "small", "label_si": (small_label_si or "කුඩා අඹ").strip(), "label_en": (small_label_en or "Small Mangoes").strip(), "image_url": str(small_basket_image_url or "").strip()},
+        ],
+        "items": items,
+        "success_message_en": (success_message_en if success_message_en is not None else payload.get("success_message_en") or "You sorted the mangoes correctly!").strip(),
+        "success_message_si": (success_message_si if success_message_si is not None else payload.get("success_message_si") or "ඔබ අඹ ගෙඩි නිවැරදිව වර්ග කර ඇත!").strip(),
+        "try_again_message_en": (try_again_message_en if try_again_message_en is not None else payload.get("try_again_message_en") or "Try again.").strip(),
+        "try_again_message_si": (try_again_message_si if try_again_message_si is not None else payload.get("try_again_message_si") or "නැවත උත්සාහ කරන්න.").strip(),
+    })
+    return json.dumps(parse_sort_by_size_mango_baskets_activity(payload), ensure_ascii=False)
+
+
+def validate_sort_by_size_mango_baskets_activity(payload: dict) -> str | None:
+    if not str(payload.get("background_image_url") or "").strip():
+        return "Sort by Size – Mango Baskets requires a background image."
+    containers = {str(c.get("id") or ""): c for c in payload.get("containers") or [] if isinstance(c, dict)}
+    for container_id, label in (("big", "big mango basket"), ("small", "small mango basket")):
+        if not str((containers.get(container_id) or {}).get("image_url") or "").strip():
+            return f"Sort by Size – Mango Baskets requires a {label} image."
+    items = payload.get("items") or []
+    if not items:
+        return "Set at least one big mango and one small mango."
+    item_sizes = {str(item.get("size") or item.get("target") or "").strip().lower() for item in items if isinstance(item, dict)}
+    if "big" not in item_sizes or "small" not in item_sizes:
+        return "Set at least one big mango and one small mango."
+    for item in items:
+        if not str(item.get("image_url") or "").strip():
+            return "Sort by Size – Mango Baskets requires uploaded big and small mango images for every configured item."
+    return None
+
 def parse_tap_correct_picture_activity(activity_json: str | dict | None) -> dict:
     if not activity_json:
         return {}
@@ -11368,7 +11520,7 @@ def student_subject_module_page(subject_id: int, module_id: int):
         slide_count = sum(int(lesson_slide_counts.get(lesson_id, 0) or 0) for lesson_id in chapter_lesson_ids)
         ctype_counts["video"] = sum(1 for lesson_id in chapter_lesson_ids if lesson_slide_counts.get(lesson_id, 0))
         ctype_counts["note"] = slide_count
-        ctype_counts["activity"] = LessonSlide.query.filter(LessonSlide.lesson_id.in_(chapter_lesson_ids), LessonSlide.is_active.is_(True), LessonSlide.slide_type.in_(["quiz", "activity", "tap_correct_picture", "image_grid", "shape_flag_sorting", "drag_drop_circle_size_match", "interactive_video", "manual_interim_test"])).count() if chapter_lesson_ids else 0
+        ctype_counts["activity"] = LessonSlide.query.filter(LessonSlide.lesson_id.in_(chapter_lesson_ids), LessonSlide.is_active.is_(True), LessonSlide.slide_type.in_(["quiz", "activity", "tap_correct_picture", "image_grid", "shape_flag_sorting", "drag_drop_circle_size_match", "sort_by_size_drag_drop", "drag_color_match", "interactive_video", "manual_interim_test"])).count() if chapter_lesson_ids else 0
         ctype_counts["practice"] = completed_lessons
         ctype_counts["test"] = max(0, lesson_count - completed_lessons)
         total_video_count += lesson_count
@@ -12547,7 +12699,7 @@ def student_lesson_page(lesson_id: int):
         return activityData[primary] || activityData[secondary] || activityData[fieldBase] || fallbackValue || "";
       }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "drag_drop_circle_size_match") {{ const rawItems = Array.isArray(activityData.items) ? activityData.items : []; const rawTargets = Array.isArray(activityData.targets) ? activityData.targets : []; const targetIds = new Set(rawTargets.map((target)=>String(target?.id || "").trim()).filter(Boolean)); const items = rawItems.filter((item)=>String(item?.id || "").trim() && String(item?.target_id || "").trim() && targetIds.has(String(item?.target_id || "").trim())).slice(0, 3); const targets = rawTargets.filter((target)=>String(target?.id || "").trim()).slice(0, 3); if (!items.length || !targets.length) return `<div class="activity-wrap drag-circle-match"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", questionTitle))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා දත්ත සොයාගත නොහැක." : "This activity is missing its matching data."}}</p></div>`; const title = localizedActivityText(activityData, "title", questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const itemCards = items.map((item, idx)=>{{ const itemId = String(item.id || `item-${{idx + 1}}`); const label = String(item.label_si || item.label || item.name_si || item.name || itemId); const imageUrl = String(item.image_url || "").trim(); const fallbackText = escapeHtml((label || "●").trim().slice(0, 1) || "●"); const media = imageUrl ? `<img src="${{escapeHtml(imageUrl)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><span class="ddcs-image-fallback" style="display:none;">${{fallbackText}}</span>` : `<span class="ddcs-image-fallback">${{fallbackText}}</span>`; return `<button type="button" class="ddcs-item" data-item-id="${{escapeHtml(itemId)}}" data-target-id="${{escapeHtml(String(item.target_id || ""))}}" data-label="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}"><span class="ddcs-item-shell">${{media}}</span><span class="ddcs-item-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const targetCards = targets.map((target)=>{{ const targetId = String(target.id || ""); const label = String(target.label_si || target.label || targetId); const size = Math.max(96, Math.min(260, Number(target.size_px || 150))); return `<div class="ddcs-target-card"><div class="ddcs-target-circle" data-target-id="${{escapeHtml(targetId)}}" style="--ddcs-target-size:${{size}}px;width:${{size}}px;height:${{size}}px;"></div><div class="ddcs-target-label">${{escapeHtml(label)}}</div></div>`; }}).join(""); return `<div class="activity-wrap drag-circle-match" data-activity-type="drag_drop_circle_size_match"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="ddcs-board"><section class="ddcs-source-zone"><p class="ddcs-section-label">${{isSinhala ? "ඇදගෙන යන භාණ්ඩ" : "Drag the objects"}}</p><div class="ddcs-items-row">${{itemCards}}</div></section><section class="ddcs-target-zone"><p class="ddcs-section-label">${{isSinhala ? "ගැලපෙන වෘත්ත තෝරන්න" : "Match each circle size"}}</p><div class="ddcs-targets-row">${{targetCards}}</div></section></div><div class="activity-actions"><button type="button" class="ddcs-reset">නැවත කරන්න</button><div class="ddcs-message" id="ddcsMessage" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "shape_flag_sorting") {{ const rawFlags = Array.isArray(activityData.flags) ? activityData.flags : []; const shapeMeta = {{square:{{label_en:"Square Box",label_si:"චතුරස්‍ර පෙට්ටිය",rope_en:"Squares",rope_si:"චතුරස්‍ර"}},rectangle:{{label_en:"Rectangle Box",label_si:"සෘජුකෝණාස්‍ර පෙට්ටිය",rope_en:"Rectangles",rope_si:"සෘජුකෝණාස්‍ර"}},triangle:{{label_en:"Triangle Box",label_si:"ත්‍රිකෝණ පෙට්ටිය",rope_en:"Triangles",rope_si:"ත්‍රිකෝණ"}}}}; const defaultColors = {{square:"green",rectangle:"red",triangle:"blue"}}; const defaultFlags = ["square","rectangle","triangle"].flatMap((shape)=>[1,2,3].map((n)=>({{id:`${{shape}}-${{n}}`,shape,color:defaultColors[shape],label_en:`${{defaultColors[shape]}} ${{shape}} flag`,label_si:`${{shapeMeta[shape].rope_si}} කොඩිය`}}))); const flags = (rawFlags.length ? rawFlags : defaultFlags).map((flag, idx)=>{{ const shape = String(flag?.shape || flag?.target_shape || "").trim().toLowerCase(); return {{...flag,id:String(flag?.id || `flag-${{idx + 1}}`),shape,color:String(flag?.color || defaultColors[shape] || "").trim().toLowerCase()}}; }}).filter((flag)=>shapeMeta[flag.shape]).slice(0,9); if (flags.length !== 9) return `<div class="activity-wrap shape-flag-sorting" data-activity-type="shape_flag_sorting"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", "Shape Flag Sorting"))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා කොඩි 9ක් එක් කරන්න." : "Add 9 shape flags for this activity."}}</p></div>`; const title = localizedActivityText(activityData, "title", "Shape Flag Sorting"); const instruction = localizedActivityText(activityData, "instruction", isSinhala ? "කොඩි හැඩය අනුව වෙන් කර නිවැරදි වැලට අලවන්න." : "Sort the flags by shape and stick them on the correct rope."); const flagCards = flags.map((flag)=>{{ const label = String((isSinhala ? flag.label_si : flag.label_en) || flag.label || `${{flag.color}} ${{flag.shape}}`); const imageUrl = String(flag.image_url || "").trim(); const fallback = `<span class="sfs-fallback-shape ${{escapeHtml(flag.shape)}}" aria-hidden="true"></span>`; const media = imageUrl ? `<img src="${{escapeHtml(imageUrl)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">${{fallback}}` : fallback; return `<button type="button" class="sfs-flag" data-flag-id="${{escapeHtml(flag.id)}}" data-shape="${{escapeHtml(flag.shape)}}" data-color="${{escapeHtml(flag.color)}}" aria-label="${{escapeHtml(label)}}">${{media}}<span class="sfs-flag-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const boxes = ["square","rectangle","triangle"].map((shape)=>`<section class="sfs-sort-box" data-shape="${{shape}}"><div class="sfs-box-title">${{escapeHtml(isSinhala ? shapeMeta[shape].label_si : shapeMeta[shape].label_en)}}</div><div class="sfs-box-stack"></div></section>`).join(""); const ropes = ["square","rectangle","triangle"].map((shape, index)=>`<section class="sfs-rope-row" data-shape="${{shape}}"><div class="sfs-rope-label">${{index === 0 ? (isSinhala ? "ඉහළ වැල" : "Top Rope") : index === 1 ? (isSinhala ? "මැද වැල" : "Middle Rope") : (isSinhala ? "පහළ වැල" : "Bottom Rope")}}<br>${{escapeHtml(isSinhala ? shapeMeta[shape].rope_si : shapeMeta[shape].rope_en)}}</div><div class="sfs-rope-line">${{[0,1,2].map((slot)=>`<div class="sfs-slot" data-shape="${{shape}}" data-slot-index="${{slot}}" aria-label="${{shape}} slot ${{slot + 1}}"></div>`).join("")}}</div></section>`).join(""); return `<div class="activity-wrap shape-flag-sorting" data-activity-type="shape_flag_sorting"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="sfs-board"><div class="sfs-step-note" data-sfs-step-note>${{isSinhala ? "පියවර 1: හැඩ පෙට්ටි වලට වෙන් කරන්න" : "Step 1: Sort into shape boxes"}}</div><div class="sfs-tray">${{flagCards}}</div><div class="sfs-sort-area">${{boxes}}</div><div class="sfs-rope-area" aria-hidden="true">${{ropes}}</div></div><div class="activity-actions"><button type="button" class="sfs-reset">නැවත කරන්න</button><div class="sfs-message" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "drag_color_match") {{ const items = (Array.isArray(activityData.items) ? activityData.items : []).filter((item)=>String(item?.image_url || "").trim() && String(item?.correct_color || "").trim()); const zones = (Array.isArray(activityData.drop_zones) ? activityData.drop_zones : Array.isArray(activityData.targets) ? activityData.targets : []).filter((zone)=>String(zone?.image_url || "").trim() && String(zone?.accept_color || "").trim()); if (!items.length || !zones.length) return `<div class="activity-wrap drag-color-match" data-activity-type="drag_color_match"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", questionTitle))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා බැලූන සහ අත් එක් කරන්න." : "Add balloon and hand images for this activity."}}</p></div>`; const title = localizedActivityText(activityData, "title", questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const balloonCards = items.map((item, idx)=>{{ const itemId = String(item.id || `balloon-${{idx + 1}}`); const label = String((isSinhala ? item.label_si : item.label_en) || item.label_en || item.label_si || itemId); return `<button type="button" class="dcm-item" data-item-id="${{escapeHtml(itemId)}}" data-correct-color="${{escapeHtml(String(item.correct_color || ""))}}" aria-label="${{escapeHtml(label)}}"><span class="dcm-balloon-glow"></span><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false"><span class="dcm-item-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const zoneCards = zones.map((zone, idx)=>{{ const zoneId = String(zone.id || `hand-${{idx + 1}}`); const label = String((isSinhala ? zone.label_si : zone.label_en) || zone.label_en || zone.label_si || zone.accept_color || zoneId); return `<div class="dcm-zone-card"><div class="dcm-drop-zone" data-zone-id="${{escapeHtml(zoneId)}}" data-accept-color="${{escapeHtml(String(zone.accept_color || ""))}}"><img class="dcm-hand-image" src="${{escapeHtml(zone.image_url)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false"><div class="dcm-stack" aria-hidden="true"></div></div><div class="dcm-zone-label">${{escapeHtml(label)}}</div></div>`; }}).join(""); return `<div class="activity-wrap drag-color-match" data-activity-type="drag_color_match"><div class="dcm-celebration" aria-hidden="true"></div><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="dcm-board"><section class="dcm-source-zone"><p class="ddcs-section-label">${{isSinhala ? "බැලූන" : "Balloons"}}</p><div class="dcm-items-row">${{balloonCards}}</div></section><section class="dcm-target-zone"><p class="ddcs-section-label">${{isSinhala ? "පාට අත්" : "Matching hands"}}</p><div class="dcm-zones-row">${{zoneCards}}</div></section></div><div class="activity-actions"><button type="button" class="dcm-reset">${{isSinhala ? "නැවත කරන්න" : "Reset"}}</button><div class="dcm-message" aria-live="polite"></div></div><div class="dcm-success-popup" role="status" aria-live="polite"><div class="dcm-success-card"><div class="dcm-success-icon">🎉</div><strong>${{escapeHtml(localizedActivityText(activityData, "success_message", isSinhala ? "සුභ පැතුම්!" : "Great job!"))}}</strong></div></div></div>`; }} if (normalizedActivityType === "tap_correct_picture") {{ const seenImageUrls = new Set(); const items = (Array.isArray(activityData.items) ? activityData.items : []).filter((item)=>{{ const imageUrl = String(item?.image_url || "").trim(); if (!imageUrl || seenImageUrls.has(imageUrl)) return false; seenImageUrls.add(imageUrl); return true; }}); if (!items.length) return ""; const title = localizedActivityText(activityData, "title", activityData.question_si || activityData.question_en || questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const cards = items.map((item, idx)=>{{ const alt = item.alt || item.name_si || item.name_en || item.name || `${{isSinhala ? "රූපය" : "Picture"}} ${{idx + 1}}`; return `<button type="button" class="tap-picture-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" aria-label="${{escapeHtml(alt)}}"><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(alt)}}" loading="lazy"><span class="tap-picture-check">✓</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="tap-picture-grid">${{cards}}</div><div class="activity-actions"><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
+      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "drag_drop_circle_size_match") {{ const rawItems = Array.isArray(activityData.items) ? activityData.items : []; const rawTargets = Array.isArray(activityData.targets) ? activityData.targets : []; const targetIds = new Set(rawTargets.map((target)=>String(target?.id || "").trim()).filter(Boolean)); const items = rawItems.filter((item)=>String(item?.id || "").trim() && String(item?.target_id || "").trim() && targetIds.has(String(item?.target_id || "").trim())).slice(0, 3); const targets = rawTargets.filter((target)=>String(target?.id || "").trim()).slice(0, 3); if (!items.length || !targets.length) return `<div class="activity-wrap drag-circle-match"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", questionTitle))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා දත්ත සොයාගත නොහැක." : "This activity is missing its matching data."}}</p></div>`; const title = localizedActivityText(activityData, "title", questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const itemCards = items.map((item, idx)=>{{ const itemId = String(item.id || `item-${{idx + 1}}`); const label = String(item.label_si || item.label || item.name_si || item.name || itemId); const imageUrl = String(item.image_url || "").trim(); const fallbackText = escapeHtml((label || "●").trim().slice(0, 1) || "●"); const media = imageUrl ? `<img src="${{escapeHtml(imageUrl)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><span class="ddcs-image-fallback" style="display:none;">${{fallbackText}}</span>` : `<span class="ddcs-image-fallback">${{fallbackText}}</span>`; return `<button type="button" class="ddcs-item" data-item-id="${{escapeHtml(itemId)}}" data-target-id="${{escapeHtml(String(item.target_id || ""))}}" data-label="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}"><span class="ddcs-item-shell">${{media}}</span><span class="ddcs-item-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const targetCards = targets.map((target)=>{{ const targetId = String(target.id || ""); const label = String(target.label_si || target.label || targetId); const size = Math.max(96, Math.min(260, Number(target.size_px || 150))); return `<div class="ddcs-target-card"><div class="ddcs-target-circle" data-target-id="${{escapeHtml(targetId)}}" style="--ddcs-target-size:${{size}}px;width:${{size}}px;height:${{size}}px;"></div><div class="ddcs-target-label">${{escapeHtml(label)}}</div></div>`; }}).join(""); return `<div class="activity-wrap drag-circle-match" data-activity-type="drag_drop_circle_size_match"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="ddcs-board"><section class="ddcs-source-zone"><p class="ddcs-section-label">${{isSinhala ? "ඇදගෙන යන භාණ්ඩ" : "Drag the objects"}}</p><div class="ddcs-items-row">${{itemCards}}</div></section><section class="ddcs-target-zone"><p class="ddcs-section-label">${{isSinhala ? "ගැලපෙන වෘත්ත තෝරන්න" : "Match each circle size"}}</p><div class="ddcs-targets-row">${{targetCards}}</div></section></div><div class="activity-actions"><button type="button" class="ddcs-reset">නැවත කරන්න</button><div class="ddcs-message" id="ddcsMessage" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "sort_by_size_drag_drop") {{ const containers = Array.isArray(activityData.containers) ? activityData.containers : []; const rawItems = Array.isArray(activityData.items) ? activityData.items : []; const containerById = Object.fromEntries(containers.map((container)=>[String(container?.id || ""), container])); const items = rawItems.filter((item)=>String(item?.id || "").trim() && ["big","small"].includes(String(item?.target || item?.size || "").trim().toLowerCase()) && String(item?.image_url || "").trim()); const bigContainer = containerById.big || {{id:"big",label_si:"ලොකු අඹ",label_en:"Big Mangoes",image_url:""}}; const smallContainer = containerById.small || {{id:"small",label_si:"කුඩා අඹ",label_en:"Small Mangoes",image_url:""}}; if (!items.length || !String(activityData.background_image_url || "").trim() || !String(bigContainer.image_url || "").trim() || !String(smallContainer.image_url || "").trim()) return `<div class="activity-wrap sort-size-mango"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", "Sort the Mangoes"))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා අවශ්‍ය රූප උඩුගත කරන්න." : "Upload all images needed for this activity."}}</p></div>`; const title = localizedActivityText(activityData, "title", "Sort the Mangoes"); const instruction = localizedActivityText(activityData, "instruction", ""); const bg = String(activityData.background_image_url || "").trim(); const positions = [[10,57],[23,61],[36,55],[50,63],[63,56],[76,62],[17,72],[31,76],[46,72],[61,77],[74,72],[87,67]]; const itemHtml = items.map((item, idx)=>{{ const size = String(item.target || item.size || "").trim().toLowerCase(); const label = size === "big" ? (isSinhala ? "ලොකු අඹ" : "Big mango") : (isSinhala ? "කුඩා අඹ" : "Small mango"); const pos = positions[idx % positions.length]; return `<button type="button" class="sbs-mango-item ${{size === "big" ? "big" : "small"}}" data-item-id="${{escapeHtml(String(item.id || `mango-${{idx + 1}}`))}}" data-target="${{escapeHtml(size)}}" style="--sx:${{pos[0]}}%;--sy:${{pos[1]}}%;" aria-label="${{escapeHtml(label)}}"><img src="${{escapeHtml(String(item.image_url || ""))}}" alt="${{escapeHtml(label)}}" draggable="false" loading="lazy"></button>`; }}).join(""); const basketHtml = [bigContainer, smallContainer].map((container)=>{{ const id = String(container.id || ""); const labelSi = String(container.label_si || (id === "big" ? "ලොකු අඹ" : "කුඩා අඹ")); const labelEn = String(container.label_en || (id === "big" ? "Big Mangoes" : "Small Mangoes")); const label = isSinhala ? labelSi : labelEn; return `<div class="sbs-basket-wrap ${{id}}"><div class="sbs-basket-label"><strong>${{escapeHtml(labelSi)}}</strong><span>${{escapeHtml(labelEn)}}</span></div><div class="sbs-basket-zone" data-container-id="${{escapeHtml(id)}}"><img class="sbs-basket-img" src="${{escapeHtml(String(container.image_url || ""))}}" alt="${{escapeHtml(label)}}" draggable="false" loading="lazy"><div class="sbs-stack" aria-hidden="true"></div></div></div>`; }}).join(""); return `<style>.sort-size-mango .sbs-board{{position:relative;min-height:560px;border-radius:24px;overflow:hidden;background-size:cover;background-position:center;box-shadow:inset 0 0 0 1px rgba(146,64,14,.18),0 18px 38px rgba(15,23,42,.12);touch-action:none}}.sort-size-mango .sbs-board::before{{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(120,53,15,.18));pointer-events:none}}.sbs-ground{{position:absolute;inset:0;z-index:2}}.sbs-mango-item{{position:absolute;left:var(--sx);top:var(--sy);transform:translate(-50%,-50%);border:0;background:transparent;padding:0;cursor:grab;touch-action:none;z-index:5;transition:transform .28s ease,filter .2s ease}}.sbs-mango-item.big img{{width:86px;height:86px}}.sbs-mango-item.small img{{width:58px;height:58px}}.sbs-mango-item img{{object-fit:contain;filter:drop-shadow(0 10px 12px rgba(92,50,10,.35));pointer-events:none}}.sbs-mango-item.dragging{{z-index:20;cursor:grabbing;transition:none}}.sbs-mango-item.returning{{transition:transform .34s ease}}.sbs-mango-item.placed{{position:relative;left:auto;top:auto;transform:none!important;margin:-10px -4px 0;cursor:default}}.sbs-baskets{{position:absolute;left:0;right:0;bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,6vw,90px);align-items:end;padding:0 clamp(14px,5vw,70px);z-index:4}}.sbs-basket-wrap{{display:grid;justify-items:center;gap:8px}}.sbs-basket-label{{display:grid;gap:1px;text-align:center;background:rgba(255,255,255,.88);border:1px solid rgba(251,191,36,.9);border-radius:999px;padding:7px 14px;color:#78350f;box-shadow:0 8px 18px rgba(15,23,42,.12)}}.sbs-basket-label strong{{font-size:18px}}.sbs-basket-label span{{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}}.sbs-basket-zone{{position:relative;width:min(250px,38vw);height:178px;display:grid;place-items:end center;border:3px dashed transparent;border-radius:26px;transition:border-color .2s ease,background .2s ease}}.sbs-basket-zone.hover{{border-color:#22c55e;background:rgba(220,252,231,.28)}}.sbs-basket-zone.reject{{border-color:#ef4444;background:rgba(254,226,226,.35)}}.sbs-basket-img{{width:100%;height:150px;object-fit:contain;filter:drop-shadow(0 16px 18px rgba(92,50,10,.35));pointer-events:none}}.sbs-stack{{position:absolute;left:10%;right:10%;bottom:48px;min-height:70px;display:flex;align-items:flex-end;justify-content:center;flex-wrap:wrap;pointer-events:none}}.sbs-message{{display:none;margin-left:8px;border-radius:999px;padding:10px 14px;font-weight:900}}.sbs-message.success{{display:block;background:#dcfce7;color:#166534}}.sbs-message.fail{{display:block;background:#fee2e2;color:#991b1b}}@media(max-width:720px){{.sort-size-mango .sbs-board{{min-height:500px}}.sbs-baskets{{gap:8px;padding:0 8px}}.sbs-basket-zone{{width:44vw;height:150px}}.sbs-basket-img{{height:125px}}.sbs-mango-item.big img{{width:68px;height:68px}}.sbs-mango-item.small img{{width:46px;height:46px}}}}</style><div class="activity-wrap sort-size-mango" data-activity-type="sort_by_size_drag_drop"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="sbs-board" style="background-image:url('${{escapeHtml(bg)}}');"><div class="sbs-ground">${{itemHtml}}</div><div class="sbs-baskets">${{basketHtml}}</div></div><div class="activity-actions"><button type="button" class="sbs-reset">${{isSinhala ? "නැවත කරන්න" : "Reset"}}</button><div class="sbs-message" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "shape_flag_sorting") {{ const rawFlags = Array.isArray(activityData.flags) ? activityData.flags : []; const shapeMeta = {{square:{{label_en:"Square Box",label_si:"චතුරස්‍ර පෙට්ටිය",rope_en:"Squares",rope_si:"චතුරස්‍ර"}},rectangle:{{label_en:"Rectangle Box",label_si:"සෘජුකෝණාස්‍ර පෙට්ටිය",rope_en:"Rectangles",rope_si:"සෘජුකෝණාස්‍ර"}},triangle:{{label_en:"Triangle Box",label_si:"ත්‍රිකෝණ පෙට්ටිය",rope_en:"Triangles",rope_si:"ත්‍රිකෝණ"}}}}; const defaultColors = {{square:"green",rectangle:"red",triangle:"blue"}}; const defaultFlags = ["square","rectangle","triangle"].flatMap((shape)=>[1,2,3].map((n)=>({{id:`${{shape}}-${{n}}`,shape,color:defaultColors[shape],label_en:`${{defaultColors[shape]}} ${{shape}} flag`,label_si:`${{shapeMeta[shape].rope_si}} කොඩිය`}}))); const flags = (rawFlags.length ? rawFlags : defaultFlags).map((flag, idx)=>{{ const shape = String(flag?.shape || flag?.target_shape || "").trim().toLowerCase(); return {{...flag,id:String(flag?.id || `flag-${{idx + 1}}`),shape,color:String(flag?.color || defaultColors[shape] || "").trim().toLowerCase()}}; }}).filter((flag)=>shapeMeta[flag.shape]).slice(0,9); if (flags.length !== 9) return `<div class="activity-wrap shape-flag-sorting" data-activity-type="shape_flag_sorting"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", "Shape Flag Sorting"))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා කොඩි 9ක් එක් කරන්න." : "Add 9 shape flags for this activity."}}</p></div>`; const title = localizedActivityText(activityData, "title", "Shape Flag Sorting"); const instruction = localizedActivityText(activityData, "instruction", isSinhala ? "කොඩි හැඩය අනුව වෙන් කර නිවැරදි වැලට අලවන්න." : "Sort the flags by shape and stick them on the correct rope."); const flagCards = flags.map((flag)=>{{ const label = String((isSinhala ? flag.label_si : flag.label_en) || flag.label || `${{flag.color}} ${{flag.shape}}`); const imageUrl = String(flag.image_url || "").trim(); const fallback = `<span class="sfs-fallback-shape ${{escapeHtml(flag.shape)}}" aria-hidden="true"></span>`; const media = imageUrl ? `<img src="${{escapeHtml(imageUrl)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">${{fallback}}` : fallback; return `<button type="button" class="sfs-flag" data-flag-id="${{escapeHtml(flag.id)}}" data-shape="${{escapeHtml(flag.shape)}}" data-color="${{escapeHtml(flag.color)}}" aria-label="${{escapeHtml(label)}}">${{media}}<span class="sfs-flag-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const boxes = ["square","rectangle","triangle"].map((shape)=>`<section class="sfs-sort-box" data-shape="${{shape}}"><div class="sfs-box-title">${{escapeHtml(isSinhala ? shapeMeta[shape].label_si : shapeMeta[shape].label_en)}}</div><div class="sfs-box-stack"></div></section>`).join(""); const ropes = ["square","rectangle","triangle"].map((shape, index)=>`<section class="sfs-rope-row" data-shape="${{shape}}"><div class="sfs-rope-label">${{index === 0 ? (isSinhala ? "ඉහළ වැල" : "Top Rope") : index === 1 ? (isSinhala ? "මැද වැල" : "Middle Rope") : (isSinhala ? "පහළ වැල" : "Bottom Rope")}}<br>${{escapeHtml(isSinhala ? shapeMeta[shape].rope_si : shapeMeta[shape].rope_en)}}</div><div class="sfs-rope-line">${{[0,1,2].map((slot)=>`<div class="sfs-slot" data-shape="${{shape}}" data-slot-index="${{slot}}" aria-label="${{shape}} slot ${{slot + 1}}"></div>`).join("")}}</div></section>`).join(""); return `<div class="activity-wrap shape-flag-sorting" data-activity-type="shape_flag_sorting"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="sfs-board"><div class="sfs-step-note" data-sfs-step-note>${{isSinhala ? "පියවර 1: හැඩ පෙට්ටි වලට වෙන් කරන්න" : "Step 1: Sort into shape boxes"}}</div><div class="sfs-tray">${{flagCards}}</div><div class="sfs-sort-area">${{boxes}}</div><div class="sfs-rope-area" aria-hidden="true">${{ropes}}</div></div><div class="activity-actions"><button type="button" class="sfs-reset">නැවත කරන්න</button><div class="sfs-message" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "drag_color_match") {{ const items = (Array.isArray(activityData.items) ? activityData.items : []).filter((item)=>String(item?.image_url || "").trim() && String(item?.correct_color || "").trim()); const zones = (Array.isArray(activityData.drop_zones) ? activityData.drop_zones : Array.isArray(activityData.targets) ? activityData.targets : []).filter((zone)=>String(zone?.image_url || "").trim() && String(zone?.accept_color || "").trim()); if (!items.length || !zones.length) return `<div class="activity-wrap drag-color-match" data-activity-type="drag_color_match"><h3 class="activity-question">${{escapeHtml(localizedActivityText(activityData, "title", questionTitle))}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකම සඳහා බැලූන සහ අත් එක් කරන්න." : "Add balloon and hand images for this activity."}}</p></div>`; const title = localizedActivityText(activityData, "title", questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const balloonCards = items.map((item, idx)=>{{ const itemId = String(item.id || `balloon-${{idx + 1}}`); const label = String((isSinhala ? item.label_si : item.label_en) || item.label_en || item.label_si || itemId); return `<button type="button" class="dcm-item" data-item-id="${{escapeHtml(itemId)}}" data-correct-color="${{escapeHtml(String(item.correct_color || ""))}}" aria-label="${{escapeHtml(label)}}"><span class="dcm-balloon-glow"></span><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false"><span class="dcm-item-label">${{escapeHtml(label)}}</span></button>`; }}).join(""); const zoneCards = zones.map((zone, idx)=>{{ const zoneId = String(zone.id || `hand-${{idx + 1}}`); const label = String((isSinhala ? zone.label_si : zone.label_en) || zone.label_en || zone.label_si || zone.accept_color || zoneId); return `<div class="dcm-zone-card"><div class="dcm-drop-zone" data-zone-id="${{escapeHtml(zoneId)}}" data-accept-color="${{escapeHtml(String(zone.accept_color || ""))}}"><img class="dcm-hand-image" src="${{escapeHtml(zone.image_url)}}" alt="${{escapeHtml(label)}}" loading="lazy" draggable="false"><div class="dcm-stack" aria-hidden="true"></div></div><div class="dcm-zone-label">${{escapeHtml(label)}}</div></div>`; }}).join(""); return `<div class="activity-wrap drag-color-match" data-activity-type="drag_color_match"><div class="dcm-celebration" aria-hidden="true"></div><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="dcm-board"><section class="dcm-source-zone"><p class="ddcs-section-label">${{isSinhala ? "බැලූන" : "Balloons"}}</p><div class="dcm-items-row">${{balloonCards}}</div></section><section class="dcm-target-zone"><p class="ddcs-section-label">${{isSinhala ? "පාට අත්" : "Matching hands"}}</p><div class="dcm-zones-row">${{zoneCards}}</div></section></div><div class="activity-actions"><button type="button" class="dcm-reset">${{isSinhala ? "නැවත කරන්න" : "Reset"}}</button><div class="dcm-message" aria-live="polite"></div></div><div class="dcm-success-popup" role="status" aria-live="polite"><div class="dcm-success-card"><div class="dcm-success-icon">🎉</div><strong>${{escapeHtml(localizedActivityText(activityData, "success_message", isSinhala ? "සුභ පැතුම්!" : "Great job!"))}}</strong></div></div></div>`; }} if (normalizedActivityType === "tap_correct_picture") {{ const seenImageUrls = new Set(); const items = (Array.isArray(activityData.items) ? activityData.items : []).filter((item)=>{{ const imageUrl = String(item?.image_url || "").trim(); if (!imageUrl || seenImageUrls.has(imageUrl)) return false; seenImageUrls.add(imageUrl); return true; }}); if (!items.length) return ""; const title = localizedActivityText(activityData, "title", activityData.question_si || activityData.question_en || questionTitle); const instruction = localizedActivityText(activityData, "instruction", ""); const cards = items.map((item, idx)=>{{ const alt = item.alt || item.name_si || item.name_en || item.name || `${{isSinhala ? "රූපය" : "Picture"}} ${{idx + 1}}`; return `<button type="button" class="tap-picture-card" data-item-index="${{idx}}" data-correct="${{Boolean(item.correct)}}" aria-label="${{escapeHtml(alt)}}"><img src="${{escapeHtml(item.image_url)}}" alt="${{escapeHtml(alt)}}" loading="lazy"><span class="tap-picture-check">✓</span></button>`; }}).join(""); return `<div class="activity-wrap" data-activity-type="tap_correct_picture"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="tap-picture-grid">${{cards}}</div><div class="activity-actions"><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function enableFinishLessonButton() {{ const finishBtn = document.getElementById("finishLessonBtn"); if (finishBtn) {{ finishBtn.disabled = false; finishBtn.classList.remove("disabled"); }} }}
       function wireShapeFlagSorting(mediaWrap) {{
         const wrap = mediaWrap.querySelector('[data-activity-type="shape_flag_sorting"]');
@@ -12621,6 +12773,36 @@ def student_lesson_page(lesson_id: int):
             setMessage("fail", tryAgainMessage); await recordLessonAnswer(current.id, `${{item.dataset.flagId || "flag"}}:${{slot?.dataset.shape || "none"}}`, false); maybeShowAiAssistant(true); returnToSource(item);
           }});
           item.addEventListener("pointercancel", ()=>{{ if (!dragging) return; dragging = false; item.classList.remove("dragging"); clearFeedback(); returnToSource(item); }});
+        }});
+        if (resetBtn) resetBtn.addEventListener("click", resetActivity);
+      }}
+      function wireSortBySizeMangoBaskets(mediaWrap) {{
+        const wrap = mediaWrap.querySelector('[data-activity-type="sort_by_size_drag_drop"]');
+        if (!wrap) return;
+        const current = slides[currentIndex];
+        const nextBtn = document.getElementById("finishLessonBtn");
+        const items = [...wrap.querySelectorAll(".sbs-mango-item")];
+        const zones = [...wrap.querySelectorAll(".sbs-basket-zone")];
+        const ground = wrap.querySelector(".sbs-ground");
+        const resetBtn = wrap.querySelector(".sbs-reset");
+        const messageBox = wrap.querySelector(".sbs-message");
+        const successMessage = localizedActivityText(current.activity, "success_message", isSinhala ? "ඔබ අඹ ගෙඩි නිවැරදිව වර්ග කර ඇත!" : "You sorted the mangoes correctly!");
+        const tryAgainMessage = localizedActivityText(current.activity, "try_again_message", isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again.");
+        let placedCount = 0;
+        let completionRecorded = false;
+        if (nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled = true;
+        function setMessage(kind, text) {{ if (!messageBox) return; messageBox.className = `sbs-message ${{kind || ""}}`; messageBox.textContent = text || ""; messageBox.style.display = text ? "block" : "none"; }}
+        function clearFeedback() {{ zones.forEach((zone)=>zone.classList.remove("hover", "reject", "success")); }}
+        function zoneAtPoint(x, y) {{ return zones.find((zone)=>{{ const rect = zone.getBoundingClientRect(); return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom; }}) || null; }}
+        function returnToGround(item) {{ item.classList.add("returning"); item.style.transform = "translate3d(0,0,0)"; window.setTimeout(()=>item.classList.remove("returning"), 360); }}
+        async function completeIfReady() {{ if (placedCount !== items.length || completionRecorded) return; completionRecorded = true; solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (nextBtn) nextBtn.disabled = false; setMessage("success", successMessage); await recordLessonAnswer(current.id, JSON.stringify(items.map((item)=>({{id:item.dataset.itemId || "", target:item.dataset.target || ""}}))), true); }}
+        function resetActivity() {{ placedCount = 0; completionRecorded = false; solvedQuizSlides.delete(current.id); zones.forEach((zone)=>{{ zone.classList.remove("hover", "reject", "success"); const stack = zone.querySelector(".sbs-stack"); if (stack) stack.innerHTML = ""; }}); items.forEach((item)=>{{ item.classList.remove("placed", "dragging", "returning"); item.style.transform = ""; item.disabled = false; ground.appendChild(item); }}); setMessage("", ""); if (nextBtn) nextBtn.disabled = true; }}
+        items.forEach((item)=>{{
+          let startX = 0; let startY = 0; let dragging = false;
+          item.addEventListener("pointerdown", (event)=>{{ if (item.classList.contains("placed")) return; event.preventDefault(); dragging = true; startX = event.clientX; startY = event.clientY; item.setPointerCapture(event.pointerId); item.classList.add("dragging"); item.classList.remove("returning"); item.style.transform = "translate3d(0,0,0)"; setMessage("", ""); }});
+          item.addEventListener("pointermove", (event)=>{{ if (!dragging) return; event.preventDefault(); const dx = event.clientX - startX; const dy = event.clientY - startY; item.style.transform = `translate3d(${{dx}}px, ${{dy}}px, 0)`; clearFeedback(); const zone = zoneAtPoint(event.clientX, event.clientY); if (zone) zone.classList.add("hover"); }});
+          item.addEventListener("pointerup", async (event)=>{{ if (!dragging) return; dragging = false; try {{ item.releasePointerCapture(event.pointerId); }} catch(e) {{}} item.classList.remove("dragging"); clearFeedback(); const zone = zoneAtPoint(event.clientX, event.clientY); const expected = String(item.dataset.target || ""); const actual = String(zone?.dataset.containerId || ""); if (zone && expected === actual) {{ item.style.transform = ""; item.classList.add("placed"); item.disabled = true; zone.querySelector(".sbs-stack")?.appendChild(item); zone.classList.add("success"); placedCount += 1; await completeIfReady(); return; }} if (zone) {{ zone.classList.add("reject"); window.setTimeout(()=>zone.classList.remove("reject"), 360); }} setMessage("fail", tryAgainMessage); await recordLessonAnswer(current.id, `${{item.dataset.itemId || "mango"}}:${{actual || "none"}}`, false); maybeShowAiAssistant(true); returnToGround(item); }});
+          item.addEventListener("pointercancel", ()=>{{ if (!dragging) return; dragging = false; item.classList.remove("dragging"); clearFeedback(); returnToGround(item); }});
         }});
         if (resetBtn) resetBtn.addEventListener("click", resetActivity);
       }}
@@ -13230,6 +13412,7 @@ def student_lesson_page(lesson_id: int):
           const normalizedType = activityTypeMap[activityType] || activityType;
           if (normalizedType === "shape_flag_sorting") wireShapeFlagSorting(mediaWrap);
           if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap);
+          if (normalizedType === "sort_by_size_drag_drop") wireSortBySizeMangoBaskets(mediaWrap);
           if (normalizedType === "drag_color_match") wireDragColorMatch(mediaWrap);
           if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap);
           if (normalizedType === "mcq") wireMcqInteraction(mediaWrap);
@@ -13242,7 +13425,7 @@ def student_lesson_page(lesson_id: int):
         const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
         const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
         const normalizedType2 = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase();
-        const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "shape_flag_sorting" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "drag_color_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
+        const requiresCorrect = (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType2 === "mcq" || normalizedType2 === "fill_blank")) || normalizedType2 === "tap_correct_picture" || normalizedType2 === "shape_flag_sorting" || normalizedType2 === "drag_drop_circle_size_match" || normalizedType2 === "sort_by_size_drag_drop" || normalizedType2 === "drag_color_match" || normalizedType2 === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
         document.getElementById("finishLessonBtn").disabled = requiresCorrect && !solvedQuizSlides.has(current.id);
         document.getElementById("xpPanel").style.display = currentIndex === slides.length - 1 ? "block" : "none";
       }}
@@ -14076,6 +14259,15 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         drag_color_item_upload_files = request.files.getlist("drag_color_item_image")
         drag_color_zone_upload_files = request.files.getlist("drag_color_zone_image")
         has_drag_color_uploads = any(upload and upload.filename for upload in drag_color_item_upload_files + drag_color_zone_upload_files)
+        mango_upload_fields = (
+            "mango_background_image",
+            "mango_big_image",
+            "mango_small_image",
+            "mango_big_basket_image",
+            "mango_small_basket_image",
+        )
+        mango_upload_files = {field: request.files.get(field) for field in mango_upload_fields}
+        has_mango_uploads = any(upload and upload.filename for upload in mango_upload_files.values())
         old_activity_payload = None
         if old_activity_json:
             try:
@@ -14112,6 +14304,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             or (submitted_activity_payload or {}).get("activity_type") == "drag_color_match"
             or (submitted_activity_payload or {}).get("type") == "drag_color_match"
             or (submitted_activity_payload or {}).get("slide_type") == "drag_color_match"
+        )
+        is_sort_by_size_mango_submission = (
+            selected_slide_type == "sort_by_size_drag_drop"
+            or has_mango_uploads
+            or (old_activity_payload or {}).get("activity_type") == "sort_by_size_drag_drop"
+            or (old_activity_payload or {}).get("type") == "sort_by_size_drag_drop"
+            or (old_activity_payload or {}).get("slide_type") == "sort_by_size_drag_drop"
+            or (submitted_activity_payload or {}).get("activity_type") == "sort_by_size_drag_drop"
+            or (submitted_activity_payload or {}).get("type") == "sort_by_size_drag_drop"
+            or (submitted_activity_payload or {}).get("slide_type") == "sort_by_size_drag_drop"
         )
         is_image_grid_submission = (
             selected_slide_type == "image_grid"
@@ -14173,6 +14375,77 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                     uploaded_image_urls[index] = public_url
 
             obj.activity_json = build_drag_drop_circle_size_match_activity_json(base_payload, uploaded_image_urls)
+        elif is_sort_by_size_mango_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+
+            base_payload = parse_sort_by_size_mango_baskets_activity(submitted_activity_json) or parse_sort_by_size_mango_baskets_activity(old_activity_json) or default_sort_by_size_mango_baskets_payload(obj.title_en, obj.title_si, obj.content_en, obj.content_si)
+            existing_urls = {
+                "background": (request.form.get("mango_existing_background_image_url") or base_payload.get("background_image_url") or "").strip(),
+                "big_mango": (request.form.get("mango_existing_big_image_url") or "").strip(),
+                "small_mango": (request.form.get("mango_existing_small_image_url") or "").strip(),
+                "big_basket": (request.form.get("mango_existing_big_basket_image_url") or "").strip(),
+                "small_basket": (request.form.get("mango_existing_small_basket_image_url") or "").strip(),
+            }
+            for item in base_payload.get("items") or []:
+                if item.get("size") == "big" and item.get("image_url") and not existing_urls["big_mango"]:
+                    existing_urls["big_mango"] = str(item.get("image_url") or "").strip()
+                if item.get("size") == "small" and item.get("image_url") and not existing_urls["small_mango"]:
+                    existing_urls["small_mango"] = str(item.get("image_url") or "").strip()
+            for container in base_payload.get("containers") or []:
+                if container.get("id") == "big" and not existing_urls["big_basket"]:
+                    existing_urls["big_basket"] = str(container.get("image_url") or "").strip()
+                if container.get("id") == "small" and not existing_urls["small_basket"]:
+                    existing_urls["small_basket"] = str(container.get("image_url") or "").strip()
+
+            upload_key_by_field = {
+                "mango_background_image": "background",
+                "mango_big_image": "big_mango",
+                "mango_small_image": "small_mango",
+                "mango_big_basket_image": "big_basket",
+                "mango_small_basket_image": "small_basket",
+            }
+            for field, key in upload_key_by_field.items():
+                upload = mango_upload_files.get(field)
+                if not upload or not upload.filename:
+                    continue
+                public_url, object_path, upload_error = upload_activity_image_to_supabase(lesson.id, obj.id or "temp", upload)
+                if upload_error:
+                    db.session.rollback()
+                    return f"<h2>Sort by size mango image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                if public_url:
+                    existing_urls[key] = public_url
+
+            mango_payload_json = build_sort_by_size_mango_baskets_activity_json(
+                base_payload,
+                existing_urls["background"],
+                existing_urls["big_mango"],
+                existing_urls["small_mango"],
+                existing_urls["big_basket"],
+                existing_urls["small_basket"],
+                int(request.form.get("mango_big_count") or "0"),
+                int(request.form.get("mango_small_count") or "0"),
+                request.form.get("mango_big_label_si") or "ලොකු අඹ",
+                request.form.get("mango_big_label_en") or "Big Mangoes",
+                request.form.get("mango_small_label_si") or "කුඩා අඹ",
+                request.form.get("mango_small_label_en") or "Small Mangoes",
+                request.form.get("mango_title_en") or obj.title_en or "",
+                request.form.get("mango_title_si") or obj.title_si or "",
+                request.form.get("mango_instruction_en") or obj.content_en or "",
+                request.form.get("mango_instruction_si") or obj.content_si or "",
+                request.form.get("mango_success_message_en"),
+                request.form.get("mango_success_message_si"),
+                request.form.get("mango_try_again_message_en"),
+                request.form.get("mango_try_again_message_si"),
+            )
+            mango_payload = parse_sort_by_size_mango_baskets_activity(mango_payload_json)
+            validation_error = validate_sort_by_size_mango_baskets_activity(mango_payload)
+            if validation_error:
+                db.session.rollback()
+                return f"<h2>Could not save Sort by Size – Mango Baskets slide</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+            obj.activity_json = mango_payload_json
         elif selected_slide_type == "shape_flag_sorting":
             obj.image_url = None
             shape_payload = submitted_activity_payload if isinstance(submitted_activity_payload, dict) else default_shape_flag_sorting_activity_payload(obj.title_en, obj.title_si)
@@ -14430,6 +14703,11 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             "භාණ්ඩ ප්‍රමාණය අනුව වෘත්තයට ගැලපීම",
         ),
         (
+            "sort_by_size_drag_drop",
+            "Sort by Size – Mango Baskets",
+            "ප්‍රමාණය අනුව අඹ කූඩවලට වර්ග කිරීම",
+        ),
+        (
             "drag_color_match",
             "Drag Color Match",
             "පාට අනුව බැලූන අත්වලට ගැලපීම",
@@ -14520,6 +14798,28 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for zone in drag_color_zones if zone.get('image_url')
     )
+    mango_activity = parse_sort_by_size_mango_baskets_activity(slide.activity_json if slide else None)
+    mango_containers = {str(container.get("id") or ""): container for container in (mango_activity.get("containers") or []) if isinstance(container, dict)} if mango_activity else {}
+    mango_items = mango_activity.get("items", []) if mango_activity else []
+    mango_big_image_url = next((str(item.get("image_url") or "") for item in mango_items if item.get("size") == "big" and item.get("image_url")), "")
+    mango_small_image_url = next((str(item.get("image_url") or "") for item in mango_items if item.get("size") == "small" and item.get("image_url")), "")
+    mango_big_count = sum(1 for item in mango_items if item.get("size") == "big") or 3
+    mango_small_count = sum(1 for item in mango_items if item.get("size") == "small") or 3
+    mango_title_en = mango_activity.get("title_en") if mango_activity else (slide.title_en if slide and slide.title_en else "Sort the Mangoes")
+    mango_title_si = mango_activity.get("title_si") if mango_activity else (slide.title_si if slide and slide.title_si else "අඹ ගෙඩි වර්ග කරමු")
+    mango_instruction_en = mango_activity.get("instruction_en") if mango_activity else (slide.content_en if slide and slide.content_en else "Look at the size of each mango and drag it to the correct basket.")
+    mango_instruction_si = mango_activity.get("instruction_si") if mango_activity else (slide.content_si if slide and slide.content_si else "අඹ ගෙඩිවල ප්‍රමාණය බලලා නිවැරදි කූඩයට දමන්න.")
+    mango_success_message_en = mango_activity.get("success_message_en") if mango_activity else "You sorted the mangoes correctly!"
+    mango_success_message_si = mango_activity.get("success_message_si") if mango_activity else "ඔබ අඹ ගෙඩි නිවැරදිව වර්ග කර ඇත!"
+    mango_try_again_message_en = mango_activity.get("try_again_message_en") if mango_activity else "Try again."
+    mango_try_again_message_si = mango_activity.get("try_again_message_si") if mango_activity else "නැවත උත්සාහ කරන්න."
+    mango_background_url = mango_activity.get("background_image_url") if mango_activity else ""
+    mango_big_basket_url = str((mango_containers.get("big") or {}).get("image_url") or "")
+    mango_small_basket_url = str((mango_containers.get("small") or {}).get("image_url") or "")
+    mango_big_label_si = str((mango_containers.get("big") or {}).get("label_si") or "ලොකු අඹ")
+    mango_big_label_en = str((mango_containers.get("big") or {}).get("label_en") or "Big Mangoes")
+    mango_small_label_si = str((mango_containers.get("small") or {}).get("label_si") or "කුඩා අඹ")
+    mango_small_label_en = str((mango_containers.get("small") or {}).get("label_en") or "Small Mangoes")
     drag_activity = parse_drag_drop_circle_size_match_activity(slide.activity_json if slide else None)
     drag_items = list(drag_activity.get("items") or []) if drag_activity else []
     default_drag_items = default_drag_drop_circle_size_match_payload().get("items", [])
@@ -14542,6 +14842,21 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for index, item in enumerate(drag_items[:3], start=1)
     )
+    def mango_upload_card(label: str, input_name: str, hidden_name: str, image_url: str) -> str:
+        image_url = str(image_url or "").strip()
+        preview_html = (
+            f"<img class='mango-existing' src='{escape(image_url)}' alt='{escape(label)} current image'>"
+            if image_url else "<div class='mango-empty-preview'>No image</div>"
+        )
+        return f"""
+          <div class='mango-upload-card'>
+            {preview_html}
+            <img class='mango-preview' alt='{escape(label)} preview' style='display:none;'>
+            <input type='hidden' name='{escape(hidden_name)}' value='{escape(image_url)}'>
+            <label>{escape(label)} <input type='file' name='{escape(input_name)}' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
+          </div>
+        """
+
     interactive_activity = {}
     if slide and slide.activity_json:
         try:
@@ -14719,6 +15034,55 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
               const existing = row.querySelector('.drag-circle-existing-preview,.drag-circle-empty-preview');
               const file = input.files && input.files[0];
               if (!preview || !file) {{ if (preview) {{ preview.style.display = 'none'; preview.removeAttribute('src'); }} if (existing) existing.style.display = ''; return; }}
+              preview.src = URL.createObjectURL(file);
+              preview.style.display = 'block';
+              if (existing) existing.style.display = 'none';
+            }});
+          }});
+          typeSelect?.addEventListener('change', toggleBuilder);
+          toggleBuilder();
+        }})();
+      </script>
+      <fieldset id='sortBySizeMangoBuilder' style='border:1px solid #fbbf24;border-radius:12px;padding:14px;max-width:980px;margin-bottom:18px;background:#fffbeb;'>
+        <legend><strong>Sort by Size – Mango Baskets</strong></legend>
+        <p>Upload the background, mango, and basket images to Supabase Storage bucket <code>lesson-images</code>. The student player uses these uploaded URLs only.</p>
+        <style>.mango-admin-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.mango-upload-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px}}.mango-upload-card{{border:1px solid #fde68a;border-radius:14px;background:#fff;padding:12px}}.mango-upload-card img,.mango-preview{{width:100%;height:110px;object-fit:contain;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,.10)}}.mango-empty-preview{{height:110px;border:2px dashed #f59e0b;border-radius:12px;display:grid;place-items:center;color:#92400e;background:#fef3c7;font-weight:800;text-align:center}}.mango-upload-card label{{display:block;margin-top:8px;font-weight:700}}</style>
+        <div class='mango-admin-grid'>
+          <label>Title EN <input type='text' name='mango_title_en' value='{escape(mango_title_en)}' style='width:100%;'></label>
+          <label>Title SI <input type='text' name='mango_title_si' value='{escape(mango_title_si)}' style='width:100%;'></label>
+          <label>Instruction EN <textarea name='mango_instruction_en' rows='3' style='width:100%;'>{escape(mango_instruction_en)}</textarea></label>
+          <label>Instruction SI <textarea name='mango_instruction_si' rows='3' style='width:100%;'>{escape(mango_instruction_si)}</textarea></label>
+          <label>Big mango count <input type='number' min='0' max='12' name='mango_big_count' value='{int(mango_big_count)}' style='width:100%;'></label>
+          <label>Small mango count <input type='number' min='0' max='12' name='mango_small_count' value='{int(mango_small_count)}' style='width:100%;'></label>
+          <label>Big basket label SI <input type='text' name='mango_big_label_si' value='{escape(mango_big_label_si)}' style='width:100%;'></label>
+          <label>Big basket label EN <input type='text' name='mango_big_label_en' value='{escape(mango_big_label_en)}' style='width:100%;'></label>
+          <label>Small basket label SI <input type='text' name='mango_small_label_si' value='{escape(mango_small_label_si)}' style='width:100%;'></label>
+          <label>Small basket label EN <input type='text' name='mango_small_label_en' value='{escape(mango_small_label_en)}' style='width:100%;'></label>
+          <label>Success message EN <input type='text' name='mango_success_message_en' value='{escape(mango_success_message_en)}' style='width:100%;'></label>
+          <label>Success message SI <input type='text' name='mango_success_message_si' value='{escape(mango_success_message_si)}' style='width:100%;'></label>
+          <label>Try-again message EN <input type='text' name='mango_try_again_message_en' value='{escape(mango_try_again_message_en)}' style='width:100%;'></label>
+          <label>Try-again message SI <input type='text' name='mango_try_again_message_si' value='{escape(mango_try_again_message_si)}' style='width:100%;'></label>
+        </div>
+        <div class='mango-upload-grid'>
+          {mango_upload_card('Background image', 'mango_background_image', 'mango_existing_background_image_url', mango_background_url)}
+          {mango_upload_card('Big mango image', 'mango_big_image', 'mango_existing_big_image_url', mango_big_image_url)}
+          {mango_upload_card('Small mango image', 'mango_small_image', 'mango_existing_small_image_url', mango_small_image_url)}
+          {mango_upload_card('Big mango basket image', 'mango_big_basket_image', 'mango_existing_big_basket_image_url', mango_big_basket_url)}
+          {mango_upload_card('Small mango basket image', 'mango_small_basket_image', 'mango_existing_small_basket_image_url', mango_small_basket_url)}
+        </div>
+      </fieldset>
+      <script>
+        (function() {{
+          const typeSelect = document.getElementById('slideTypeSelect');
+          const builder = document.getElementById('sortBySizeMangoBuilder');
+          function toggleBuilder() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'sort_by_size_drag_drop' ? 'block' : 'none'; }}
+          document.querySelectorAll('#sortBySizeMangoBuilder input[type=file]').forEach(function(input) {{
+            input.addEventListener('change', function() {{
+              const card = input.closest('.mango-upload-card');
+              const preview = card && card.querySelector('.mango-preview');
+              const existing = card && card.querySelector('.mango-existing,.mango-empty-preview');
+              const file = input.files && input.files[0];
+              if (!preview || !file) {{ if (preview) {{ preview.style.display='none'; preview.removeAttribute('src'); }} if (existing) existing.style.display=''; return; }}
               preview.src = URL.createObjectURL(file);
               preview.style.display = 'block';
               if (existing) existing.style.display = 'none';
