@@ -16669,7 +16669,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       </script>
       <fieldset id='selectAndColorBuilder' style='border:1px solid #bfdbfe;border-radius:16px;padding:16px;max-width:1040px;margin-bottom:18px;background:linear-gradient(135deg,#eff6ff,#fdf2f8);'>
         <legend><strong>Select and Color Activity</strong></legend>
-        <p>Upload the base activity image to the existing Supabase <code>lesson-images</code> bucket, then define object zones as JSON using natural-image coordinates. Rect zones use <code>x, y, width, height</code>; polygon zones use <code>points: [{"x":10,"y":20}]</code>.</p>
+        <p>Upload the base activity image to the existing Supabase <code>lesson-images</code> bucket, then define object zones as JSON using natural-image coordinates. Rect zones use <code>x, y, width, height</code>; polygon zones use <code>points: [{{"x":10,"y":20}}]</code>.</p>
         <div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;'>
           <label>Title EN <input type='text' name='select_color_title_en' value='{escape(select_color_activity.get("title_en") or "")}' style='width:100%;'></label>
           <label>Title SI <input type='text' name='select_color_title_si' value='{escape(select_color_activity.get("title_si") or "")}' style='width:100%;'></label>
