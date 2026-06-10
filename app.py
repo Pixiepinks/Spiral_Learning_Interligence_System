@@ -1593,6 +1593,15 @@ def validate_optional_email(value: str, label: str) -> str | None:
     return None
 
 
+def validate_admin_student_email(value: str, label: str) -> str | None:
+    clean = (value or "").strip()
+    if not clean:
+        return None
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", clean):
+        return f"{label} must be a valid email address."
+    return None
+
+
 def upload_student_profile_image_to_supabase(student_id: int, file_storage) -> tuple[str | None, str | None]:
     if not file_storage or not file_storage.filename:
         return None, None
@@ -5481,8 +5490,10 @@ def forgot_password():
     <title>Forgot Password</title>
     <style>{LOGIN_PAGE_STYLES}
     .notice {{margin: 0 0 12px;color:#1f2a44;font-size:.9rem;background:#e8f0ff;border-radius:10px;padding:10px 12px;}}
+    .help-notice {{margin:0 0 12px;color:#334155;font-size:.86rem;line-height:1.45;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px;}}
     </style></head><body class="login-page"><div class="login-card"><div class="brand"><img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo"><p>Spiral Learning Intelligence System</p></div>
     {safe_message}
+    <p class="help-notice">If you did not register with an email, please contact admin to update your email.<br>ඔබ ලියාපදිංචි වූ විට email එක ලබාදී නැත්නම්, කරුණාකර admin සමඟ සම්බන්ධ වී email එක update කරගන්න.</p>
     <form method="post" action="/forgot-password"><div class="field"><label for="role">Role</label><select id="role" name="role" required>
     <option value="student">Student</option><option value="parent">Parent</option><option value="teacher">Teacher</option><option value="school_admin">School Admin</option></select></div>
     <div class="field"><label for="email">Email address</label><input id="email" type="email" name="email" required></div>
@@ -17111,23 +17122,26 @@ def admin_students():
         f"""
         <tr>
           <td style='border:1px solid #ccc;padding:8px;'>{student.id}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.name}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{school_name or '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.email}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td>
-          <td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.name)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.grade)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(school_name or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.email or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student.parent_email or '-')}</td>
+          <td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) or '-')}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.xp}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.level}</td>
           <td style='border:1px solid #ccc;padding:8px;'>{student.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
-          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/student/{student.id}'>View Details</a></td>
+          <td style='border:1px solid #ccc;padding:8px;'><a href='/admin/student/{student.id}'>View Details</a> | <a href='/admin/students/{student.id}/edit'>Edit</a></td>
         </tr>
         """
         for student, school_name in students_with_school
     )
+    flash_messages = get_flashed_messages()
+    flash_html = "".join(f"<p style='padding:10px;border-radius:8px;background:#dcfce7;color:#166534;'>{escape(msg)}</p>" for msg in flash_messages)
     return f"""
     <h1>Manage Students</h1>
+    {flash_html}
     <p><a href='/admin-dashboard'>Back to Admin Dashboard</a></p>
     <p><a href='/register-form'>Add New Student</a></p>
     <table style='border-collapse:collapse;width:100%;'>
@@ -17135,6 +17149,121 @@ def admin_students():
       <tbody>{student_rows if student_rows else "<tr><td colspan='12' style='border:1px solid #ccc;padding:8px;'>No students found.</td></tr>"}</tbody>
     </table>
     """
+
+
+
+@app.route("/admin/students/<int:student_id>/edit", methods=["GET", "POST"])
+def admin_edit_student(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+
+    student = Student.query.get_or_404(student_id)
+    schools = School.query.order_by(School.school_name.asc()).all()
+
+    def render_form(error_message: str = ""):
+        current_school_id = "" if student.school_id is None else str(student.school_id)
+        school_options = "<option value=''>Not assigned</option>" + "".join(
+            f"<option value='{school.id}' {'selected' if str(school.id) == current_school_id else ''}>{escape(school.school_name)}</option>"
+            for school in schools
+        )
+        medium_options = "".join(
+            f"<option value='{escape(medium)}' {'selected' if student.medium == medium else ''}>{escape(medium)}</option>"
+            for medium in sorted(SUPPORTED_MEDIA)
+        )
+        grade_options = "".join(
+            f"<option value='{escape(grade)}' {'selected' if student.grade == grade else ''}>{escape(GRADE_LABELS_EN.get(grade, grade))}</option>"
+            for grade in VALID_GRADES
+        )
+        status_value = getattr(student, "subscription_status", "") or ""
+        error_html = f"<p style='padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b;'>{escape(error_message)}</p>" if error_message else ""
+        return f"""
+        <h1>Edit Student: {escape(student.name)}</h1>
+        <p><a href='/admin/students'>Back to Manage Students</a> | <a href='/admin/student/{student.id}'>View Details</a></p>
+        {error_html}
+        <form method='post' action='/admin/students/{student.id}/edit' style='max-width:760px;'>
+          <p><strong>Student ID:</strong> {student.id} (unchanged)</p>
+          <label>Student name:<br><input type='text' name='name' value='{escape(student.name or "", quote=True)}' required style='width:100%;padding:8px;'></label><br><br>
+          <label>Grade:<br><select name='grade' required style='width:100%;padding:8px;'>{grade_options}</select></label><br><br>
+          <label>Medium:<br><select name='medium' required style='width:100%;padding:8px;'>{medium_options}</select></label><br><br>
+          <label>School:<br><select name='school_id' style='width:100%;padding:8px;'>{school_options}</select></label><br><br>
+          <label>Email (optional; leave blank intentionally if the student has no email):<br><input type='email' name='email' value='{escape(student.email or "", quote=True)}' style='width:100%;padding:8px;'></label><br><br>
+          <label>Parent email:<br><input type='email' name='parent_email' value='{escape(student.parent_email or "", quote=True)}' style='width:100%;padding:8px;'></label><br><br>
+          <label>WhatsApp number (leave unchanged unless you need to correct it):<br><input type='text' name='whatsapp_number' value='{escape(student_whatsapp_number(student), quote=True)}' style='width:100%;padding:8px;'></label><br><br>
+          <label>Username / registration number:<br><input type='text' name='username' value='{escape(student.username or "", quote=True)}' style='width:100%;padding:8px;'></label><br><br>
+          <label>Status:<br><input type='text' name='subscription_status' value='{escape(status_value, quote=True)}' style='width:100%;padding:8px;'></label><br><br>
+          <button type='submit' style='padding:10px 16px;'>Save Student</button>
+        </form>
+        """
+
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        grade = normalize_grade(request.form.get("grade"))
+        medium = (request.form.get("medium") or "").strip()
+        school_id_raw = (request.form.get("school_id") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
+        parent_email = (request.form.get("parent_email") or "").strip().lower()
+        whatsapp_input = (request.form.get("whatsapp_number") or "").strip()
+        username = (request.form.get("username") or "").strip() or None
+        subscription_status = (request.form.get("subscription_status") or "").strip() or "active"
+
+        if not name:
+            return render_form("Student name is required."), 400
+        if len(name) > 120:
+            return render_form("Student name must be 120 characters or less."), 400
+        if not is_valid_grade(grade):
+            return render_form("Invalid grade. Use one of: 1-10, OL, AL."), 400
+        if medium not in SUPPORTED_MEDIA:
+            return render_form("Invalid medium. Use English or Sinhala."), 400
+        if len(email) > 120 or len(parent_email) > 120:
+            return render_form("Email addresses must be 120 characters or less."), 400
+        if username and len(username) > 50:
+            return render_form("Username / registration number must be 50 characters or less."), 400
+        if len(subscription_status) > 30:
+            return render_form("Status must be 30 characters or less."), 400
+
+        email_error = validate_admin_student_email(email, "Email") or validate_admin_student_email(parent_email, "Parent email")
+        if email_error:
+            return render_form(email_error), 400
+
+        if email:
+            duplicate_email = Student.query.filter(Student.email == email, Student.id != student.id).first()
+            if duplicate_email:
+                return render_form("Email already belongs to another student."), 400
+
+        if username:
+            duplicate_username = Student.query.filter(Student.username == username, Student.id != student.id).first()
+            if duplicate_username:
+                return render_form("Username / registration number already belongs to another student."), 400
+
+        school_id = None
+        if school_id_raw:
+            if not school_id_raw.isdigit() or not db.session.get(School, int(school_id_raw)):
+                return render_form("Selected school is invalid."), 400
+            school_id = int(school_id_raw)
+
+        if whatsapp_input:
+            whatsapp_number, whatsapp_error = normalize_whatsapp_number(whatsapp_input)
+            if whatsapp_error:
+                return render_form(whatsapp_error), 400
+        else:
+            whatsapp_number = student_whatsapp_number(student) or student.mobile
+
+        student.name = name
+        student.grade = grade
+        student.medium = medium
+        student.school_id = school_id
+        student.email = email or None
+        student.parent_email = parent_email or None
+        student.username = username
+        student.whatsapp_number = whatsapp_number
+        student.mobile = whatsapp_number or student.mobile
+        student.subscription_status = subscription_status
+        db.session.commit()
+        flash("Student profile updated successfully.")
+        return redirect(url_for("admin_student_details", student_id=student.id))
+
+    return render_form()
 
 
 @app.route("/admin/student/<int:student_id>", methods=["GET"])
@@ -17160,11 +17289,14 @@ def admin_student_details(student_id: int):
         f"<tr><td style='border:1px solid #ccc;padding:8px;'>{item.topic_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.latest_score}%</td><td style='border:1px solid #ccc;padding:8px;'>{item.mastery_level_en}</td><td style='border:1px solid #ccc;padding:8px;'>{item.attempts_count}</td><td style='border:1px solid #ccc;padding:8px;'>{item.last_updated.strftime('%Y-%m-%d %H:%M:%S')}</td></tr>"
         for item in progress_rows
     )
+    flash_messages = get_flashed_messages()
+    flash_html = "".join(f"<p style='padding:10px;border-radius:8px;background:#dcfce7;color:#166534;'>{escape(msg)}</p>" for msg in flash_messages)
     return f"""
-    <h1>Student Details: {student.name}</h1>
-    <p><a href='/admin/students'>Back to Manage Students</a></p>
+    <h1>Student Details: {escape(student.name)}</h1>
+    {flash_html}
+    <p><a href='/admin/students'>Back to Manage Students</a> | <a href='/admin/students/{student.id}/edit'>Edit Student</a></p>
     <h2>Student Profile</h2>
-    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{student.grade}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{student.medium}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.email}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{student.parent_email or '-'}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</td><td style='border:1px solid #ccc;padding:8px;'>{student_whatsapp_number(student)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
+    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.grade)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.parent_email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Username / Registration Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.username or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Status</td><td style='border:1px solid #ccc;padding:8px;'>{escape(getattr(student, 'subscription_status', '') or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
     <h2>SkillScan Result History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Level</th></tr></thead><tbody>{skillscan_rows if skillscan_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No SkillScan results found.</td></tr>"}</tbody></table>
     <h2>Practice Attempt History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}</tbody></table>
     <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
