@@ -1102,6 +1102,7 @@ class Student(db.Model):
     subscription_valid_until = db.Column(db.Date, nullable=True)
     profile_image_url = db.Column(db.Text, nullable=True)
     ui_language = db.Column(db.String(20), nullable=True)
+    force_password_change = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class PaymentSettings(db.Model):
@@ -1363,6 +1364,7 @@ def ensure_family_registration_schema() -> None:
 def ensure_student_settings_schema() -> None:
     """Create settings-related student tables and optional columns safely."""
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS ui_language VARCHAR(20)"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN NOT NULL DEFAULT FALSE"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
@@ -1442,6 +1444,7 @@ def run_startup_migrations() -> None:
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS profile_image_url TEXT"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(30) DEFAULT 'active'"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS subscription_valid_until DATE"))
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN NOT NULL DEFAULT FALSE"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS school_id INTEGER"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS batch_id INTEGER"))
     db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS group_id INTEGER"))
@@ -1497,6 +1500,16 @@ def student_initials(name: str | None) -> str:
         return parts[0][:2].upper()
     return f"{parts[0][0]}{parts[1][0]}".upper()
 
+
+
+def ensure_student_password_reset_schema() -> None:
+    """Ensure admin password reset can require students to change password after login."""
+    db.session.execute(db.text("ALTER TABLE student ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.session.commit()
+
+
+def student_must_change_password(student: Student | None) -> bool:
+    return bool(student and getattr(student, "force_password_change", False))
 
 def get_notification_preferences(student_id: int) -> StudentNotificationPreference:
     pref = StudentNotificationPreference.query.filter_by(student_id=student_id).first()
@@ -5528,6 +5541,8 @@ def reset_password():
                     user = db.session.get(Student, record.user_id)
                 if user:
                     user.password_hash = generate_password_hash(new_password)
+                    if record.role in {"student", "parent"} and hasattr(user, "force_password_change"):
+                        user.force_password_change = False
                     record.used_at = datetime.utcnow()
                     db.session.commit()
                     return redirect(url_for("login", reset="success"))
@@ -5823,6 +5838,7 @@ def login():
         ensure_gamification_columns()
         ensure_streak_columns()
         ensure_subscription_columns()
+        ensure_student_password_reset_schema()
     except Exception:
         db.session.rollback()
 
@@ -5872,6 +5888,8 @@ def login():
     record_student_login_log(student.id)
     if expired_now:
         session["subscription_expired_message"] = get_subscription_expired_message(student.medium)
+    if student_must_change_password(student):
+        return redirect(url_for("student_change_password"))
     return redirect(url_for("student_dashboard"))
 
 
@@ -9092,6 +9110,94 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.before_request
+def enforce_student_forced_password_change():
+    student_id = session.get("student_id")
+    if not student_id:
+        return None
+
+    allowed_endpoints = {
+        "student_change_password",
+        "logout",
+        "static",
+    }
+    if request.endpoint in allowed_endpoints:
+        return None
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+    if student_must_change_password(student):
+        return redirect(url_for("student_change_password"))
+    return None
+
+
+@app.route("/student/change-password", methods=["GET", "POST"])
+def student_change_password():
+    student_id = session.get("student_id")
+    if not student_id:
+        return redirect(url_for("login"))
+    try:
+        ensure_student_password_reset_schema()
+    except Exception:
+        db.session.rollback()
+    student = db.session.get(Student, student_id)
+    if not student:
+        session.pop("student_id", None)
+        return redirect(url_for("login"))
+
+    notice = ""
+    notice_class = ""
+    if request.method == "POST":
+        new_password = request.form.get("new_password") or ""
+        confirm_password = request.form.get("confirm_password") or ""
+        if len(new_password) < 6:
+            notice = "New password must be at least 6 characters."
+            notice_class = "error"
+        elif new_password != confirm_password:
+            notice = "Password confirmation does not match."
+            notice_class = "error"
+        else:
+            student.password_hash = generate_password_hash(new_password)
+            student.force_password_change = False
+            student.last_activity_date = date.today()
+            db.session.commit()
+            flash("Password changed successfully.", "success")
+            return redirect(url_for("student_dashboard"))
+
+    safe_notice = f"<p class='notice {notice_class}'>{escape(notice)}</p>" if notice else ""
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Change Password - SLIS</title>
+        <style>{LOGIN_PAGE_STYLES}
+          .notice {{margin:0 0 12px;color:#1f2a44;background:#e8f0ff;border-radius:10px;padding:10px 12px;font-size:.9rem;}}
+          .notice.error {{color:#991b1b;background:#fee2e2;}}
+          .security-note {{margin:0 0 14px;color:#334155;font-size:.9rem;line-height:1.45;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;}}
+        </style>
+      </head>
+      <body class="login-page">
+        <div class="login-card">
+          <div class="brand"><img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo"><p>Spiral Learning Intelligence System</p></div>
+          <h2 style="margin:0 0 8px;color:#184bb8;text-align:center;">Change Password</h2>
+          <p class="security-note">For account security, please create a new password before continuing to lessons.</p>
+          {safe_notice}
+          <form method="post" action="/student/change-password">
+            <div class="field"><label for="new_password">New Password</label><input id="new_password" type="password" name="new_password" minlength="6" required></div>
+            <div class="field"><label for="confirm_password">Confirm Password</label><input id="confirm_password" type="password" name="confirm_password" minlength="6" required></div>
+            <button type="submit">Save Password</button>
+          </form>
+          <div class="login-extra-links"><a class="login-card-link" href="/logout">Logout</a></div>
+        </div>
+      </body>
+    </html>
+    """
+
+
 def get_admin_credentials() -> tuple[str, str]:
     return (
         os.environ.get("ADMIN_EMAIL", "admin@spiral.com"),
@@ -11057,6 +11163,7 @@ def student_settings_page():
                     flash("Password confirmation does not match.", "error")
                 else:
                     student.password_hash = generate_password_hash(new_password)
+                    student.force_password_change = False
                     student.last_activity_date = date.today()
                     db.session.commit()
                     flash("Password changed successfully.", "success")
@@ -17292,17 +17399,75 @@ def admin_student_details(student_id: int):
     flash_messages = get_flashed_messages()
     flash_html = "".join(f"<p style='padding:10px;border-radius:8px;background:#dcfce7;color:#166534;'>{escape(msg)}</p>" for msg in flash_messages)
     return f"""
+    <style>
+      .admin-action-btn {{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:999px;background:#184bb8;color:#fff;font-weight:800;padding:10px 16px;cursor:pointer;text-decoration:none;}}
+      .admin-action-btn:hover {{filter:brightness(1.05);}}
+      .reset-modal {{display:none;position:fixed;inset:0;background:rgba(15,23,42,.58);z-index:1000;align-items:center;justify-content:center;padding:18px;}}
+      .reset-modal:target {{display:flex;}}
+      .reset-modal-card {{width:min(92vw,460px);background:#fff;border-radius:18px;box-shadow:0 24px 70px rgba(15,23,42,.24);padding:24px;}}
+      .reset-modal-card h2 {{margin:0 0 8px;color:#0f2a5f;}}
+      .reset-modal-card label {{display:block;margin-top:12px;font-weight:800;color:#1f2937;}}
+      .reset-modal-card input[type=password] {{width:100%;box-sizing:border-box;margin-top:6px;border:1px solid #cbd5e1;border-radius:12px;padding:10px 12px;}}
+      .reset-modal-card .check-row {{display:flex;align-items:center;gap:10px;margin-top:14px;color:#334155;font-weight:700;}}
+      .reset-modal-card .check-row input {{width:auto;}}
+      .reset-modal-actions {{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}}
+      .reset-modal-cancel {{border-radius:999px;padding:10px 16px;background:#e2e8f0;color:#1e293b;text-decoration:none;font-weight:800;}}
+      .reset-modal-save {{border:0;border-radius:999px;padding:10px 16px;background:#16a34a;color:#fff;font-weight:900;cursor:pointer;}}
+    </style>
     <h1>Student Details: {escape(student.name)}</h1>
     {flash_html}
-    <p><a href='/admin/students'>Back to Manage Students</a> | <a href='/admin/students/{student.id}/edit'>Edit Student</a></p>
+    <p><a href='/admin/students'>Back to Manage Students</a> | <a href='/admin/students/{student.id}/edit'>Edit Student</a> | <a class='admin-action-btn' href='#reset-password-modal'>Reset Password</a></p>
+    <div class='reset-modal' id='reset-password-modal' role='dialog' aria-modal='true' aria-labelledby='reset-password-title'>
+      <div class='reset-modal-card'>
+        <h2 id='reset-password-title'>Reset Password</h2>
+        <p style='margin:0;color:#475569;'>Set a temporary password for {escape(student.name)}. No email is required.</p>
+        <form method='post' action='/admin/student/{student.id}/reset-password'>
+          <label for='temporary_password'>Temporary Password</label>
+          <input id='temporary_password' type='password' name='temporary_password' minlength='6' required>
+          <label for='confirm_password'>Confirm Password</label>
+          <input id='confirm_password' type='password' name='confirm_password' minlength='6' required>
+          <label class='check-row' for='force_password_change'><input id='force_password_change' type='checkbox' name='force_password_change' value='1' checked>Force password change on next login</label>
+          <div class='reset-modal-actions'><a class='reset-modal-cancel' href='#'>Cancel</a><button class='reset-modal-save' type='submit'>Save</button></div>
+        </form>
+      </div>
+    </div>
     <h2>Student Profile</h2>
-    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.grade)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.parent_email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Username / Registration Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.username or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Status</td><td style='border:1px solid #ccc;padding:8px;'>{escape(getattr(student, 'subscription_status', '') or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
+    <table style='border-collapse:collapse;'><tr><td style='border:1px solid #ccc;padding:8px;'>ID</td><td style='border:1px solid #ccc;padding:8px;'>{student.id}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Grade</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.grade)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Medium</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.medium)}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Parent Email</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.parent_email or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>WhatsApp Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student_whatsapp_number(student) or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Username / Registration Number</td><td style='border:1px solid #ccc;padding:8px;'>{escape(student.username or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Status</td><td style='border:1px solid #ccc;padding:8px;'>{escape(getattr(student, 'subscription_status', '') or '-')}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>Force Password Change</td><td style='border:1px solid #ccc;padding:8px;'>{'Yes' if student_must_change_password(student) else 'No'}</td></tr><tr><td style='border:1px solid #ccc;padding:8px;'>XP / Level</td><td style='border:1px solid #ccc;padding:8px;'>{student.xp} / {student.level}</td></tr></table>
     <h2>SkillScan Result History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Level</th></tr></thead><tbody>{skillscan_rows if skillscan_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No SkillScan results found.</td></tr>"}</tbody></table>
     <h2>Practice Attempt History</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th></tr></thead><tbody>{practice_rows if practice_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No practice attempts found.</td></tr>"}</tbody></table>
     <h2>Latest Topic-wise Performance</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Correct</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{topic_rows if topic_rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No topic-wise data found.</td></tr>"}</tbody></table>
     <h2>Weak Topics (Percentage &lt; 50)</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Percentage</th></tr></thead><tbody>{weak_rows if weak_rows else "<tr><td colspan='2' style='border:1px solid #ccc;padding:8px;'>No weak topics found.</td></tr>"}</tbody></table>
     <h2>Student Topic Progress</h2><table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Latest Score</th><th style='border:1px solid #ccc;padding:8px;'>Mastery Level</th><th style='border:1px solid #ccc;padding:8px;'>Attempts Count</th><th style='border:1px solid #ccc;padding:8px;'>Last Updated</th></tr></thead><tbody>{progress_rows_html if progress_rows_html else "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No topic progress found.</td></tr>"}</tbody></table>
     """
+
+
+@app.route("/admin/student/<int:student_id>/reset-password", methods=["POST"])
+def admin_reset_student_password(student_id: int):
+    admin_redirect = admin_session_required()
+    if admin_redirect:
+        return admin_redirect
+    try:
+        ensure_student_password_reset_schema()
+    except Exception:
+        db.session.rollback()
+    student = Student.query.get_or_404(student_id)
+    temporary_password = request.form.get("temporary_password") or ""
+    confirm_password = request.form.get("confirm_password") or ""
+    force_password_change = (request.form.get("force_password_change") or "") == "1"
+
+    if len(temporary_password) < 6:
+        flash("Temporary password must be at least 6 characters.")
+        return redirect(url_for("admin_student_details", student_id=student.id))
+    if temporary_password != confirm_password:
+        flash("Password confirmation does not match.")
+        return redirect(url_for("admin_student_details", student_id=student.id))
+
+    student.password_hash = generate_password_hash(temporary_password)
+    student.force_password_change = force_password_change
+    db.session.commit()
+    flash("Password reset successfully.")
+    return redirect(url_for("admin_student_details", student_id=student.id))
+
 
 
 
