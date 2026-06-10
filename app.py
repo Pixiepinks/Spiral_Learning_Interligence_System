@@ -6032,73 +6032,105 @@ def student_dashboard():
     )
 
     next_rec = get_student_next_recommendation(student.id)
-    continue_cards = []
-    progress_seed = [22, 35, 48, 57, 63, 71, 84, 90]
-    modules = (
-        db.session.query(SyllabusModule, SyllabusTerm, SubjectMaster)
-        .join(SyllabusTerm, SyllabusModule.term_id == SyllabusTerm.id)
-        .join(
-            SubjectMaster,
-            db.and_(
-                SubjectMaster.grade == SyllabusTerm.grade,
-                db.or_(
-                    SubjectMaster.subject_code == SyllabusTerm.subject,
-                    SubjectMaster.subject_name_en == SyllabusTerm.subject,
-                    SubjectMaster.subject_name_si == SyllabusTerm.subject,
-                ),
-            ),
+    continue_label = "ඉදිරියට" if language == "si" else "Continue"
+    continue_candidates: dict[int, dict[str, object]] = {}
+
+    def continue_timestamp(value):
+        return value or datetime.min
+
+    def add_continue_candidate(lesson: Lesson | None, progress: StudentLessonProgress | None = None, source: str = "recent") -> None:
+        if not lesson or not lesson.is_active:
+            return
+        lesson_id = int(lesson.id)
+        completion_percent = int(round(float(getattr(progress, "completion_percent", 0) or 0))) if progress else 0
+        last_accessed_at = getattr(progress, "last_opened_at", None) or getattr(progress, "updated_at", None) if progress else None
+        enrolled_at = getattr(progress, "created_at", None) if progress else getattr(lesson, "created_at", None)
+        existing = continue_candidates.get(lesson_id)
+        candidate_rank = (
+            continue_timestamp(last_accessed_at),
+            completion_percent,
+            continue_timestamp(enrolled_at),
         )
-        .filter(SubjectMaster.grade == normalize_grade(student.grade))
-        .filter(SubjectMaster.is_active.is_(True))
-        .order_by(SyllabusTerm.term_number.asc(), SyllabusModule.module_order.asc())
-        .limit(5)
+        if existing and candidate_rank <= existing["sort_rank"]:
+            return
+        chapter = db.session.get(SyllabusChapter, lesson.chapter_id)
+        module = db.session.get(SyllabusModule, chapter.module_id) if chapter else None
+        term = db.session.get(SyllabusTerm, module.term_id) if module else None
+        subject = None
+        if term:
+            subject = SubjectMaster.query.filter(
+                SubjectMaster.grade == normalize_grade(term.grade),
+                db.or_(
+                    SubjectMaster.subject_code == term.subject,
+                    SubjectMaster.subject_name_en == term.subject,
+                    SubjectMaster.subject_name_si == term.subject,
+                ),
+                SubjectMaster.is_active.is_(True),
+            ).first()
+        lesson_title = lesson.lesson_title_si if language == "si" else lesson.lesson_title_en
+        subject_name = ""
+        if subject:
+            subject_name = subject.subject_name_si if language == "si" else subject.subject_name_en
+        elif term:
+            subject_name = term.subject
+        continue_candidates[lesson_id] = {
+            "lesson_id": lesson_id,
+            "lesson_title": lesson_title,
+            "subject_name": subject_name,
+            "image_url": lesson.thumbnail_url or resolve_chapter_module_image(chapter, module, student.medium),
+            "completion_percent": max(0, min(100, completion_percent)),
+            "url": url_for("student_lesson_page", lesson_id=lesson_id),
+            "source": source,
+            "sort_rank": candidate_rank,
+        }
+
+    in_progress_items = (
+        StudentLessonProgress.query.filter_by(student_id=student.id, is_completed=False)
+        .order_by(StudentLessonProgress.last_opened_at.desc().nullslast(), StudentLessonProgress.updated_at.desc(), StudentLessonProgress.id.desc())
+        .limit(10)
         .all()
     )
-    for index, (module, _, subject) in enumerate(modules):
-        progress_value = progress_seed[index % len(progress_seed)]
-        active_chapters = (
-            SyllabusChapter.query.filter_by(module_id=module.id, is_active=True)
-            .order_by(SyllabusChapter.chapter_order.asc(), SyllabusChapter.id.asc())
-            .all()
-        )
-        chapter_ids = [chapter.id for chapter in active_chapters]
-        completed_chapter_ids = {
-            row.chapter_id
-            for row in StudentChapterProgress.query.filter(
-                StudentChapterProgress.student_id == student.id,
-                StudentChapterProgress.chapter_id.in_(chapter_ids),
-                StudentChapterProgress.status == "completed",
-            ).all()
-        } if chapter_ids else set()
-        continue_chapter = next((chapter for chapter in active_chapters if chapter.id not in completed_chapter_ids), active_chapters[0] if active_chapters else None)
-        module_image = resolve_chapter_module_image(continue_chapter, module, student.medium)
-        module_name = module.module_name_si if student.medium == "Sinhala" else module.module_name_en
-        subject_name = subject.subject_name_si if student.medium == "Sinhala" else subject.subject_name_en
-        continue_label = "ඉදිරියට" if language == "si" else "Continue"
+    for progress in in_progress_items:
+        add_continue_candidate(db.session.get(Lesson, progress.lesson_id), progress, "in_progress")
+
+    recent_items = (
+        StudentLessonProgress.query.filter_by(student_id=student.id)
+        .order_by(StudentLessonProgress.last_opened_at.desc().nullslast(), StudentLessonProgress.updated_at.desc(), StudentLessonProgress.id.desc())
+        .limit(10)
+        .all()
+    )
+    for progress in recent_items:
+        add_continue_candidate(db.session.get(Lesson, progress.lesson_id), progress, "recent")
+
+    recommended_lesson = db.session.get(Lesson, int(next_rec.get("lesson_id") or 0)) if next_rec.get("lesson_id") else None
+    if recommended_lesson:
+        recommended_progress = StudentLessonProgress.query.filter_by(student_id=student.id, lesson_id=recommended_lesson.id).first()
+        add_continue_candidate(recommended_lesson, recommended_progress, "recommended")
+
+    continue_lessons = sorted(
+        continue_candidates.values(),
+        key=lambda item: item["sort_rank"],
+        reverse=True,
+    )[:5]
+    continue_cards = []
+    for item in continue_lessons:
+        completion_percent = int(item["completion_percent"])
         continue_cards.append(
-            f"<article class='continue-module-card'><img src='{escape(module_image)}' alt='{escape(module_name)}' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(module_name)}</h4><p class='continue-module-subject'>{escape(subject_name)}</p><div class='continue-module-progress-row'><span>{progress_value}%</span><button type='button' class='continue-module-play' aria-label='{escape(continue_label)}'>▶</button></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{progress_value}%;'></span></div></div></article>"
+            f"<article class='continue-module-card'>"
+            f"<div class='continue-module-cover-wrap'><img src='{escape(str(item['image_url']))}' alt='{escape(str(item['lesson_title']))}' class='continue-module-cover' loading='lazy'></div>"
+            f"<div class='continue-module-body'><p class='continue-module-subject'>{escape(str(item['subject_name']))}</p>"
+            f"<h4 class='continue-module-title'>{escape(str(item['lesson_title']))}</h4>"
+            f"<div class='continue-module-progress-row'><span>{completion_percent}%</span></div>"
+            f"<div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{completion_percent}%;'></span></div>"
+            f"<a href='{escape(str(item['url']))}' class='continue-module-play' aria-label='{escape(continue_label)}'>{escape(continue_label)}</a></div></article>"
         )
-    rec_type_label = {
-        "continue_lesson": "Continue" if language == "en" else "ඉදිරියට",
-        "revision": "Revision" if language == "en" else "නැවත අධ්‍යයනය",
-        "practice": "Practice" if language == "en" else "පුහුණුව",
-        "challenge": "Challenge" if language == "en" else "අභියෝගය",
-        "next_chapter": "Next Chapter" if language == "en" else "ඊළඟ පරිච්ඡේදය",
-    }
-    if next_rec:
-        rec_progress = int(next_rec.get("progress_percent") or 0)
-        rec_title = next_rec.get("recommended_lesson_si") if language == "si" else next_rec.get("recommended_lesson_en")
-        rec_reason = next_rec.get("reason_si") if language == "si" else next_rec.get("reason_en")
-        rec_type = str(next_rec.get("type") or "continue_lesson")
-        recommended_chapter = db.session.get(SyllabusChapter, int(next_rec.get("chapter_id") or 0)) if next_rec.get("chapter_id") else None
-        recommended_module = db.session.get(SyllabusModule, recommended_chapter.module_id) if recommended_chapter else None
-        recommended_image = resolve_chapter_module_image(recommended_chapter, recommended_module, student.medium)
-        continue_cards.insert(
-            0,
-            f"<article class='continue-module-card' style='border:2px solid #93c5fd;'><img src='{escape(recommended_image)}' alt='Recommended' class='continue-module-cover' loading='lazy'><div class='continue-module-body'><h4 class='continue-module-title'>{escape(str(rec_title or ''))}</h4><p class='continue-module-subject'>{escape(rec_type_label.get(rec_type, rec_type))} • {escape(str(next_rec.get('mastery_status') or ''))}</p><p class='continue-module-subject'>Reason: {escape(str(rec_reason or ''))}</p><p class='continue-module-subject'>~{int(next_rec.get('estimated_time') or 10)} min</p><div class='continue-module-progress-row'><span>{rec_progress}%</span><a href='{escape(str(next_rec.get('next_url') or '#'))}' class='continue-module-play' aria-label='Continue' style='display:inline-flex;align-items:center;justify-content:center;text-decoration:none;'>▶</a></div><div class='continue-module-progress-bar'><span class='continue-module-progress-fill' style='width:{rec_progress}%;'></span></div></div></article>",
-        )
-    continue_empty = "මෙම ශ්‍රේණියට මොඩියුල නොමැත." if language == "si" else "No modules available for your grade."
-    continue_html = "".join(continue_cards) or f"<div class='card' style='padding:16px;'>{continue_empty}</div>"
+    continue_empty = """
+        <div class='continue-learning-empty'>
+          <div class='continue-empty-illustration' aria-hidden='true'>📚✨</div>
+          <p>ඔබ තවම පාඩම් ආරම්භ කර නොමැත</p>
+        </div>
+    """
+    continue_html = "".join(continue_cards) or continue_empty
     recommended_practice_card = ""
     if weak_topics_for_dashboard:
         top_weak = weak_topics_for_dashboard[0]
@@ -6248,6 +6280,8 @@ def student_dashboard():
     order: 30 !important;
   }}
 }}
+
+.continue-learning-section{{background:rgba(255,255,255,.78);border:1px solid rgba(203,213,225,.72);border-radius:22px;box-shadow:0 16px 34px rgba(15,23,42,.07);padding:18px;overflow:hidden}}.continue-learning-header{{margin-bottom:14px}}.continue-learning-grid{{display:grid !important;grid-template-columns:repeat(5,240px) !important;gap:16px !important;align-items:stretch;overflow:visible !important}}.continue-module-card{{width:240px !important;min-width:240px !important;max-width:240px !important;height:300px !important;min-height:300px !important;background:#fff;border:1px solid rgba(226,232,240,.9);border-radius:20px;overflow:hidden;box-shadow:0 10px 24px rgba(15,23,42,.10);display:flex;flex-direction:column;transition:transform .3s ease,box-shadow .3s ease,border-color .3s ease}}.continue-module-card:hover{{transform:translateY(-6px);box-shadow:0 20px 42px rgba(15,23,42,.18);border-color:rgba(37,99,235,.28)}}.continue-module-cover-wrap{{height:154px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eff6ff,#f8fafc);padding:10px}}.continue-module-cover{{height:134px !important;width:auto !important;aspect-ratio:3 / 4 !important;object-fit:cover !important;border-radius:14px;box-shadow:0 8px 18px rgba(15,23,42,.14);display:block}}.continue-module-body{{padding:12px 14px 14px !important;display:flex;flex-direction:column;flex:1;min-height:0}}.continue-module-title{{font-size:15px !important;font-weight:850;line-height:1.22;margin:0 0 8px !important;color:#0f172a;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}.continue-module-subject{{font-size:12px !important;font-weight:800;color:#2563eb;margin:0 0 6px !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.continue-module-progress-row{{display:flex !important;align-items:center !important;justify-content:space-between !important;margin:0 0 7px !important;font-size:13px !important;font-weight:850;color:#334155}}.continue-module-progress-bar{{height:7px !important;border-radius:999px;background:#e5e7eb;overflow:hidden;margin:0 0 12px !important}}.continue-module-progress-fill{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#06b6d4)}}.continue-module-play{{margin-top:auto;width:100% !important;height:38px !important;border-radius:12px !important;border:0;background:#2563eb;color:#fff;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px !important;font-weight:850;cursor:pointer;line-height:1;transition:background .3s ease,transform .3s ease}}.continue-module-play:hover{{background:#1d4ed8;transform:translateY(-1px)}}.continue-learning-empty{{grid-column:1 / -1;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border:2px dashed rgba(147,197,253,.8);border-radius:20px;background:linear-gradient(135deg,rgba(239,246,255,.94),rgba(255,255,255,.86));text-align:center;color:#334155;font-weight:850;padding:28px}}.continue-empty-illustration{{width:92px;height:92px;border-radius:28px;display:flex;align-items:center;justify-content:center;background:#dbeafe;font-size:42px;box-shadow:0 14px 28px rgba(37,99,235,.14)}}.continue-learning-empty p{{margin:0;font-size:18px;line-height:1.35}}@media (max-width:1199px) and (min-width:769px){{.continue-learning-grid{{display:grid !important;grid-template-columns:repeat(3,240px) !important;gap:16px !important;overflow:visible !important;padding:0 !important;scroll-snap-type:none !important}}.continue-module-card{{width:240px !important;min-width:240px !important;max-width:240px !important;height:300px !important;min-height:300px !important;flex:initial !important;scroll-snap-align:none !important}}.continue-module-cover{{height:134px !important;width:auto !important;aspect-ratio:3 / 4 !important}}}}@media (max-width:768px){{.continue-learning-section{{padding:16px 0 16px 16px;overflow:hidden !important}}.continue-learning-header{{padding-right:16px}}.continue-learning-grid{{display:flex !important;flex-direction:row !important;gap:16px !important;overflow-x:auto !important;overflow-y:hidden !important;scroll-snap-type:x mandatory !important;padding:4px 16px 16px 0 !important;-webkit-overflow-scrolling:touch !important}}.continue-module-card{{flex:0 0 240px !important;width:240px !important;min-width:240px !important;max-width:240px !important;height:300px !important;min-height:300px !important;scroll-snap-align:start !important}}.continue-learning-empty{{flex:0 0 calc(100vw - 48px);min-width:calc(100vw - 48px);grid-column:auto}}}}
 html,body{{overflow-x:hidden}}.mobile-dashboard-header,.mobile-bottom-nav,.mobile-menu-backdrop{{display:none}}.mobile-dashboard-header{{position:fixed;top:10px;left:12px;right:12px;height:54px;z-index:9997;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:18px;background:rgba(255,255,255,.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 14px 32px rgba(15,23,42,.12)}}.mobile-menu-toggle,.mobile-profile-pill{{width:38px;height:38px;border:0;border-radius:14px;background:#0f3b8f;color:white;display:grid;place-items:center;text-decoration:none;font-weight:900;cursor:pointer}}.mobile-brand{{display:flex;align-items:center;gap:8px;min-width:0}}.mobile-brand img{{width:34px;height:34px;object-fit:contain;flex:0 0 auto}}.mobile-brand div{{min-width:0}}.mobile-brand strong{{display:block;font-size:13px;color:#0f172a;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}}.mobile-brand span{{display:block;font-size:11px;color:#64748b;line-height:1.1;white-space:nowrap}}.mobile-drawer-close{{display:none}}.mobile-quick-actions {{
   display: none;
 }}
