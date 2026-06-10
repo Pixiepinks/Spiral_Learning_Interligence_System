@@ -13974,8 +13974,182 @@ def student_lesson_page(lesson_id: int):
         margin: 0 auto !important;
       }}
     </style>
+
+    <style>
+      /* Universal lesson-player responsive framework. Keep desktop visuals intact; only constrain and compact below tablet widths. */
+      .lesson-player-card,
+      .lesson-player-card * {{ box-sizing: border-box; }}
+      .lesson-player-card {{ width: 100%; max-width: 100%; overflow-x: hidden; padding-bottom: 100px; }}
+      .slide-stage,
+      #slideMediaWrap,
+      .activity-wrap,
+      .manual-test-wrap,
+      .image-analysis-worksheet,
+      .drag-drop-question,
+      .tap-correct-image-wrap,
+      .tap-select-wrap {{ width: 100%; max-width: 100%; overflow-x: hidden; }}
+      #slideMediaWrap {{ min-width: 0; }}
+      img,
+      .activity-image,
+      .question-image,
+      .slide-media,
+      .manual-test-question-image,
+      .image-analysis-main-image,
+      .tap-select-image,
+      .tap-correct-image-card img,
+      .tap-picture-card img,
+      .dd-basket {{ max-width: 100%; height: auto; }}
+      .activity-wrap {{ --activity-item-size: 120px; --activity-drop-size: 170px; --activity-grid-columns: auto-fit; contain: layout paint; }}
+      .activity-wrap[data-responsive-activity] {{ padding: clamp(12px, 3vw, 18px); gap: clamp(8px, 2vw, 16px); }}
+      .activity-question {{ font-size: clamp(18px, 4.8vw, 22px); line-height: 1.3; margin: 0; }}
+      .activity-wrap .slide-content,
+      .activity-wrap p,
+      .ddcs-section-label,
+      .dcm-section-title,
+      .sfs-step-note {{ font-size: clamp(14px, 3.8vw, 16px); line-height: 1.55; }}
+      .activity-result,
+      .tap-correct-image-feedback,
+      .sfs-message,
+      .dcm-message,
+      .ddcs-message {{ font-size: clamp(14px, 3.8vw, 16px); }}
+      .lesson-btn,
+      .activity-check-btn,
+      .activity-card,
+      .tap-picture-card,
+      .tap-correct-image-card,
+      .dd-item,
+      .ddcs-item,
+      .dcm-item,
+      .sfs-flag,
+      .sca-color-btn,
+      .sca-tool-btn,
+      .sca-finish-btn {{ min-width: 44px; min-height: 44px; touch-action: manipulation; }}
+      @media (max-width: 1024px) {{
+        .lesson-player-card {{ padding: clamp(14px, 3vw, 22px); padding-bottom: 100px; }}
+        .slide-stage {{ padding: clamp(12px, 3vw, 18px); }}
+        .slide-stage h2 {{ font-size: clamp(20px, 4vw, 26px); line-height: 1.25; }}
+        .activity-grid {{ grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }}
+        .tap-picture-grid {{ grid-template-columns: repeat(2, minmax(132px, 180px)); gap: 14px; }}
+        .tap-picture-card {{ width: min(180px, 100%); height: min(180px, 42vw); }}
+        .tap-picture-card img {{ width: 86%; height: 86%; }}
+        .image-analysis-worksheet {{ gap: 16px; }}
+        .image-analysis-main-image {{ max-height: 52vh; object-fit: contain; }}
+      }}
+      @media (max-width: 600px) {{
+        .lesson-player-card {{ margin-top: 8px; border-radius: 18px; padding: 12px; padding-bottom: 100px; }}
+        .lesson-meta h1 {{ font-size: 22px; line-height: 1.2; }}
+        .lesson-meta p,
+        .chapter-progress-caption,
+        #completionText {{ font-size: 14px; }}
+        .lesson-journey-card {{ padding: 12px; border-radius: 18px; }}
+        .lesson-journey-track {{ gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }}
+        .lesson-journey-step {{ min-width: 116px; }}
+        .slide-stage {{ min-height: 0; padding: 12px; border-radius: 14px; }}
+        .slide-stage h2 {{ font-size: 20px; }}
+        .slide-content {{ font-size: 15px; line-height: 1.6; }}
+        .activity-wrap {{ margin-top: 12px; border-radius: 14px; padding: 12px; }}
+        .activity-mobile-small {{ --activity-item-size: 64px; --activity-drop-size: 120px; --activity-grid-columns: 2; }}
+        .activity-mobile-medium {{ --activity-item-size: 82px; --activity-drop-size: 145px; --activity-grid-columns: 2; }}
+        .activity-mobile-large {{ --activity-item-size: 110px; --activity-drop-size: 180px; --activity-grid-columns: 1; }}
+        .activity-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+        .activity-card {{ min-height: 92px; padding: 12px 10px; }}
+        .lesson-nav {{ position: sticky; bottom: 84px; z-index: 20; background: rgba(248,251,255,.9); backdrop-filter: blur(10px); margin: 18px -6px 0; padding: 8px 6px; border-radius: 14px; }}
+        .lesson-btn {{ flex: 1; min-height: 48px; }}
+        .drag-items-row {{ justify-content: center !important; gap: 8px !important; margin: 8px 0 12px !important; }}
+        .dd-item {{ width: var(--activity-item-size) !important; height: var(--activity-item-size) !important; min-width: var(--activity-item-size) !important; min-height: var(--activity-item-size) !important; max-width: var(--activity-item-size) !important; max-height: var(--activity-item-size) !important; }}
+        .dd-drop-zone {{ width: min(100%, 300px) !important; height: var(--activity-drop-size) !important; margin-inline: auto !important; }}
+        .tap-picture-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+        .tap-picture-card {{ width: 100%; height: clamp(128px, 42vw, 164px); }}
+        .tap-picture-card img {{ width: 88%; height: 88%; }}
+        .tap-correct-image-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+        .tap-correct-image-card {{ width: 100%; height: clamp(120px, 40vw, 150px); padding: 6px; }}
+        .tap-select-wrap {{ max-width: min(100%, 360px); margin-inline: auto; display: block; }}
+        .select-color-activity {{ padding: 12px; }}
+        .sca-stage {{ max-height: 56vh; }}
+        .sca-stage img {{ max-height: 56vh; object-fit: contain; }}
+        .sca-tool-row {{ gap: 8px; }}
+        .sca-color-btn {{ width: 46px; height: 46px; }}
+        .ddcs-board,
+        .dcm-board {{ gap: 14px; margin-top: 12px; }}
+        .ddcs-items-row,
+        .dcm-items-row {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; justify-items: center; }}
+        .ddcs-item,
+        .dcm-item {{ width: var(--activity-item-size) !important; min-height: calc(var(--activity-item-size) + 28px) !important; }}
+        .ddcs-item-shell,
+        .ddcs-item img,
+        .ddcs-image-fallback,
+        .dcm-item img {{ width: var(--activity-item-size) !important; height: var(--activity-item-size) !important; }}
+        .ddcs-targets-row,
+        .dcm-zones-row {{ gap: 10px; }}
+        .ddcs-target-card,
+        .dcm-zone-card {{ width: 100%; }}
+        .ddcs-target-circle {{ width: min(var(--activity-drop-size), 72vw) !important; height: min(var(--activity-drop-size), 72vw) !important; }}
+        .dcm-drop-zone {{ width: min(100%, 280px) !important; min-height: var(--activity-drop-size) !important; }}
+        .shape-flag-sorting {{ padding: 12px; }}
+        .sfs-tray {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; justify-items: center; }}
+        .sfs-flag {{ width: var(--activity-item-size) !important; min-height: calc(var(--activity-item-size) + 16px) !important; padding: 6px; }}
+        .sfs-flag img {{ width: calc(var(--activity-item-size) - 16px); height: calc(var(--activity-item-size) - 24px); }}
+        .sfs-sort-area {{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }}
+        .sfs-sort-box {{ min-height: 118px; border-radius: 18px; padding: 8px; }}
+        .sfs-box-stack {{ gap: 4px; }}
+        .sfs-rope-row {{ grid-template-columns: 1fr; gap: 6px; }}
+        .sfs-rope-line {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 14px 4px; }}
+        .sfs-slot {{ min-height: 74px; min-width: 0; }}
+        .sfs-flag.attached {{ width: 58px !important; min-height: 64px !important; }}
+        .image-analysis-image-frame {{ padding: 10px; border-radius: 18px; }}
+        .image-analysis-main-image {{ max-height: 44vh; }}
+        .image-analysis-sub-question {{ grid-template-columns: 1fr; gap: 10px; padding: 12px; }}
+        .image-analysis-question-text {{ font-size: 16px; }}
+        .image-analysis-answer-cell input {{ min-height: 48px; font-size: 16px; }}
+      }}
+      @media (max-width: 360px) {{
+        .activity-grid,
+        .tap-picture-grid,
+        .tap-correct-image-grid,
+        .ddcs-items-row,
+        .dcm-items-row {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }}
+        .activity-mobile-small {{ --activity-item-size: 58px; --activity-drop-size: 112px; }}
+        .activity-mobile-medium {{ --activity-item-size: 72px; --activity-drop-size: 132px; }}
+        .sfs-tray,
+        .sfs-sort-area,
+        .sfs-rope-line {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      }}
+    </style>
     <section class='lesson-player-card'><div class='lesson-meta'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p><div class='lesson-journey-card' aria-label='Lesson Journey'><div class='lesson-journey-head'><div><p class='lesson-journey-kicker'>SLIS Journey</p><h2 class='lesson-journey-title'>{'Lesson Journey' if not is_si else 'පාඩම් ගමන'}</h2></div></div><div class='lesson-journey-track'>{lesson_journey_html}</div><p class='lesson-journey-summary'>{escape(lessons_completed_summary)}</p><p class='chapter-progress-caption'>{'Chapter progress' if not is_si else 'පරිච්ඡේද ප්‍රගතිය'}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
+
+      const RESPONSIVE_ACTIVITY_CONFIG = {{
+        BALLOON_MATCHING: {{ types: ["drag_color_match"], scaleClass: "activity-mobile-small", mobile_item_size: 64, mobile_drop_zone_size: 120, mobile_grid_columns: 2 }},
+        MANGO_SORTING: {{ types: ["sort_by_size_drag_drop"], scaleClass: "activity-mobile-medium", mobile_item_size: 82, mobile_drop_zone_size: 145, mobile_grid_columns: 2 }},
+        SHAPE_SORTING: {{ types: ["shape_sorting", "shape_flag_sorting"], scaleClass: "activity-mobile-small", mobile_item_size: 64, mobile_drop_zone_size: 118, mobile_grid_columns: 3 }},
+        FLAG_SORTING: {{ types: ["flag_sorting", "shape_flag_sorting"], scaleClass: "activity-mobile-small", mobile_item_size: 64, mobile_drop_zone_size: 118, mobile_grid_columns: 3 }},
+        COLORING: {{ types: ["select_and_color", "coloring"], scaleClass: "activity-mobile-large", mobile_item_size: 110, mobile_drop_zone_size: 180, mobile_grid_columns: 1 }},
+        TAP_CORRECT: {{ types: ["tap_correct_picture", "tap_correct_image"], scaleClass: "activity-mobile-medium", mobile_item_size: 110, mobile_drop_zone_size: 150, mobile_grid_columns: 2 }},
+        IMAGE_ANALYSIS: {{ types: ["image_analysis", "image_analysis_worksheet"], scaleClass: "activity-mobile-large", mobile_item_size: 110, mobile_drop_zone_size: 180, mobile_grid_columns: 1 }},
+        GROUP_CONTAINER: {{ types: ["drag_drop_group_container", "drag_drop_group"], scaleClass: "activity-mobile-medium", mobile_item_size: 82, mobile_drop_zone_size: 145, mobile_grid_columns: 2 }},
+        MATCHING: {{ types: ["matching", "matching_pairs", "drag_drop", "ordering"], scaleClass: "activity-mobile-medium", mobile_item_size: 82, mobile_drop_zone_size: 145, mobile_grid_columns: 2 }}
+      }};
+      const RESPONSIVE_ACTIVITY_BY_TYPE = Object.entries(RESPONSIVE_ACTIVITY_CONFIG).reduce((acc, [key, config]) => {{
+        (config.types || []).forEach((type) => {{ acc[type] = {{ key, ...config }}; }});
+        return acc;
+      }}, {{}});
+      function getResponsiveActivityConfig(activityType) {{
+        return RESPONSIVE_ACTIVITY_BY_TYPE[String(activityType || "").trim().toLowerCase()] || {{ key: "MATCHING", scaleClass: "activity-mobile-medium", mobile_item_size: 82, mobile_drop_zone_size: 145, mobile_grid_columns: 2 }};
+      }}
+      function applyResponsiveActivityScaling(root, activityType) {{
+        const config = getResponsiveActivityConfig(activityType);
+        const scope = root || document;
+        const activityNodes = Array.from(scope.querySelectorAll(".activity-wrap, .drag-drop-question, .tap-correct-image-wrap, .tap-select-wrap, .image-analysis-worksheet"));
+        activityNodes.forEach((node) => {{
+          if (node.dataset.responsiveActivity === "1") return;
+          node.dataset.responsiveActivity = "1";
+          node.dataset.activityResponsiveKey = config.key;
+          node.classList.add(config.scaleClass || "activity-mobile-medium");
+          node.style.setProperty("--activity-item-size", `${{config.mobile_item_size || 82}}px`);
+          node.style.setProperty("--activity-drop-size", `${{config.mobile_drop_zone_size || 145}}px`);
+          node.style.setProperty("--activity-grid-columns", String(config.mobile_grid_columns || 2));
+        }});
+      }}
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
       function normalizeYouTube(url, enableJsApi=false) {{
         if (!url) return "";
@@ -14756,6 +14930,7 @@ def student_lesson_page(lesson_id: int):
             }}
           }}
 
+          if (body) applyResponsiveActivityScaling(body, question?.question_type || "interactive_video");
           if (window.initDragGroupUI && body) window.initDragGroupUI(body);
           if (window.initTapCorrectImageUI && body) window.initTapCorrectImageUI(body);
           if (window.initTapSelectUI && body) window.initTapSelectUI(body);
@@ -14932,6 +15107,7 @@ def student_lesson_page(lesson_id: int):
           const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
           const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
           const normalizedType = activityTypeMap[activityType] || activityType;
+          applyResponsiveActivityScaling(mediaWrap, normalizedType);
           if (normalizedType === "shape_flag_sorting") wireShapeFlagSorting(mediaWrap);
           if (normalizedType === "drag_drop_circle_size_match") wireDragDropCircleSizeMatch(mediaWrap);
           if (normalizedType === "sort_by_size_drag_drop") wireSortBySizeMangoBaskets(mediaWrap);
