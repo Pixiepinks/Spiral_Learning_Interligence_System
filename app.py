@@ -2377,8 +2377,8 @@ def default_select_and_color_activity_payload(title_en: str | None = None, title
         "base_image_url": "",
         "correct_object_id": "big_kite",
         "object_zones": [
-            {"id": "big_kite", "label_si": "ලොකු කයිට්", "label_en": "Big kite", "is_correct": True, "type": "polygon", "points": []},
-            {"id": "small_kite", "label_si": "කුඩා කයිට්", "label_en": "Small kite", "is_correct": False, "type": "polygon", "points": []},
+            {"id": "big_kite", "label_si": "ලොකු කයිට්", "label_en": "Big kite", "is_correct": True, "type": "rect", "x": 0, "y": 0, "width": 0, "height": 0},
+            {"id": "small_kite", "label_si": "කුඩා කයිට්", "label_en": "Small kite", "is_correct": False, "type": "rect", "x": 0, "y": 0, "width": 0, "height": 0},
         ],
         "coloring_mode": "freehand",
         "min_brush_strokes_required": 1,
@@ -16667,43 +16667,249 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
           if (typeSelect && typeSelect.value === 'drag_color_match') {{ if (itemRows && !itemRows.children.length) addItemRow(); if (zoneRows && !zoneRows.children.length) addZoneRow(); }}
         }})();
       </script>
-      <fieldset id='selectAndColorBuilder' style='border:1px solid #bfdbfe;border-radius:16px;padding:16px;max-width:1040px;margin-bottom:18px;background:linear-gradient(135deg,#eff6ff,#fdf2f8);'>
-        <legend><strong>Select and Color Activity</strong></legend>
-        <p>Upload the base activity image to the existing Supabase <code>lesson-images</code> bucket, then define object zones as JSON using natural-image coordinates. Rect zones use <code>x, y, width, height</code>; polygon zones use <code>points: [{{"x":10,"y":20}}]</code>.</p>
-        <div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;'>
-          <label>Title EN <input type='text' name='select_color_title_en' value='{escape(select_color_activity.get("title_en") or "")}' style='width:100%;'></label>
-          <label>Title SI <input type='text' name='select_color_title_si' value='{escape(select_color_activity.get("title_si") or "")}' style='width:100%;'></label>
-          <label>Instruction EN <textarea name='select_color_instruction_en' rows='3' style='width:100%;'>{escape(select_color_activity.get("instruction_en") or "")}</textarea></label>
-          <label>Instruction SI <textarea name='select_color_instruction_si' rows='3' style='width:100%;'>{escape(select_color_activity.get("instruction_si") or "")}</textarea></label>
-          <label>Base Image URL <input type='url' name='select_color_existing_base_image_url' value='{escape(select_color_activity.get("base_image_url") or "")}' style='width:100%;'></label>
-          <label>Upload Base Image <input type='file' name='select_color_base_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
-          <label>Correct Object ID <input type='text' name='select_color_correct_object_id' value='{escape(select_color_activity.get("correct_object_id") or "")}' style='width:100%;'></label>
-          <label>Coloring Mode <input type='text' name='select_color_coloring_mode' value='{escape(select_color_activity.get("coloring_mode") or "freehand")}' style='width:100%;'></label>
-          <label>Minimum Brush Strokes <input type='number' min='1' name='select_color_min_brush_strokes_required' value='{int(select_color_activity.get("min_brush_strokes_required") or 1)}' style='width:100%;'></label>
-          <label>Retry Message EN <input type='text' name='select_color_retry_message_en' value='{escape(select_color_activity.get("retry_message_en") or "")}' style='width:100%;'></label>
-          <label>Retry Message SI <input type='text' name='select_color_retry_message_si' value='{escape(select_color_activity.get("retry_message_si") or "")}' style='width:100%;'></label>
-          <label>Correct Selection Message EN <input type='text' name='select_color_correct_selection_message_en' value='{escape(select_color_activity.get("correct_selection_message_en") or "")}' style='width:100%;'></label>
-          <label>Correct Selection Message SI <input type='text' name='select_color_correct_selection_message_si' value='{escape(select_color_activity.get("correct_selection_message_si") or "")}' style='width:100%;'></label>
-          <label>Success Message EN <input type='text' name='select_color_success_message_en' value='{escape(select_color_activity.get("success_message_en") or "")}' style='width:100%;'></label>
-          <label>Success Message SI <input type='text' name='select_color_success_message_si' value='{escape(select_color_activity.get("success_message_si") or "")}' style='width:100%;'></label>
+      <fieldset id='selectAndColorBuilder' class='select-color-admin-card'>
+        <legend><span>Select and Color Activity</span><small>Grade 1 friendly builder</small></legend>
+        <style>
+          .select-color-admin-card{{border:1px solid rgba(191,219,254,.95);border-radius:28px;padding:0;max-width:1180px;margin:0 0 22px;background:linear-gradient(135deg,#f8fbff 0%,#eef6ff 54%,#fff7ed 100%);box-shadow:0 22px 54px rgba(37,99,235,.14);overflow:hidden;font-family:'Noto Sans Sinhala','Iskoola Pota','Poppins','Nunito',system-ui,sans-serif;color:#17315f}}
+          .select-color-admin-card legend{{margin-left:22px;padding:0 12px;font-weight:950;color:#0f347a;font-size:1.15rem}}
+          .select-color-admin-card legend span{{display:block}}
+          .select-color-admin-card legend small{{display:block;color:#64748b;font-size:.78rem;font-weight:800;margin-top:2px}}
+          .sc-hero{{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);gap:18px;padding:22px;border-bottom:1px solid rgba(191,219,254,.8);background:radial-gradient(circle at top left,rgba(96,165,250,.24),transparent 34%),rgba(255,255,255,.62)}}
+          .sc-hero h3{{margin:0 0 8px;color:#0f347a;font-size:1.65rem;letter-spacing:-.02em}}
+          .sc-hero p{{margin:0;color:#475569;line-height:1.65;font-weight:700}}
+          .sc-quick-steps{{display:grid;gap:8px;margin:0;padding:0;list-style:none}}
+          .sc-quick-steps li{{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(219,234,254,.9);border-radius:16px;background:rgba(255,255,255,.76);font-weight:850;color:#1e3a8a}}
+          .sc-step-badge{{display:inline-grid;place-items:center;flex:0 0 26px;height:26px;border-radius:999px;background:#2563eb;color:#fff;font-size:.82rem}}
+          .sc-section{{padding:20px 22px;border-top:1px solid rgba(219,234,254,.72)}}
+          .sc-section:first-of-type{{border-top:0}}
+          .sc-section-title{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}}
+          .sc-section-title h4{{margin:0;color:#0f347a;font-size:1.12rem}}
+          .sc-section-title p{{margin:3px 0 0;color:#64748b;font-size:.93rem;font-weight:700}}
+          .sc-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}
+          .sc-grid.three{{grid-template-columns:repeat(3,minmax(0,1fr))}}
+          .sc-field{{display:flex;flex-direction:column;gap:7px;font-weight:900;color:#334155}}
+          .sc-field.full{{grid-column:1/-1}}
+          .sc-field span{{display:flex;align-items:center;justify-content:space-between;gap:8px}}
+          .sc-field input,.sc-field select,.sc-field textarea{{width:100%;border:1px solid #cbd5e1;border-radius:16px;padding:12px 13px;font:inherit;font-weight:750;background:rgba(255,255,255,.94);color:#0f172a;box-shadow:0 8px 22px rgba(15,23,42,.05);min-height:46px}}
+          .sc-field textarea{{line-height:1.55;resize:vertical}}
+          .sc-field input:focus,.sc-field select:focus,.sc-field textarea:focus{{outline:0;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.14)}}
+          .sc-file-card{{border:1px dashed #93c5fd;border-radius:20px;padding:14px;background:rgba(239,246,255,.74)}}
+          .sc-tools{{display:flex;flex-wrap:wrap;gap:10px;align-items:center}}
+          .sc-btn{{border:0;border-radius:16px;padding:11px 15px;font-weight:950;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 12px 24px rgba(37,99,235,.18);background:#2563eb;color:#fff}}
+          .sc-btn.secondary{{background:#e0f2fe;color:#075985;box-shadow:none;border:1px solid #bae6fd}}
+          .sc-btn.green{{background:#16a34a}}
+          .sc-btn.red{{background:#dc2626}}
+          .sc-btn:disabled{{opacity:.52;cursor:not-allowed}}
+          .sc-zone-status{{padding:10px 12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-weight:900;border:1px solid #fed7aa}}
+          .sc-preview-shell{{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}}
+          .sc-canvas-wrap{{position:relative;min-height:420px;border:2px dashed #bfdbfe;border-radius:24px;background:linear-gradient(135deg,#fff,#eff6ff);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:inset 0 0 0 8px rgba(255,255,255,.58)}}
+          .sc-canvas-wrap.has-image{{display:block;min-height:0}}
+          .sc-canvas-wrap img{{display:block;max-width:100%;width:100%;height:auto;user-select:none;-webkit-user-drag:none}}
+          .sc-zone-layer{{position:absolute;inset:0;cursor:crosshair;touch-action:none}}
+          .sc-zone-box{{position:absolute;border:4px solid;border-radius:12px;background:rgba(255,255,255,.14);box-shadow:0 0 0 9999px rgba(15,23,42,.02),0 10px 26px rgba(15,23,42,.16);pointer-events:none}}
+          .sc-zone-box.big_kite{{border-color:#16a34a;background:rgba(34,197,94,.12)}}
+          .sc-zone-box.small_kite{{border-color:#dc2626;background:rgba(239,68,68,.11)}}
+          .sc-zone-tag{{position:absolute;left:8px;top:8px;padding:4px 8px;border-radius:999px;color:#fff;font-size:.78rem;font-weight:950;background:#0f172a;box-shadow:0 8px 18px rgba(15,23,42,.22)}}
+          .sc-empty-preview{{text-align:center;padding:28px;color:#64748b;font-weight:900}}
+          .sc-empty-preview strong{{display:block;color:#0f347a;font-size:1.2rem;margin-bottom:6px}}
+          .sc-zone-panel{{border:1px solid rgba(219,234,254,.95);border-radius:22px;padding:14px;background:rgba(255,255,255,.86);box-shadow:0 12px 30px rgba(15,23,42,.07)}}
+          .sc-zone-list{{display:grid;gap:10px;margin-top:12px}}
+          .sc-zone-item{{border:1px solid #e2e8f0;border-radius:16px;padding:10px;background:#fff}}
+          .sc-zone-item strong{{display:flex;justify-content:space-between;gap:8px;color:#0f347a}}
+          .sc-zone-item code{{display:block;margin-top:6px;color:#475569;white-space:normal;font-size:.8rem}}
+          .sc-color-dots{{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}}
+          .sc-color-dots i{{width:28px;height:28px;border-radius:999px;border:2px solid #fff;box-shadow:0 0 0 1px #cbd5e1}}
+          .sc-checks{{display:flex;flex-wrap:wrap;gap:10px}}
+          .sc-checks label{{display:flex;align-items:center;gap:8px;border:1px solid #dbeafe;border-radius:999px;background:#fff;padding:9px 12px;font-weight:900;color:#1e3a8a}}
+          .sc-advanced{{margin-top:14px;border:1px solid #cbd5e1;border-radius:20px;background:rgba(255,255,255,.86);overflow:hidden}}
+          .sc-advanced summary{{cursor:pointer;padding:14px 16px;font-weight:950;color:#0f347a;background:#f8fafc}}
+          .sc-advanced-body{{padding:14px 16px;display:grid;gap:12px}}
+          .sc-help{{color:#64748b;font-weight:750;line-height:1.55}}
+          @media(max-width:920px){{.sc-hero,.sc-preview-shell{{grid-template-columns:1fr}}.sc-grid,.sc-grid.three{{grid-template-columns:1fr}}.sc-canvas-wrap{{min-height:300px}}}}
+        </style>
+        <div class='sc-hero'>
+          <div>
+            <h3>Build the kite coloring slide without typing JSON</h3>
+            <p>Upload or paste the base image, draw one green rectangle around the big kite and one red rectangle around the small kite, then save. Coordinates are converted to the image's natural pixel size automatically.</p>
+          </div>
+          <ol class='sc-quick-steps'>
+            <li><span class='sc-step-badge'>1</span><span>Add or preview the base image.</span></li>
+            <li><span class='sc-step-badge'>2</span><span>Click a zone button, then drag over the kite.</span></li>
+            <li><span class='sc-step-badge'>3</span><span>Choose the correct object and save the slide.</span></li>
+          </ol>
         </div>
-        <div style='display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;'>
-          <label><input type='checkbox' name='select_color_allow_eraser' value='1' {'checked' if select_color_activity.get("allow_eraser", True) else ''}> Allow eraser</label>
-          <label><input type='checkbox' name='select_color_allow_undo' value='1' {'checked' if select_color_activity.get("allow_undo", True) else ''}> Allow undo</label>
-          <label><input type='checkbox' name='select_color_allow_reset' value='1' {'checked' if select_color_activity.get("allow_reset", True) else ''}> Allow reset</label>
+        <div class='sc-section'>
+          <div class='sc-section-title'><div><h4>Activity text</h4><p>Sinhala and English copy shown to Grade 1 learners.</p></div></div>
+          <div class='sc-grid'>
+            <label class='sc-field'><span>Title EN</span><input type='text' name='select_color_title_en' value='{escape(select_color_activity.get("title_en") or "")}'></label>
+            <label class='sc-field'><span>Title SI</span><input type='text' name='select_color_title_si' lang='si' value='{escape(select_color_activity.get("title_si") or "")}'></label>
+            <label class='sc-field'><span>Instruction EN</span><textarea name='select_color_instruction_en' rows='3'>{escape(select_color_activity.get("instruction_en") or "")}</textarea></label>
+            <label class='sc-field'><span>Instruction SI</span><textarea name='select_color_instruction_si' rows='3' lang='si'>{escape(select_color_activity.get("instruction_si") or "")}</textarea></label>
+          </div>
         </div>
-        <label>Object Zones JSON <textarea name='select_color_object_zones' rows='12' style='width:100%;font-family:monospace;'>{escape(select_color_object_zones_json)}</textarea></label>
-        <label>Color Palette JSON <textarea name='select_color_color_palette' rows='8' style='width:100%;font-family:monospace;'>{escape(select_color_palette_json)}</textarea></label>
-        <label>Brush Sizes JSON <textarea name='select_color_brush_sizes' rows='5' style='width:100%;font-family:monospace;'>{escape(select_color_brush_sizes_json)}</textarea></label>
-        <p style='color:#1d4ed8;font-weight:700;'>Student flow: select the correct object first, then freehand color, then Finish.</p>
+        <div class='sc-section'>
+          <div class='sc-section-title'><div><h4>Base image and zone editor</h4><p>Draw rectangles on the displayed image; saved values use natural image coordinates.</p></div><span id='selectColorZoneStatus' class='sc-zone-status'>Load an image to start.</span></div>
+          <div class='sc-grid'>
+            <label class='sc-field full'><span>Base Image URL</span><input id='selectColorBaseUrl' type='url' name='select_color_existing_base_image_url' value='{escape(select_color_activity.get("base_image_url") or "")}' placeholder='https://.../kite-activity.png'></label>
+            <label class='sc-field sc-file-card full'><span>Upload Base Image</span><input id='selectColorBaseUpload' type='file' name='select_color_base_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'><small class='sc-help'>The preview appears immediately. After saving, the backend uploads the file and stores its public URL.</small></label>
+          </div>
+          <div class='sc-tools' style='margin:14px 0;'>
+            <button type='button' class='sc-btn green' id='selectColorAddBig'>Add Big Kite Zone</button>
+            <button type='button' class='sc-btn red' id='selectColorAddSmall'>Add Small Kite Zone</button>
+            <button type='button' class='sc-btn secondary' id='selectColorClearZones'>Clear Zones</button>
+          </div>
+          <div class='sc-preview-shell'>
+            <div id='selectColorCanvasWrap' class='sc-canvas-wrap'>
+              <div id='selectColorEmptyPreview' class='sc-empty-preview'><strong>No image preview yet</strong>Paste a Base Image URL or choose an upload to draw object zones.</div>
+              <img id='selectColorPreviewImage' alt='Select and Color base image preview' style='display:none;'>
+              <div id='selectColorZoneLayer' class='sc-zone-layer' aria-label='Draw object zones'></div>
+            </div>
+            <aside class='sc-zone-panel'>
+              <label class='sc-field'><span>Correct object</span><select name='select_color_correct_object_id' id='selectColorCorrectObject'><option value='big_kite' {'selected' if (select_color_activity.get("correct_object_id") or "big_kite") == "big_kite" else ''}>big_kite — Big kite</option><option value='small_kite' {'selected' if select_color_activity.get("correct_object_id") == "small_kite" else ''}>small_kite — Small kite</option></select></label>
+              <div id='selectColorZoneList' class='sc-zone-list'></div>
+              <p class='sc-help'>Green = big kite. Red = small kite. To adjust a zone, click its button again and drag a new rectangle.</p>
+            </aside>
+          </div>
+        </div>
+        <div class='sc-section'>
+          <div class='sc-section-title'><div><h4>Coloring settings</h4><p>Defaults are filled for the standard freehand coloring flow.</p></div></div>
+          <div class='sc-grid three'>
+            <label class='sc-field'><span>Coloring Mode</span><select name='select_color_coloring_mode'><option value='freehand' {'selected' if (select_color_activity.get("coloring_mode") or "freehand") == "freehand" else ''}>freehand</option></select></label>
+            <label class='sc-field'><span>Minimum Brush Strokes</span><input type='number' min='1' name='select_color_min_brush_strokes_required' value='{int(select_color_activity.get("min_brush_strokes_required") or 1)}'></label>
+            <div class='sc-field'><span>Default color palette</span><div class='sc-color-dots' aria-label='Default colors'><i style='background:#EF4444'></i><i style='background:#3B82F6'></i><i style='background:#FACC15'></i><i style='background:#22C55E'></i><i style='background:#F97316'></i><i style='background:#A855F7'></i><i style='background:#EC4899'></i><i style='background:#92400E'></i><i style='background:#111827'></i><i style='background:#FFFFFF'></i></div></div>
+          </div>
+          <div class='sc-checks' style='margin-top:14px;'>
+            <label><input type='checkbox' name='select_color_allow_eraser' value='1' {'checked' if select_color_activity.get("allow_eraser", True) else ''}> Allow eraser</label>
+            <label><input type='checkbox' name='select_color_allow_undo' value='1' {'checked' if select_color_activity.get("allow_undo", True) else ''}> Allow undo</label>
+            <label><input type='checkbox' name='select_color_allow_reset' value='1' {'checked' if select_color_activity.get("allow_reset", True) else ''}> Allow reset</label>
+          </div>
+        </div>
+        <div class='sc-section'>
+          <div class='sc-section-title'><div><h4>Feedback messages</h4><p>Friendly prompts shown during select, color, and completion states.</p></div></div>
+          <div class='sc-grid'>
+            <label class='sc-field'><span>Retry Message EN</span><input type='text' name='select_color_retry_message_en' value='{escape(select_color_activity.get("retry_message_en") or "")}'></label>
+            <label class='sc-field'><span>Retry Message SI</span><input type='text' name='select_color_retry_message_si' lang='si' value='{escape(select_color_activity.get("retry_message_si") or "")}'></label>
+            <label class='sc-field'><span>Correct Selection Message EN</span><input type='text' name='select_color_correct_selection_message_en' value='{escape(select_color_activity.get("correct_selection_message_en") or "")}'></label>
+            <label class='sc-field'><span>Correct Selection Message SI</span><input type='text' name='select_color_correct_selection_message_si' lang='si' value='{escape(select_color_activity.get("correct_selection_message_si") or "")}'></label>
+            <label class='sc-field'><span>Success Message EN</span><input type='text' name='select_color_success_message_en' value='{escape(select_color_activity.get("success_message_en") or "")}'></label>
+            <label class='sc-field'><span>Success Message SI</span><input type='text' name='select_color_success_message_si' lang='si' value='{escape(select_color_activity.get("success_message_si") or "")}'></label>
+          </div>
+          <details class='sc-advanced'>
+            <summary>Advanced JSON (optional)</summary>
+            <div class='sc-advanced-body'>
+              <p class='sc-help'>Normally you do not need to edit these. The zone editor updates Object Zones JSON automatically.</p>
+              <label class='sc-field'>Object Zones JSON <textarea id='selectColorObjectZonesJson' name='select_color_object_zones' rows='10' spellcheck='false' style='font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;'>{escape(select_color_object_zones_json)}</textarea></label>
+              <label class='sc-field'>Color Palette JSON <textarea name='select_color_color_palette' rows='8' spellcheck='false' style='font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;'>{escape(select_color_palette_json)}</textarea></label>
+              <label class='sc-field'>Brush Sizes JSON <textarea name='select_color_brush_sizes' rows='5' spellcheck='false' style='font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;'>{escape(select_color_brush_sizes_json)}</textarea></label>
+            </div>
+          </details>
+          <p style='color:#1d4ed8;font-weight:900;margin:14px 0 0;'>Student flow remains: select the correct object first, freehand color, then Finish.</p>
+        </div>
       </fieldset>
       <script>
         (function() {{
           const typeSelect = document.getElementById('slideTypeSelect');
           const builder = document.getElementById('selectAndColorBuilder');
+          const baseUrl = document.getElementById('selectColorBaseUrl');
+          const upload = document.getElementById('selectColorBaseUpload');
+          const wrap = document.getElementById('selectColorCanvasWrap');
+          const img = document.getElementById('selectColorPreviewImage');
+          const layer = document.getElementById('selectColorZoneLayer');
+          const empty = document.getElementById('selectColorEmptyPreview');
+          const status = document.getElementById('selectColorZoneStatus');
+          const zoneList = document.getElementById('selectColorZoneList');
+          const jsonField = document.getElementById('selectColorObjectZonesJson');
+          const correctSelect = document.getElementById('selectColorCorrectObject');
+          const labels = {{
+            big_kite: {{ label_si: 'ලොකු කයිට්', label_en: 'Big kite', color: '#16a34a' }},
+            small_kite: {{ label_si: 'කුඩා කයිට්', label_en: 'Small kite', color: '#dc2626' }}
+          }};
+          let zones = [];
+          let activeZone = null;
+          let dragStart = null;
+          let draftBox = null;
           function toggleBuilder() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'select_and_color' ? 'block' : 'none'; }}
+          function safeParseZones() {{ try {{ const parsed = JSON.parse(jsonField?.value || '[]'); return Array.isArray(parsed) ? parsed : []; }} catch (err) {{ return []; }} }}
+          function naturalRect(displayRect) {{
+            const naturalWidth = img?.naturalWidth || 0, naturalHeight = img?.naturalHeight || 0;
+            const shownWidth = img?.clientWidth || 1, shownHeight = img?.clientHeight || 1;
+            return {{
+              x: Math.max(0, Math.round(displayRect.x * naturalWidth / shownWidth)),
+              y: Math.max(0, Math.round(displayRect.y * naturalHeight / shownHeight)),
+              width: Math.max(1, Math.round(displayRect.width * naturalWidth / shownWidth)),
+              height: Math.max(1, Math.round(displayRect.height * naturalHeight / shownHeight))
+            }};
+          }}
+          function displayRect(zone) {{
+            const naturalWidth = img?.naturalWidth || 1, naturalHeight = img?.naturalHeight || 1;
+            const shownWidth = img?.clientWidth || 0, shownHeight = img?.clientHeight || 0;
+            return {{ x:(Number(zone.x)||0)*shownWidth/naturalWidth, y:(Number(zone.y)||0)*shownHeight/naturalHeight, width:(Number(zone.width)||0)*shownWidth/naturalWidth, height:(Number(zone.height)||0)*shownHeight/naturalHeight }};
+          }}
+          function normalizeZone(id, rect) {{ return {{ id, label_si: labels[id].label_si, label_en: labels[id].label_en, is_correct: correctSelect?.value === id, type: 'rect', x: rect.x, y: rect.y, width: rect.width, height: rect.height }}; }}
+          function syncCorrectFlags() {{ zones = zones.map(function(zone) {{ return {{ ...zone, is_correct: zone.id === (correctSelect?.value || 'big_kite') }}; }}); }}
+          function syncJson() {{ syncCorrectFlags(); if (jsonField) jsonField.value = JSON.stringify(zones, null, 2); renderZones(); }}
+          function renderZones() {{
+            if (!layer || !zoneList) return;
+            layer.querySelectorAll('.sc-zone-box').forEach(function(el) {{ el.remove(); }});
+            zoneList.innerHTML = '';
+            zones.forEach(function(zone) {{
+              if (zone.type !== 'rect') return;
+              const r = displayRect(zone);
+              if (r.width > 0 && r.height > 0 && img?.style.display !== 'none') {{
+                const box = document.createElement('div');
+                box.className = 'sc-zone-box ' + zone.id;
+                box.style.left = r.x + 'px'; box.style.top = r.y + 'px'; box.style.width = r.width + 'px'; box.style.height = r.height + 'px';
+                box.innerHTML = `<span class='sc-zone-tag'>${{zone.id}}</span>`;
+                layer.appendChild(box);
+              }}
+              const item = document.createElement('div');
+              item.className = 'sc-zone-item';
+              item.innerHTML = `<strong><span>${{zone.label_en || zone.id}}</span><span style='color:${{labels[zone.id]?.color || '#2563eb'}}'>${{zone.is_correct ? 'Correct' : 'Zone'}}</span></strong><code>x ${{Math.round(zone.x || 0)}}, y ${{Math.round(zone.y || 0)}}, w ${{Math.round(zone.width || 0)}}, h ${{Math.round(zone.height || 0)}}</code>`;
+              zoneList.appendChild(item);
+            }});
+            const complete = zones.filter(function(z) {{ return z.type === 'rect' && z.width > 0 && z.height > 0; }}).length;
+            if (status) status.textContent = img?.style.display === 'none' ? 'Load an image to start.' : `${{complete}} of 2 zones ready`;
+          }}
+          function setImageSrc(src) {{
+            if (!src) {{ img.style.display = 'none'; img.removeAttribute('src'); empty.style.display = 'block'; wrap.classList.remove('has-image'); renderZones(); return; }}
+            img.onload = function() {{ empty.style.display = 'none'; img.style.display = 'block'; wrap.classList.add('has-image'); renderZones(); }};
+            img.onerror = function() {{ empty.style.display = 'block'; empty.innerHTML = '<strong>Preview could not load</strong>Check the image URL or try uploading a file.'; img.style.display = 'none'; wrap.classList.remove('has-image'); renderZones(); }};
+            img.src = src;
+          }}
+          function chooseZone(id) {{ activeZone = id; if (status) status.textContent = 'Drag a rectangle around the ' + (id === 'big_kite' ? 'big kite.' : 'small kite.'); }}
+          function pointerPosition(event) {{ const rect = layer.getBoundingClientRect(); return {{ x: Math.max(0, Math.min(event.clientX - rect.left, rect.width)), y: Math.max(0, Math.min(event.clientY - rect.top, rect.height)) }}; }}
+          function drawDraft(from, to) {{
+            const x = Math.min(from.x, to.x), y = Math.min(from.y, to.y), width = Math.abs(to.x - from.x), height = Math.abs(to.y - from.y);
+            if (!draftBox) {{ draftBox = document.createElement('div'); draftBox.className = 'sc-zone-box ' + activeZone; layer.appendChild(draftBox); }}
+            draftBox.style.left = x + 'px'; draftBox.style.top = y + 'px'; draftBox.style.width = width + 'px'; draftBox.style.height = height + 'px';
+            return {{ x, y, width, height }};
+          }}
+          document.getElementById('selectColorAddBig')?.addEventListener('click', function() {{ chooseZone('big_kite'); }});
+          document.getElementById('selectColorAddSmall')?.addEventListener('click', function() {{ chooseZone('small_kite'); }});
+          document.getElementById('selectColorClearZones')?.addEventListener('click', function() {{ zones = []; syncJson(); }});
+          correctSelect?.addEventListener('change', syncJson);
+          baseUrl?.addEventListener('input', function() {{ if (!upload?.files?.length) setImageSrc(baseUrl.value.trim()); }});
+          upload?.addEventListener('change', function() {{ const file = upload.files && upload.files[0]; setImageSrc(file ? URL.createObjectURL(file) : (baseUrl?.value || '').trim()); }});
+          layer?.addEventListener('pointerdown', function(event) {{ if (!activeZone || img.style.display === 'none') return; event.preventDefault(); layer.setPointerCapture(event.pointerId); dragStart = pointerPosition(event); drawDraft(dragStart, dragStart); }});
+          layer?.addEventListener('pointermove', function(event) {{ if (!dragStart) return; event.preventDefault(); drawDraft(dragStart, pointerPosition(event)); }});
+          layer?.addEventListener('pointerup', function(event) {{
+            if (!dragStart || !activeZone) return;
+            const rect = drawDraft(dragStart, pointerPosition(event));
+            draftBox?.remove(); draftBox = null; dragStart = null;
+            if (rect.width < 8 || rect.height < 8) {{ if (status) status.textContent = 'Please drag a larger rectangle.'; return; }}
+            const natural = naturalRect(rect);
+            zones = zones.filter(function(zone) {{ return zone.id !== activeZone; }});
+            zones.push(normalizeZone(activeZone, natural));
+            activeZone = null;
+            syncJson();
+          }});
+          jsonField?.addEventListener('change', function() {{ zones = safeParseZones(); syncJson(); }});
+          window.addEventListener('resize', renderZones);
           typeSelect?.addEventListener('change', toggleBuilder);
+          zones = safeParseZones();
           toggleBuilder();
+          setImageSrc((baseUrl?.value || '').trim());
+          syncJson();
         }})();
       </script>
       <fieldset id='tapCorrectPictureBuilder' style='border:1px solid #bbf7d0;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#f0fdf4;'>
