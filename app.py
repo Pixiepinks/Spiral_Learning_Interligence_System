@@ -13166,6 +13166,284 @@ def student_messages_page():
     """
     return render_student_dashboard_shell(content_html, active_nav="messages")
 
+
+
+def study_material_cover_svg(title: str, subject: str, accent: str = "#2563eb", soft: str = "#dbeafe") -> str:
+    """Build a lightweight inline SVG thumbnail until database-backed cover images exist."""
+    safe_title = escape(title)
+    safe_subject = escape(subject)
+    svg = f"""
+    <svg xmlns='http://www.w3.org/2000/svg' width='360' height='480' viewBox='0 0 360 480'>
+      <defs>
+        <linearGradient id='bg' x1='0' x2='1' y1='0' y2='1'>
+          <stop offset='0%' stop-color='{soft}'/>
+          <stop offset='100%' stop-color='#ffffff'/>
+        </linearGradient>
+        <linearGradient id='accent' x1='0' x2='1'>
+          <stop offset='0%' stop-color='{accent}'/>
+          <stop offset='100%' stop-color='#60a5fa'/>
+        </linearGradient>
+      </defs>
+      <rect width='360' height='480' rx='26' fill='url(#bg)'/>
+      <path d='M0 0h360v150c-55 34-113 37-175 8S62 126 0 159z' fill='url(#accent)' opacity='.95'/>
+      <circle cx='292' cy='72' r='44' fill='rgba(255,255,255,.26)'/>
+      <circle cx='65' cy='104' r='30' fill='rgba(255,255,255,.20)'/>
+      <rect x='34' y='210' width='292' height='170' rx='22' fill='rgba(255,255,255,.72)'/>
+      <text x='180' y='75' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='24' font-weight='900' fill='#ffffff'>{safe_subject}</text>
+      <text x='180' y='112' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='17' font-weight='800' fill='rgba(255,255,255,.88)'>Grade 1</text>
+      <text x='180' y='270' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='24' font-weight='900' fill='#0f172a'>{safe_title[:22]}</text>
+      <text x='180' y='306' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='15' font-weight='700' fill='#64748b'>SLIS Learning Resource</text>
+      <circle cx='180' cy='405' r='42' fill='{accent}' opacity='.95'/>
+      <text x='180' y='421' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='42' font-weight='900' fill='#ffffff'>1</text>
+    </svg>
+    """
+    return "data:image/svg+xml," + quote_plus(" ".join(svg.split()))
+
+
+def study_material_mock_resources() -> list[dict]:
+    """Future database fields: id, title_en, title_si, description, grade, subject, chapter_id, resource_type, thumbnail_url, file_url, external_url, is_featured, is_published, view_count, download_count, created_at."""
+    resources = [
+        {
+            "id": 1,
+            "title_en": "Grade 1 Mathematics (Textbook)",
+            "title_si": "1 ශ්‍රේණිය ගණිතය (පෙළපොත)",
+            "description": "Core mathematics textbook for numbers, shapes, and early problem solving.",
+            "grade": "Grade 1",
+            "subject": "Mathematics",
+            "chapter_id": None,
+            "resource_type": "Textbook",
+            "thumbnail_url": study_material_cover_svg("Mathematics", "MATHS", "#8b5cf6", "#f3e8ff"),
+            "file_url": "",
+            "external_url": "",
+            "is_featured": True,
+            "is_published": True,
+            "view_count": 1240,
+            "download_count": 420,
+            "created_at": "2026-06-09",
+        },
+        {
+            "id": 2,
+            "title_en": "Grade 1 Sinhala (Textbook)",
+            "title_si": "1 ශ්‍රේණිය සිංහල (පෙළපොත)",
+            "description": "Sinhala language textbook with reading and writing activities.",
+            "grade": "Grade 1",
+            "subject": "Sinhala",
+            "chapter_id": None,
+            "resource_type": "Textbook",
+            "thumbnail_url": study_material_cover_svg("Sinhala", "සිංහල", "#22c55e", "#dcfce7"),
+            "file_url": "",
+            "external_url": "",
+            "is_featured": True,
+            "is_published": True,
+            "view_count": 1388,
+            "download_count": 512,
+            "created_at": "2026-06-08",
+        },
+        {
+            "id": 3,
+            "title_en": "Grade 1 English (Textbook)",
+            "title_si": "1 ශ්‍රේණිය ඉංග්‍රීසි (පෙළපොත)",
+            "description": "English pupil book for vocabulary, phonics, and early grammar.",
+            "grade": "Grade 1",
+            "subject": "English",
+            "chapter_id": None,
+            "resource_type": "Textbook",
+            "thumbnail_url": study_material_cover_svg("English", "ENGLISH", "#0ea5e9", "#e0f2fe"),
+            "file_url": "",
+            "external_url": "",
+            "is_featured": True,
+            "is_published": True,
+            "view_count": 1156,
+            "download_count": 398,
+            "created_at": "2026-06-07",
+        },
+        {
+            "id": 4,
+            "title_en": "Grade 1 Environment Studies (Textbook)",
+            "title_si": "1 ශ්‍රේණිය පරිසරය (පෙළපොත)",
+            "description": "Environment studies resource for living things, places, and daily life.",
+            "grade": "Grade 1",
+            "subject": "EVS",
+            "chapter_id": None,
+            "resource_type": "Textbook",
+            "thumbnail_url": study_material_cover_svg("Environment", "EVS", "#f59e0b", "#fef3c7"),
+            "file_url": "",
+            "external_url": "",
+            "is_featured": True,
+            "is_published": True,
+            "view_count": 980,
+            "download_count": 311,
+            "created_at": "2026-06-06",
+        },
+    ]
+    return resources
+
+
+def render_study_materials_page(student) -> str:
+    is_si = getattr(student, "medium", "") == "Sinhala"
+    featured_resources = study_material_mock_resources()
+    continue_items = [
+        ("Chapter 2 - Numbers 0 to 10", "Mathematics", 60, featured_resources[0]["thumbnail_url"]),
+        ("Nouns in English Grammar", "English", 40, study_material_cover_svg("Grammar", "ENGLISH", "#f97316", "#ffedd5")),
+        ("Buddhist Places Worksheet", "Buddhism", 75, study_material_cover_svg("Buddhist Places", "BUDDHISM", "#3b82f6", "#dbeafe")),
+        ("Grade 1 Sinhala Workbook", "Sinhala", 20, study_material_cover_svg("Workbook", "සිංහල", "#ec4899", "#fce7f3")),
+        ("Living Things Worksheet", "EVS", 90, study_material_cover_svg("Living Things", "EVS", "#16a34a", "#dcfce7")),
+    ]
+    categories = [
+        ("📘", "Textbooks", "24 items", "#dbeafe", "#2563eb"),
+        ("📗", "Notes", "48 items", "#dcfce7", "#16a34a"),
+        ("📋", "Worksheets", "76 items", "#fef3c7", "#f59e0b"),
+        ("▶️", "Video Lessons", "36 items", "#f3e8ff", "#7c3aed"),
+        ("📄", "Revision Packs", "18 items", "#fce7f3", "#db2777"),
+        ("🧾", "Past Papers", "53 items", "#e0f2fe", "#0284c7"),
+        ("📙", "Library Books", "64 items", "#ffedd5", "#f97316"),
+        ("🎨", "Activities", "32 items", "#ccfbf1", "#0d9488"),
+    ]
+    recent_items = [
+        ("Grade 1 Maths Practice Worksheet 3", "Worksheet", "Added 2 days ago", "download", featured_resources[0]["thumbnail_url"]),
+        ("English Alphabet Writing Practice", "Worksheet", "Added 3 days ago", "download", study_material_cover_svg("Alphabet", "ENGLISH", "#ec4899", "#fce7f3")),
+        ("Buddhism - At the Temple", "Video Lesson", "Added 4 days ago", "play", study_material_cover_svg("At the Temple", "VIDEO", "#92400e", "#fed7aa")),
+        ("Grade 1 Model Paper - Term Test 1", "Past Paper", "Added 5 days ago", "download", study_material_cover_svg("Model Paper", "TEST", "#64748b", "#f1f5f9")),
+        ("Animal Stories (Picture Book)", "Library Book", "Added 6 days ago", "download", study_material_cover_svg("Animal Stories", "LIBRARY", "#22c55e", "#dcfce7")),
+    ]
+
+    filter_buttons = ["All", "Textbooks", "Notes", "Worksheets", "Videos", "Revision Packs", "Past Papers", "Library"]
+    filter_html = "".join(
+        f"<button type='button' class='sm-chip{' active' if label == 'All' else ''}'><span>{icon}</span>{label}</button>"
+        for label, icon in zip(filter_buttons, ["", "▣", "▤", "▧", "▻", "▤", "▧", "♧"])
+    )
+
+    featured_html = "".join(
+        f"""
+        <article class='sm-resource-card'>
+          <div class='sm-thumb-wrap'><img src='{escape(resource['thumbnail_url'])}' alt='{escape(resource['title_en'])} thumbnail'><span class='sm-badge'>{escape(resource['resource_type'])}</span></div>
+          <div class='sm-card-body'>
+            <h3>{escape(resource['title_en'])}</h3>
+            <p>{escape(resource['grade'])} · {escape(resource['subject'])}</p>
+            <div class='sm-card-actions'>
+              {f"<a class='sm-btn sm-btn-light' href='{escape(resource['file_url'])}' target='_blank' rel='noopener'>Read Online</a>" if resource['file_url'] else "<button class='sm-btn sm-btn-light' disabled>Coming soon</button>"}
+              {f"<a class='sm-btn sm-btn-primary' href='{escape(resource['file_url'])}' download>Download</a>" if resource['file_url'] else "<button class='sm-btn sm-btn-primary' disabled>Download</button>"}
+            </div>
+          </div>
+        </article>
+        """
+        for resource in featured_resources
+    )
+
+    continue_html = "".join(
+        f"""
+        <article class='sm-progress-card'>
+          <img src='{escape(thumb)}' alt='{escape(title)} thumbnail'>
+          <div class='sm-progress-body'><h3>{escape(title)}</h3><p>{escape(subject)}</p><div class='sm-progress-row'><span class='sm-progress-track'><span style='width:{progress}%'></span></span><strong>{progress}%</strong></div></div>
+        </article>
+        """
+        for title, subject, progress, thumb in continue_items
+    )
+
+    category_html = "".join(
+        f"""
+        <article class='sm-category-card' style='--cat-bg:{bg};--cat-color:{color};'>
+          <span class='sm-category-icon'>{icon}</span><div><h3>{escape(name)}</h3><p>{escape(count)}</p></div>
+        </article>
+        """
+        for icon, name, count, bg, color in categories
+    )
+
+    recent_html = "".join(
+        f"""
+        <article class='sm-recent-card'>
+          <span class='sm-new-badge'>New</span><img src='{escape(thumb)}' alt='{escape(title)} thumbnail'>
+          <div class='sm-recent-body'><h3>{escape(title)}</h3><p>{escape(resource_type)}</p><small>{escape(added)}</small><button type='button' aria-label='{escape(action)} {escape(title)}'>{'▶' if action == 'play' else '↓'}</button></div>
+        </article>
+        """
+        for title, resource_type, added, action, thumb in recent_items
+    )
+
+    return f"""
+    <style>
+      .study-materials-page{{max-width:1280px;margin:0 auto 28px;padding:10px 0 22px;}}
+      .sm-hero{{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 420px;align-items:center;min-height:190px;padding:34px 32px;border-radius:24px;background:linear-gradient(135deg,#ffffff 0%,#f8fbff 48%,#eff6ff 100%);box-shadow:0 20px 50px rgba(15,23,42,.08);border:1px solid rgba(226,232,240,.95);}}
+      .sm-hero:before{{content:"";position:absolute;inset:auto 22% -120px auto;width:360px;height:360px;border-radius:999px;background:radial-gradient(circle,rgba(37,99,235,.10),transparent 62%);}}
+      .sm-hero h1{{position:relative;margin:0 0 14px;font-size:38px;line-height:1.05;font-weight:900;letter-spacing:-.035em;color:#0f172a;}}
+      .sm-hero p{{position:relative;margin:0;max-width:560px;color:#475569;font-size:16px;line-height:1.65;}}
+      .sm-hero img{{position:relative;width:100%;max-height:180px;object-fit:contain;filter:drop-shadow(0 22px 28px rgba(15,23,42,.12));}}
+      .sm-filter-panel{{margin-top:18px;display:grid;grid-template-columns:minmax(260px,1fr) repeat(3,200px);gap:14px;}}
+      .sm-search,.sm-select{{height:52px;border:1px solid #dbe3ef;background:#fff;border-radius:14px;box-shadow:0 8px 22px rgba(15,23,42,.045);display:flex;align-items:center;color:#64748b;}}
+      .sm-search{{padding:0 16px;gap:10px;}}
+      .sm-search input{{border:0;outline:0;width:100%;font:inherit;color:#0f172a;background:transparent;}}
+      .sm-select select{{width:100%;height:100%;border:0;outline:0;background:transparent;padding:0 14px;font:inherit;color:#334155;appearance:none;}}
+      .sm-select{{position:relative;}}.sm-select:after{{content:"⌄";position:absolute;right:16px;color:#94a3b8;font-weight:900;}}
+      .sm-chip-row{{display:flex;gap:14px;flex-wrap:wrap;margin:28px 0 22px;}}
+      .sm-chip{{border:1px solid #dbe3ef;background:#fff;color:#0f172a;border-radius:12px;min-height:44px;padding:0 18px;font-weight:800;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 18px rgba(15,23,42,.045);cursor:pointer;}}
+      .sm-chip.active{{background:#2563eb;color:#fff;border-color:#2563eb;box-shadow:0 12px 26px rgba(37,99,235,.24);}}
+      .sm-section{{margin-top:28px;}}
+      .sm-section-head{{display:flex;align-items:center;justify-content:space-between;margin:0 2px 16px;}}
+      .sm-section-head h2{{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em;}}
+      .sm-view-all{{color:#2563eb;text-decoration:none;font-weight:900;font-size:14px;}}
+      .sm-featured-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px;}}
+      .sm-resource-card,.sm-progress-card,.sm-recent-card{{background:#fff;border:1px solid #e5edf7;border-radius:16px;box-shadow:0 14px 32px rgba(15,23,42,.075);overflow:hidden;}}
+      .sm-thumb-wrap{{position:relative;background:#f8fafc;padding:14px 14px 0;}}
+      .sm-thumb-wrap img{{width:100%;height:220px;object-fit:cover;border-radius:12px 12px 0 0;display:block;}}
+      .sm-badge{{position:absolute;left:24px;bottom:10px;border-radius:999px;background:#bbf7d0;color:#166534;padding:5px 10px;font-size:12px;font-weight:900;}}
+      .sm-card-body{{padding:14px 16px 16px;}}
+      .sm-card-body h3,.sm-progress-body h3,.sm-recent-body h3,.sm-category-card h3{{margin:0;color:#0f172a;font-weight:900;line-height:1.22;}}
+      .sm-card-body h3{{font-size:17px;min-height:42px;}}
+      .sm-card-body p,.sm-progress-body p,.sm-recent-body p,.sm-category-card p{{margin:8px 0 0;color:#64748b;font-size:13px;font-weight:700;}}
+      .sm-card-actions{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;}}
+      .sm-btn{{min-height:38px;border-radius:9px;border:1px solid #dbe3ef;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px;font-weight:900;}}
+      .sm-btn-light{{background:#fff;color:#0f172a;}}
+      .sm-btn-primary{{background:#2563eb;color:#fff;border-color:#2563eb;box-shadow:0 10px 18px rgba(37,99,235,.20);}}
+      .sm-btn:disabled{{opacity:.58;cursor:not-allowed;box-shadow:none;}}
+      .sm-horizontal{{display:grid;grid-template-columns:repeat(5,minmax(180px,1fr));gap:20px;}}
+      .sm-progress-card img,.sm-recent-card img{{width:100%;height:124px;object-fit:cover;background:#f8fafc;display:block;}}
+      .sm-progress-body,.sm-recent-body{{padding:12px 14px 14px;position:relative;}}
+      .sm-progress-body h3,.sm-recent-body h3{{font-size:15px;min-height:38px;}}
+      .sm-progress-row{{display:flex;align-items:center;gap:9px;margin-top:13px;}}
+      .sm-progress-track{{height:7px;flex:1;border-radius:999px;background:#e2e8f0;overflow:hidden;}}
+      .sm-progress-track span{{display:block;height:100%;border-radius:999px;background:#16a34a;}}
+      .sm-progress-row strong{{font-size:12px;color:#334155;}}
+      .sm-category-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;}}
+      .sm-category-card{{display:flex;align-items:center;gap:18px;padding:24px 22px;min-height:74px;border-radius:18px;background:linear-gradient(135deg,var(--cat-bg),#fff);border:1px solid rgba(255,255,255,.78);box-shadow:0 12px 28px rgba(15,23,42,.055);}}
+      .sm-category-icon{{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,.62);font-size:28px;color:var(--cat-color);box-shadow:inset 0 0 0 1px rgba(255,255,255,.58);}}
+      .sm-recent-row{{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:20px;}}
+      .sm-recent-card{{position:relative;}}
+      .sm-new-badge{{position:absolute;z-index:1;top:10px;left:10px;border-radius:999px;background:#10b981;color:#fff;font-size:12px;font-weight:900;padding:4px 9px;box-shadow:0 8px 18px rgba(16,185,129,.24);}}
+      .sm-recent-body small{{display:block;color:#64748b;font-weight:700;margin-top:4px;}}
+      .sm-recent-body button{{position:absolute;right:12px;bottom:12px;width:30px;height:30px;border:0;border-radius:9px;background:#eff6ff;color:#2563eb;font-weight:900;}}
+      .sm-feature-strip{{margin-top:34px;display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:linear-gradient(135deg,#ffffff,#f8fbff);border:1px solid #e5edf7;border-radius:20px;box-shadow:0 16px 36px rgba(15,23,42,.06);overflow:hidden;}}
+      .sm-feature{{display:flex;gap:15px;padding:24px 22px;border-right:1px solid #e5edf7;}}
+      .sm-feature:last-child{{border-right:0;}}
+      .sm-feature span{{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:28px;background:#dbeafe;}}
+      .sm-feature h3{{margin:0 0 6px;font-size:15px;font-weight:900;}}
+      .sm-feature p{{margin:0;color:#475569;font-size:13px;line-height:1.45;}}
+      @media(max-width:1100px){{.sm-hero{{grid-template-columns:1fr 300px;}}.sm-filter-panel{{grid-template-columns:1fr 1fr;}}.sm-featured-grid,.sm-category-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}.sm-horizontal,.sm-recent-row{{display:flex;overflow-x:auto;padding-bottom:10px;scroll-snap-type:x mandatory;}}.sm-progress-card,.sm-recent-card{{flex:0 0 220px;scroll-snap-align:start;}}.sm-feature-strip{{grid-template-columns:repeat(2,1fr);}}.sm-feature{{border-bottom:1px solid #e5edf7;}}}}
+      @media(max-width:720px){{.study-materials-page{{padding:4px 0 80px;}}.sm-hero{{grid-template-columns:1fr;padding:26px 20px;border-radius:20px;}}.sm-hero h1{{font-size:30px;}}.sm-hero img{{max-height:120px;margin-top:16px;}}.sm-filter-panel{{grid-template-columns:1fr;}}.sm-chip-row{{flex-wrap:nowrap;overflow-x:auto;padding-bottom:8px;}}.sm-chip{{white-space:nowrap;}}.sm-featured-grid,.sm-category-grid{{grid-template-columns:1fr;}}.sm-feature-strip{{grid-template-columns:1fr;}}.sm-feature{{border-right:0;}}}}
+    </style>
+    <div class='study-materials-page'>
+      <section class='sm-hero'>
+        <div><h1>Study Materials</h1><p>Explore textbooks, notes, worksheets, videos and more resources to help you learn better.</p></div>
+        <img src='/static/images/study-materials-hero.png' alt='Study materials illustration'>
+      </section>
+      <section class='sm-filter-panel' aria-label='Study material filters'>
+        <label class='sm-search'>⌕<input type='search' placeholder='Search materials...' aria-label='Search materials'></label>
+        <label class='sm-select'><select aria-label='Grade filter'><option>All Grades</option><option>Grade 1</option><option>Grade 2</option></select></label>
+        <label class='sm-select'><select aria-label='Subject filter'><option>All Subjects</option><option>Mathematics</option><option>Sinhala</option><option>English</option><option>EVS</option></select></label>
+        <label class='sm-select'><select aria-label='Type filter'><option>All Types</option><option>Textbooks</option><option>Notes</option><option>Worksheets</option><option>Videos</option></select></label>
+      </section>
+      <div class='sm-chip-row'>{filter_html}</div>
+      <section class='sm-section'><div class='sm-section-head'><h2>Featured Resources</h2><a class='sm-view-all' href='#'>View all</a></div><div class='sm-featured-grid'>{featured_html}</div></section>
+      <section class='sm-section'><div class='sm-section-head'><h2>Continue Learning</h2><a class='sm-view-all' href='#'>View all</a></div><div class='sm-horizontal'>{continue_html}</div></section>
+      <section class='sm-section'><div class='sm-section-head'><h2>Browse by Category</h2></div><div class='sm-category-grid'>{category_html}</div></section>
+      <section class='sm-section'><div class='sm-section-head'><h2>Recently Added</h2><a class='sm-view-all' href='#'>View all</a></div><div class='sm-recent-row'>{recent_html}</div></section>
+      <section class='sm-feature-strip' aria-label='Study material features'>
+        <article class='sm-feature'><span>📖</span><div><h3>Read Online</h3><p>View materials in your browser instantly.</p></div></article>
+        <article class='sm-feature'><span>☁️</span><div><h3>Download</h3><p>Download and study offline anytime.</p></div></article>
+        <article class='sm-feature'><span>📈</span><div><h3>Track Progress</h3><p>See what you've read and completed.</p></div></article>
+        <article class='sm-feature'><span>🔖</span><div><h3>Bookmarks</h3><p>Save your favorite materials.</p></div></article>
+      </section>
+    </div>
+    """
+
 @app.route("/student/live-classes", methods=["GET"])
 @app.route("/student/assignments", methods=["GET"])
 @app.route("/student/quizzes", methods=["GET"])
@@ -13191,7 +13469,10 @@ def student_shell_pages():
         "/student/settings": ("Settings", "settings"),
     }
     page_title, active_nav = route_map.get(request.path, ("Student", "dashboard"))
-    content_html = f"<div class='card' style='padding:18px;'><h2>{escape(page_title)}</h2><p>Content coming soon.</p></div>"
+    if request.path == "/student/study-materials":
+        content_html = render_study_materials_page(student)
+    else:
+        content_html = f"<div class='card' style='padding:18px;'><h2>{escape(page_title)}</h2><p>Content coming soon.</p></div>"
     return render_student_dashboard_shell(content_html, active_nav=active_nav)
 
 @app.route("/student/chapter/<int:chapter_id>", methods=["GET", "POST"])
