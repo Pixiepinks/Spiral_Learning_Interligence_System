@@ -33,6 +33,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'images'),
+        'slis-favicon.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
+
+
 UPLOAD_DIR = os.path.join(app.root_path, "static", "images", "questions")
 UPLOAD_URL_PREFIX = "/static/images/questions/"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -5004,7 +5013,7 @@ def trust_hero(title: str | None = None, subtitle: str | None = None, show_state
 
 
 def page_shell(title: str, description: str, body: str) -> str:
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SLIS Trust Center</title><meta name="description" content="{escape(description, quote=True)}"><link rel="canonical" href="https://slis-e.com{escape(request.path)}">{TRUST_CENTER_CSS}</head><body class="slis-trust-body">{trust_header()}{body}{trust_footer()}</body></html>"""
+    return f"""<!doctype html><html lang="en"><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SLIS Trust Center</title><meta name="description" content="{escape(description, quote=True)}"><link rel="canonical" href="https://slis-e.com{escape(request.path)}">{TRUST_CENTER_CSS}</head><body class="slis-trust-body">{trust_header()}{body}{trust_footer()}</body></html>"""
 
 
 def section_html(index: int, heading: str, paragraphs: list[str] | None = None, bullets: list[str] | None = None, link: str | None = None) -> str:
@@ -5313,7 +5322,7 @@ def register_student():
         return f"""
         <!doctype html>
         <html lang="en">
-          <head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>SLIS Registration Success</title>
@@ -5549,7 +5558,7 @@ def forgot_password():
 
     safe_message = f"<p class='notice'>{escape(message)}</p>" if message else ""
     return f"""
-    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <!doctype html><html lang="en"><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Forgot Password</title>
     <style>{LOGIN_PAGE_STYLES}
     .notice {{margin: 0 0 12px;color:#1f2a44;font-size:.9rem;background:#e8f0ff;border-radius:10px;padding:10px 12px;}}
@@ -5600,7 +5609,7 @@ def reset_password():
 
     safe_notice = f"<p class='notice'>{escape(notice)}</p>" if notice else ""
     safe_token = escape(token, quote=True)
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reset Password</title>
+    return f"""<!doctype html><html lang="en"><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reset Password</title>
     <style>{LOGIN_PAGE_STYLES}.notice {{margin:0 0 12px;color:#1f2a44;font-size:.9rem;background:#e8f0ff;border-radius:10px;padding:10px 12px;}}</style></head>
     <body class="login-page"><div class="login-card"><div class="brand"><img class="login-logo" src="/static/images/SLIS LOGO.png" alt="SLIS logo"><p>Spiral Learning Intelligence System</p></div>
     {safe_notice}<form method="post" action="/reset-password"><input type="hidden" name="token" value="{safe_token}">
@@ -5642,7 +5651,7 @@ def login():
         return f"""
         <!doctype html>
         <html lang="en">
-          <head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>SLIS Login</title>
@@ -6384,7 +6393,7 @@ def student_dashboard():
         latest_html = f"<h2>{text['latest_result']}</h2><p>No results yet.</p>"
 
     return f"""
-    <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{text["dashboard"]}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{text["dashboard"]}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
     <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-section-title{{margin:14px 6px 5px;font-size:10px;font-weight:800;letter-spacing:.08em;color:rgba(219,234,254,.58);text-transform:uppercase}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.nav-icon{{width:18px;height:18px;flex:0 0 18px;opacity:.95;color:#dbeafe}}.nav-icon svg{{width:18px;height:18px;display:block;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}}.side-footer-link{{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;color:rgba(219,234,254,.92);text-decoration:none;font-size:13px}}.main{{padding:0 16px 8px;background:#edf2fa}}.dashboard-content,.dashboard-shell,.main-content{{background:#edf2fa}}.dashboard-content-inner{{width:100%;max-width:none}}.card{{background:rgba(255,255,255,0.18);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.10);border-radius:18px;box-shadow:0 4px 14px rgba(15,23,42,.03),inset 0 1px 0 rgba(255,255,255,.08)}}.top{{background:rgba(255,255,255,0.12);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:18px;box-shadow:0 4px 14px rgba(15,23,42,.025),inset 0 1px 0 rgba(255,255,255,.06)}}.dashboard-topbar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:0px;padding:0;margin-top:0px}}.dashboard-topbar-spacer{{flex:1}}.top{{width:calc(100% - 330px);max-width:600px;min-height:64px;padding:6px 18px;margin-top:-20px;display:flex;align-items:center;gap:18px}}.greeting-left{{display:flex;align-items:center;gap:14px;min-width:0}}.student-avatar{{width:58px;height:58px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.9);box-shadow:0 8px 22px rgba(15,23,42,0.16);background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:800;font-size:20px;overflow:hidden}}.greeting-copy h2{{margin:0;font-size:22px;line-height:1.15}}.greeting-copy small{{display:block;margin-top:3px;color:#64748b}}.change-photo-link{{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;color:#2563eb;text-decoration:none;border:0;background:transparent;cursor:pointer;padding:0;width:auto;min-height:auto}}.header-actions{{display:flex;align-items:center;gap:4px;margin-left:auto;background:transparent}}.header-icon-btn,.header-action-btn{{width:36px;height:36px;border:0;border-radius:12px;background:rgba(255,255,255,0.18);color:#0f172a;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.header-icon-btn:hover,.header-action-btn:hover{{background:rgba(255,255,255,0.28)}}.header-icon-btn svg,.header-action-btn svg,.student-menu-btn .menu-caret,.student-mini-profile .menu-caret{{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}}.notification-badge{{position:absolute;top:-3px;right:-3px;min-width:14px;height:14px;border-radius:999px;background:#ef4444;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff}}.country-flag-wrap{{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.country-flag-img{{width:20px;height:14px;object-fit:cover;border-radius:2px;display:block}}.student-menu{{position:relative}}.student-menu-btn,.student-mini-profile{{border:0;background:rgba(255,255,255,0.18);border-radius:16px;padding:6px 10px;display:flex;align-items:center;gap:6px;cursor:pointer;color:#0f172a;min-height:34px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.student-menu-btn:hover,.student-mini-profile:hover{{background:rgba(255,255,255,0.28)}}.header-avatar{{width:24px;height:24px;border-radius:50%;object-fit:cover;background:#dbeafe;color:#1e3a8a;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}}.student-menu-copy{{text-align:left;line-height:1.15}}.student-menu-copy strong{{display:block;font-size:11px;line-height:1.1;font-weight:800;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.student-menu-copy small{{display:block;font-size:9px;line-height:1;color:#64748b}}.student-dropdown,.notification-dropdown{{display:none;position:absolute;right:0;top:calc(100% + 8px);width:210px;background:rgba(255,255,255,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.55);border-radius:16px;box-shadow:0 14px 34px rgba(15,23,42,0.12);padding:8px;z-index:9999}}.notification-dropdown{{width:230px;right:46px}}.student-dropdown.open,.notification-dropdown.open{{display:block}}.student-dropdown a,.student-dropdown button,.notification-dropdown div{{width:100%;border:0;background:transparent;padding:10px 12px;border-radius:10px;text-align:left;color:#0f172a;font-weight:650;cursor:pointer;text-decoration:none;display:block}}.student-dropdown a:hover,.student-dropdown button:hover{{background:#eff6ff}}.grid{{width:100%;display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:8px 0 14px}}.card{{padding:14px}}.kpi-card{{position:relative;overflow:hidden;border-radius:18px;padding:12px 14px;min-height:72px;border:1px solid rgba(255,255,255,.32);box-shadow:0 8px 18px rgba(15,23,42,.05)}}.kpi-title{{font-size:11px;font-weight:700;color:#475569;margin-bottom:6px;line-height:1.2}}.kpi-value{{font-size:18px;font-weight:850;color:#0f172a;line-height:1}}.kpi-subtitle{{margin-top:4px;font-size:10px;font-weight:600;color:#64748b;line-height:1.2}}.kpi-icon{{position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.55);box-shadow:0 4px 12px rgba(15,23,42,.05);font-size:14px}}.kpi-blue{{background:linear-gradient(135deg,rgba(219,234,254,.75),rgba(191,219,254,.45));}}.kpi-gold{{background:linear-gradient(135deg,rgba(254,243,199,.78),rgba(253,230,138,.42));}}.kpi-pink{{background:linear-gradient(135deg,rgba(252,231,243,.72),rgba(233,213,255,.45));}}.kpi-green{{background:linear-gradient(135deg,rgba(209,250,229,.72),rgba(187,247,208,.42));}}.kpi-orange{{background:linear-gradient(135deg,rgba(255,237,213,.76),rgba(254,215,170,.44));}}.dashboard-main-grid{{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:24px;align-items:start}}.dashboard-left-column{{display:flex;flex-direction:column;gap:10px;min-width:0;overflow:hidden}}.dashboard-right-column{{display:flex;flex-direction:column;gap:20px;align-self:start;padding-top:0;margin-top:0;min-width:0;position:relative;z-index:2}}.today-schedule-card{{margin-top:0 !important;align-self:stretch}}.dashboard-left-column .grid,.dashboard-left-column .continue-learning-section{{width:100% !important;max-width:100% !important;box-sizing:border-box}}table{{width:100%;border-collapse:collapse}}th,td{{padding:8px;border-bottom:1px solid rgba(148,163,184,.28);text-align:left}}.photo-modal{{display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:99999;align-items:center;justify-content:center;padding:16px}}.photo-modal.is-open{{display:flex !important}}.photo-modal-card{{position:relative;width:min(100%,460px);background:linear-gradient(160deg,rgba(255,255,255,0.95),rgba(239,246,255,0.9));border:1px solid rgba(191,219,254,0.8);border-radius:24px;padding:24px;box-shadow:0 26px 70px rgba(15,23,42,0.24)}}.photo-modal-close{{position:absolute;right:14px;top:14px;border:0;background:#eff6ff;color:#1d4ed8;border-radius:999px;width:34px;height:34px;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center}}.photo-modal h3{{margin:0 0 4px;font-size:22px;color:#0f172a}}.photo-modal-help{{margin:0 0 16px;color:#475569;font-size:13px;line-height:1.45}}.upload-picker{{display:block;border:2px dashed #93c5fd;border-radius:18px;padding:18px 14px;text-align:center;background:linear-gradient(180deg,#f8fbff,#eff6ff);cursor:pointer;transition:all .2s ease}}.upload-picker:hover{{border-color:#2563eb;transform:translateY(-1px)}}.upload-picker svg{{width:34px;height:34px;color:#2563eb}}.upload-picker strong{{display:block;margin-top:8px;font-size:15px;color:#0f172a}}.upload-picker span{{display:block;margin-top:3px;font-size:13px;color:#475569}}.upload-picker small{{display:block;margin-top:6px;color:#64748b}}#profilePhotoInput{{position:absolute;opacity:0;pointer-events:none}}.image-preview{{margin-top:12px;display:none;justify-content:center}}.image-preview img{{width:104px;height:104px;border-radius:50%;object-fit:cover;border:4px solid #bfdbfe;box-shadow:0 8px 20px rgba(37,99,235,.2)}}#cameraStream,#cameraPreview{{width:100%;border-radius:16px;background:#0f172a;display:none;margin-top:12px;object-fit:cover;max-height:240px}}.photo-modal-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}}.photo-btn{{border:0;border-radius:12px;min-height:42px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:14px}}.photo-btn.primary{{background:#2563eb;color:#fff;flex:1 1 150px}}.photo-btn.secondary{{background:#dbeafe;color:#1e40af;flex:1 1 150px}}.photo-btn.ghost{{background:transparent;border:1px solid #cbd5e1;color:#334155;flex:1 1 100px}}.continue-learning-section{{width:100%;max-width:none;margin-top:12px;margin-bottom:14px;background:#ffffff;border-radius:16px;padding:10px 14px;box-shadow:0 4px 12px rgba(15,23,42,0.06)}}.continue-learning-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}}.continue-learning-title-wrap{{text-align:left}}.continue-learning-title{{margin:0;font-size:18px;font-weight:800}}.continue-learning-subtitle{{margin-top:2px;font-size:11px;color:#64748b}}.continue-learning-view-all{{border:0;background:#eff6ff;color:#2563eb;border-radius:10px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer}}.continue-learning-grid{{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;overflow:hidden}}.continue-module-card{{background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);width:100% !important;min-width:0 !important;max-width:none !important;height:165px}}.continue-module-cover{{width:100%;height:90px;object-fit:cover;display:block}}.continue-module-body{{padding:5px 6px}}.continue-module-title{{font-size:10px;font-weight:800;line-height:1.1;margin:0 0 3px}}.continue-module-subject{{font-size:8px;color:#64748b;margin:0 0 5px}}.continue-module-progress-row{{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:8px}}.continue-module-progress-bar{{height:3px;border-radius:999px;background:#e5e7eb;overflow:hidden}}.continue-module-progress-fill{{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#06b6d4)}}.continue-module-play{{width:18px;height:18px;border-radius:50%;border:0;background:#0f172a;color:#fff;cursor:pointer;font-size:8px;line-height:1}}.student-insights-row{{display:grid;grid-template-columns:1fr 1.45fr;gap:14px;margin:14px 0 16px}}.insight-card{{background:rgba(255,255,255,.88);border:1px solid rgba(203,213,225,.72);border-radius:22px;box-shadow:0 16px 34px rgba(15,23,42,.07);padding:16px}}.insight-card-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}}.insight-card-title{{margin:0;font-size:20px;font-weight:800;line-height:1.2;color:#0f172a}}.insight-card-subtitle{{margin:4px 0 0;font-size:12px;color:#64748b}}.analytics-pill{{display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.38);background:rgba(248,250,252,.95);font-size:11px;font-weight:750;color:#1e293b}}.subject-row{{display:grid;grid-template-columns:28px 1fr 34px 90px 38px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(226,232,240,.8)}}.subject-row:last-child{{border-bottom:0}}.subject-icon{{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#1f2937}}.subject-name{{font-size:15px;font-weight:650;color:#0f172a}}.subject-grade{{font-size:20px;font-weight:700;color:#0f172a;text-align:center}}.subject-progress-track{{height:6px;border-radius:999px;background:#e2e8f0;overflow:hidden}}.subject-progress-fill{{display:block;height:100%;border-radius:999px}}.subject-percent{{font-size:18px;font-weight:700;color:#334155;text-align:right}}.subject-report-link{{display:inline-flex;margin-top:12px;font-size:16px;font-weight:800;color:#2563eb;text-decoration:none}}.subject-report-link:hover{{text-decoration:underline}}.analytics-chart-wrap{{margin-top:2px;border-radius:16px;padding:10px 8px 4px;background:linear-gradient(180deg,rgba(248,250,252,.94),rgba(241,245,249,.65));border:1px solid rgba(226,232,240,.8)}}.analytics-chart{{width:100%;height:auto;display:block}}.analytics-chart .grid-line{{stroke:#e2e8f0;stroke-width:1}}.analytics-chart .axis-label{{fill:#64748b;font-size:10px;font-weight:600}}.analytics-chart .area-fill{{fill:url(#analyticsAreaGradient)}}.analytics-chart .line-path{{fill:none;stroke:#2563eb;stroke-width:2.8}}.analytics-chart .point{{fill:#2563eb;stroke:#ffffff;stroke-width:1.8}}.analytics-chart .focus-line{{stroke:#94a3b8;stroke-dasharray:4 4;opacity:.7}}.analytics-chart .focus-text{{fill:#2563eb;font-size:11px;font-weight:800}}.learning-stat-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}}.learning-stat-chip{{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid rgba(203,213,225,.7);border-radius:12px;background:rgba(248,250,252,.96)}}.learning-stat-icon{{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#dbeafe;color:#1d4ed8;font-size:12px}}.learning-stat-copy small{{display:block;font-size:11px;color:#64748b;line-height:1.2}}.learning-stat-copy strong{{display:block;font-size:23px;line-height:1.2;color:#0f172a}}.schedule-card{{background:rgba(255,255,255,.84);border:1px solid rgba(203,213,225,.65);border-radius:22px;box-shadow:0 16px 30px rgba(15,23,42,.08);padding:14px 14px 10px}}.schedule-card-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px}}.schedule-card-title{{margin:0;font-size:15px;font-weight:800;line-height:1.25}}.schedule-card-subtitle{{margin:2px 0 0;font-size:10px;color:#64748b}}.schedule-view-link{{border:1px solid rgba(59,130,246,.18);background:#f8fbff;color:#2563eb;border-radius:999px;padding:4px 9px;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap}}.schedule-list{{position:relative;margin:0;padding:0;list-style:none}}.schedule-list::before{{content:'';position:absolute;left:11px;top:5px;bottom:8px;width:2px;background:linear-gradient(180deg,rgba(59,130,246,.16),rgba(14,165,233,.2))}}.schedule-item{{position:relative;display:grid;grid-template-columns:58px 28px 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(226,232,240,.75)}}.schedule-item:last-child{{border-bottom:0;padding-bottom:2px}}.schedule-dot{{position:absolute;left:7px;top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;border:2px solid rgba(255,255,255,.92);box-shadow:0 0 0 3px rgba(255,255,255,.55)}}.schedule-time{{font-size:10px;font-weight:700;color:#0f172a;padding-left:20px;white-space:nowrap}}.schedule-icon{{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#1d4ed8}}.schedule-content-title{{margin:0;font-size:11px;font-weight:750;line-height:1.2}}.schedule-content-subtitle{{margin:1px 0 0;font-size:9px;color:#64748b}}.schedule-action{{border:0;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-radius:999px;padding:4px 9px;font-size:9px;font-weight:700;cursor:pointer;min-width:44px}}.schedule-icon-weekly,.schedule-icon-chapter{{background:#e0e7ff}}.schedule-icon-recorded{{background:#ede9fe}}.schedule-icon-live{{background:#dcfce7}}.schedule-icon-activity{{background:#fee2e2}}.progress-summary-card{{background:rgba(255,255,255,.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(203,213,225,.72);border-radius:22px;box-shadow:0 16px 30px rgba(15,23,42,.08);padding:16px}}.progress-summary-header{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}}.progress-summary-header h3{{margin:0;font-size:18px;font-weight:800}}.progress-term-pill{{display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.38);background:rgba(248,250,252,.9);font-size:11px;font-weight:700;color:#334155}}.progress-donut-wrap{{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}}.progress-donut{{position:relative;width:148px;height:148px;border-radius:50%;background:conic-gradient(#56c983 0 78%,#3b82f6 78% 93%,#d9dee7 93% 100%);display:flex;align-items:center;justify-content:center;flex:0 0 148px}}.progress-donut::before{{content:'';position:absolute;inset:16px;background:#fff;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(226,232,240,.7)}}.progress-donut-center{{position:relative;z-index:1;text-align:center}}.progress-donut-center strong{{display:block;font-size:36px;line-height:1;font-weight:850;color:#0f172a}}.progress-donut-center span{{display:block;margin-top:4px;font-size:13px;font-weight:600;color:#64748b}}.progress-legend{{flex:1;min-width:180px;display:flex;flex-direction:column;gap:10px}}.progress-legend-row{{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;font-size:14px;color:#475569}}.progress-dot{{width:10px;height:10px;border-radius:50%}}.progress-detail-link{{display:inline-flex;margin-top:14px;font-size:13px;font-weight:800;color:#2563eb;text-decoration:none}}.progress-detail-link:hover{{text-decoration:underline}}.practice-summary-card{{background:rgba(255,255,255,.88);border:1px solid rgba(203,213,225,.72);border-radius:22px;box-shadow:0 16px 34px rgba(15,23,42,.07);padding:16px}}.practice-summary-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}}.practice-summary-header h3{{margin:0;font-size:18px;font-weight:850}}.practice-summary-header p{{margin:3px 0 0;font-size:11px;color:#64748b}}.practice-summary-pill{{border:1px solid rgba(148,163,184,.35);background:#f8fbff;color:#334155;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:800;white-space:nowrap}}.practice-summary-list{{display:flex;flex-direction:column;gap:8px}}.practice-summary-row{{display:grid;grid-template-columns:34px 1fr 52px 86px;gap:8px;align-items:center;padding:10px;border:1px solid rgba(226,232,240,.85);border-radius:16px;background:linear-gradient(135deg,rgba(255,255,255,.95),rgba(248,251,255,.78))}}.practice-topic-icon{{width:34px;height:34px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#2563eb;background:#dbeafe}}.practice-topic-main strong{{display:block;font-size:12px;line-height:1.2}}.practice-topic-main span{{display:block;margin-top:2px;font-size:10px;color:#64748b}}.practice-score{{font-size:13px;font-weight:900;color:#2563eb;text-align:right}}.practice-status{{border-radius:999px;padding:5px 8px;font-size:10px;font-weight:800;text-align:center}}.practice-status.improved{{background:#dcfce7;color:#16a34a}}.practice-status.same{{background:#e0f2fe;color:#0284c7}}.practice-status.dropped{{background:#fee2e2;color:#dc2626}}.practice-summary-link{{display:block;margin-top:12px;color:#2563eb;font-size:12px;font-weight:850;text-decoration:none}}.practice-summary-empty{{padding:16px;border:1px dashed rgba(148,163,184,.45);border-radius:14px;background:rgba(248,250,252,.85);font-size:11px;font-weight:700;color:#64748b;text-align:center}}@media(max-width:768px){{.progress-summary-card{{padding:14px}}.progress-summary-header h3{{font-size:16px}}.progress-term-pill{{font-size:10px;padding:5px 10px}}.progress-donut-wrap{{justify-content:center}}.progress-legend{{min-width:100%}}.progress-legend-row{{font-size:13px}}}}#captureBtn{{display:none}}@media(max-width:1100px){{.top{{width:100%;max-width:none}}.grid,.continue-learning-section{{width:100%}}}}@media(max-width:1000px){{.app{{grid-template-columns:1fr}}.grid{{grid-template-columns:repeat(2,1fr)}}.dashboard-main-grid{{grid-template-columns:1fr}}.dashboard-left-column{{order:1}}.dashboard-right-column{{order:2}}}}@media(max-width:900px){{.dashboard-topbar{{padding:0;align-items:flex-start}}.header-actions{{margin-left:auto;justify-content:flex-end;max-width:100%}}.student-insights-row{{grid-template-columns:1fr}}}}@media(max-width:768px){{.sidebar-brand-title{{font-size:10px}}.nav-link{{font-size:13px;padding:6px 9px;gap:8px;min-height:30px}}.nav-icon,.nav-icon svg{{width:16px;height:16px;flex-basis:16px}}.top{{align-items:flex-start;flex-direction:column;min-height:0}}.student-avatar{{width:52px;height:52px;font-size:16px}}.greeting-left{{gap:10px}}.student-menu-copy{{display:none}}.header-icon-btn{{width:34px;height:34px}}.photo-modal-card{{padding:20px}}.continue-learning-grid{{display:flex;overflow-x:auto;gap:14px;padding-bottom:4px}}.continue-module-card{{width:180px;min-width:180px;min-height:300px}}.schedule-item{{grid-template-columns:62px 26px 1fr auto}}}}
 @media (max-width: 899px) {{
   .continue-learning-section,
@@ -8032,7 +8041,7 @@ def learning_path() -> str:
         return f"""
         <!doctype html>
         <html lang='{'si' if language == 'si' else 'en'}'>
-          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels["title"]}</title></head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels["title"]}</title></head>
           <body>
             <h1>{labels["title"]}</h1>
             <p>{labels["no_result"]}</p>
@@ -8085,7 +8094,7 @@ def learning_path() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if language == 'si' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{labels["title"]}</title>
@@ -8135,7 +8144,7 @@ def parent_login():
         return """
         <!doctype html>
         <html lang="en">
-          <head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Parent Login</title>
@@ -8248,7 +8257,7 @@ def parent_dashboard():
     return f"""
     <!doctype html>
     <html lang="en">
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Parent Dashboard</title>
@@ -8337,7 +8346,7 @@ def teacher_login():
     if request.method == "GET":
         return """        <!doctype html>
         <html lang='en'>
-          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Login</title></head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Login</title></head>
           <body>
             <h1>Teacher Login</h1>
             <form method="post" action="/teacher-login">
@@ -8440,7 +8449,7 @@ def teacher_dashboard():
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Dashboard</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Teacher Dashboard</title></head>
       <body>
         <h1>Teacher Dashboard</h1>
         <p><a href='/teacher/create-class'>Create Class</a></p>
@@ -8625,7 +8634,7 @@ def teacher_class_details(class_id: int):
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Class Details</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Class Details</title></head>
       <body>
         <h1>Class: {escape(classroom.class_name)}</h1>
         <p>Grade: {display_grade(classroom.grade)}</p>
@@ -8699,7 +8708,7 @@ def teacher_create_class():
         return f"""
         <!doctype html>
         <html lang='en'>
-          <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Create Class</title></head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Create Class</title></head>
           <body>
             <h1>Create Class</h1>
             <form method="post" action="/teacher/create-class">
@@ -8776,7 +8785,7 @@ def teacher_assign_students(class_id: int):
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Students</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Students</title></head>
       <body>
         <h1>Assign Students to {escape(classroom.class_name)}</h1>
         <p>Grade: {display_grade(classroom.grade)}</p>
@@ -8875,7 +8884,7 @@ def teacher_student_details(student_id: int):
     return f"""
     <!doctype html>
     <html lang='{'si' if is_sinhala else 'en'}'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head>
       <body>
         <h1>{labels['title']}</h1><h2>{labels['student_info']}</h2>
         <p><strong>{labels['name']}:</strong> {student.name}</p><p><strong>{labels['grade']}:</strong> {student.grade}</p><p><strong>{labels['medium']}:</strong> {student.medium}</p>
@@ -8930,7 +8939,7 @@ def teacher_assign_homework(class_id: int):
         db.session.commit()
         return redirect(url_for("teacher_class_details", class_id=classroom.id))
     return f"""
-    <!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Homework</title></head><body>
+    <!doctype html><html lang='en'><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Assign Homework</title></head><body>
     <h1>Assign Homework - {escape(classroom.class_name)}</h1>
     <form method='post'>
       <input type='hidden' name='grade' value='{escape(classroom.grade)}'>
@@ -9005,7 +9014,7 @@ def teacher_homework_details(homework_id: int):
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Homework Details</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Homework Details</title></head>
       <body>
         <h1>Homework Details / ගෙදර වැඩ විස්තර</h1>
         <p><strong>Title / මාතෘකාව:</strong> {escape(homework.title)}</p>
@@ -9083,7 +9092,7 @@ def teacher_remind_homework_student(homework_id: int, student_id: int):
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reminder Created</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Reminder Created</title></head>
       <body>
         <h2>Reminder created successfully.</h2>
         <p>Notification saved for {escape(student.name)}.</p>
@@ -9120,7 +9129,7 @@ def teacher_create_class_test(class_id: int):
         db.session.add(ClassTest(class_id=classroom.id, teacher_id=int(teacher_id), title=title, grade=classroom.grade, subject=subject, topic_en=topic_en, topic_si=topic_si, difficulty_level=difficulty_level, test_date=test_date, duration_minutes=duration_minutes))
         db.session.commit()
         return redirect(url_for("teacher_class_details", class_id=classroom.id))
-    return f"""<!doctype html><html><body><h1>Create Test - {escape(classroom.class_name)}</h1><form method='post'>
+    return f"""<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>Create Test - {escape(classroom.class_name)}</h1><form method='post'>
     <input type='hidden' name='grade' value='{escape(classroom.grade)}'>
     <label>Title: <input type='text' name='title' required></label><br><br>
     <label>Subject: <select name='subject' required>{subject_options_html(classroom.grade, 'Math')}</select></label><br><br>
@@ -9220,7 +9229,7 @@ def student_change_password():
     return f"""
     <!doctype html>
     <html lang="en">
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Change Password - SLIS</title>
@@ -9339,7 +9348,7 @@ def render_whatsapp_waba_subscription_result(
     return f"""
     <!doctype html>
     <html lang="en">
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Subscribe WABA Webhooks - SLIS Admin</title>
@@ -9950,7 +9959,7 @@ def admin_whatsapp_inbox():
     return f"""
     <!doctype html>
     <html lang="en">
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Premium WhatsApp Inbox - SLIS Admin</title>
@@ -10381,7 +10390,7 @@ def school_admin_dashboard():
         for item in class_performance
     )
 
-    return f"""<!doctype html><html><body><h1>School Admin Dashboard</h1>
+    return f"""<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>School Admin Dashboard</h1>
     <p>Total teachers: {total_teachers}</p><p>Total students: {total_students}</p>
     <p>Total classes: {total_classes}</p><p>Total tests: {total_tests}</p>
     <h2>{labels['school_performance']}</h2>
@@ -10417,7 +10426,7 @@ def school_admin_teachers():
         return redirect("/school-admin/teachers")
     teachers = Teacher.query.filter_by(school_id=school_id).order_by(Teacher.id.desc()).all()
     rows = "".join([f"<tr><td>{t.id}</td><td>{escape(t.name)}</td><td>{escape(t.email)}</td></tr>" for t in teachers])
-    return f"""<!doctype html><html><body><h1>Manage Teachers</h1>
+    return f"""<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>Manage Teachers</h1>
     <form method='post'><label>Name: <input name='name' required></label><br><br>
     <label>Email: <input type='email' name='email' required></label><br><br>
     <label>Password: <input type='password' name='password' required></label><br><br>
@@ -10450,7 +10459,7 @@ def school_admin_students():
         latest = StudentResult.query.filter_by(student_id=student.id).order_by(StudentResult.created_at.desc(), StudentResult.id.desc()).first()
         performance = f"{latest.score:.1f}%" if latest else "N/A"
         rows += f"<tr><td>{student.id}</td><td>{escape(student.name)}</td><td>{student.class_id or '-'}</td><td>{performance}</td></tr>"
-    return f"""<!doctype html><html><body><h1>Manage Students</h1>
+    return f"""<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>Manage Students</h1>
     <form method='post'><label>Student:
     <select name='student_id'>{''.join([f"<option value='{s.id}'>{escape(s.name)}</option>" for s in students])}</select></label>
     <label>Class: <select name='class_id'>{class_options}</select></label>
@@ -10731,7 +10740,7 @@ def render_question_form(action: str, data: dict, page_title: str, submit_label:
     return f"""
     <!doctype html>
     <html lang="en">
-      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{page_title}</title></head>
       <body>
         <h1>{page_title}</h1>
         {error_html}
@@ -10973,7 +10982,7 @@ def admin_login():
         return """
         <!doctype html>
         <html lang="en">
-          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title></head>
+          <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title></head>
           <body>
             <h1>Admin Login</h1>
             <form method="post" action="/admin-login">
@@ -11687,7 +11696,7 @@ def admin_dashboard():
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Admin Dashboard</title>
@@ -11975,7 +11984,7 @@ def admin_messages():
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Student Messages</title>
@@ -12140,7 +12149,7 @@ def premium_locked_json_response():
 
 def render_admin_lesson_preview_shell(inner_html: str) -> str:
     return f"""
-    <!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
+    <!doctype html><html lang='en'><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
     <title>Admin Lesson Preview</title><style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.admin-preview-bar{{position:sticky;top:0;z-index:9999;background:#111827;color:#fff;padding:10px 16px;display:flex;gap:14px;align-items:center}}.admin-preview-bar a{{color:#bfdbfe;font-weight:800;text-decoration:none}}.dashboard-content-inner{{padding:16px}}</style></head>
     <body><div class='admin-preview-bar'><strong>Admin Preview</strong><a href='/admin/lesson-builder'>Back to Lesson Builder</a></div><div class='dashboard-content-inner'>{inner_html}</div></body></html>
     """
@@ -12303,7 +12312,7 @@ def render_admin_payment_settings_page(settings: PaymentSettings, message: str =
     return f"""
     <!doctype html>
     <html lang='en'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Payment Settings</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Payment Settings</title></head>
       <body style='font-family:Arial,sans-serif;color:#0f172a;background:linear-gradient(135deg,#eff6ff,#f8fafc);margin:0;padding:22px;'>
         <main style='max-width:820px;margin:0 auto;background:#fff;border:1px solid #dbeafe;border-radius:24px;padding:24px;box-shadow:0 18px 48px rgba(15,23,42,.09);'>
           <h1 style='margin-bottom:6px;'>Payment Settings</h1>
@@ -12605,7 +12614,7 @@ def render_student_dashboard_shell(inner_html, active_nav="dashboard"):
     current_page_title = nav_labels.get(active_nav, "ශිෂ්‍ය" if language == "si" else "Student")
 
     dashboard_shell_start = f"""
-    <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{'ශිෂ්‍ය ඩෑෂ්බෝඩ්' if language == 'si' else 'Student Dashboard'}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <!doctype html><html lang='{'si' if language == 'si' else 'en'}'><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{'ශිෂ්‍ය ඩෑෂ්බෝඩ්' if language == 'si' else 'Student Dashboard'}</title><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
     <style>body{{margin:0;font-family:Inter,Arial,sans-serif;background:#edf2fa;color:#0f172a}}.app{{display:grid;grid-template-columns:252px 1fr;min-height:100vh}}.side{{background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%);color:#dbeafe;padding:8px 14px 18px}}.sidebar-brand{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 10px 14px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.10);margin:0 0 12px}}.sidebar-brand img{{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 6px}}.sidebar-brand-title{{color:#ffffff;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap;text-align:center}}.sidebar-nav{{display:flex;flex-direction:column;gap:0}}.nav-link{{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;margin:2px 0;border-radius:10px;color:#eaf2ff;text-decoration:none;font-size:14px;font-weight:650;background:transparent;transition:160ms ease}}.nav-link:hover,.nav-link.active{{background:rgba(59,130,246,.38);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}}.nav-icon{{width:18px;height:18px;flex:0 0 18px;opacity:.95;color:#dbeafe}}.nav-icon svg{{width:18px;height:18px;display:block;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}}.main{{padding:0 16px 8px;background:#edf2fa}}.top{{background:rgba(255,255,255,0.12);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:18px;box-shadow:0 4px 14px rgba(15,23,42,.025),inset 0 1px 0 rgba(255,255,255,.06)}}.dashboard-topbar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:0px;padding:0;margin-top:0px}}.dashboard-topbar-spacer{{flex:1}}.top{{width:calc(100% - 330px);max-width:600px;min-height:64px;padding:6px 18px;margin-top:-20px;display:flex;align-items:center;gap:18px}}.greeting-left{{display:flex;align-items:center;gap:14px;min-width:0}}.student-avatar{{width:58px;height:58px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.9);box-shadow:0 8px 22px rgba(15,23,42,0.16);background:linear-gradient(135deg,#dbeafe,#eff6ff);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:800;font-size:20px;overflow:hidden}}.greeting-copy h2{{margin:0;font-size:22px;line-height:1.15}}.greeting-copy small{{display:block;margin-top:3px;color:#64748b}}.change-photo-link{{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;color:#2563eb;text-decoration:none;border:0;background:transparent;cursor:pointer;padding:0;width:auto;min-height:auto}}.header-actions{{display:flex;align-items:center;gap:4px;margin-left:auto;background:transparent}}.header-icon-btn,.header-action-btn{{width:36px;height:36px;border:0;border-radius:12px;background:rgba(255,255,255,0.18);color:#0f172a;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.header-icon-btn svg,.header-action-btn svg,.student-menu-btn .menu-caret,.student-mini-profile .menu-caret{{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}}.notification-badge{{position:absolute;top:-3px;right:-3px;min-width:14px;height:14px;border-radius:999px;background:#ef4444;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff}}.country-flag-wrap{{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.country-flag-img{{width:20px;height:14px;object-fit:cover;border-radius:2px;display:block}}.student-menu{{position:relative}}.student-menu-btn,.student-mini-profile{{border:0;background:rgba(255,255,255,0.18);border-radius:16px;padding:6px 10px;display:flex;align-items:center;gap:6px;cursor:pointer;color:#0f172a;min-height:34px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.15);box-shadow:none}}.header-avatar{{width:24px;height:24px;border-radius:50%;object-fit:cover;background:#dbeafe;color:#1e3a8a;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}}.student-menu-copy{{text-align:left;line-height:1.15}}.student-menu-copy strong{{display:block;font-size:11px;line-height:1.1;font-weight:800;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.student-menu-copy small{{display:block;font-size:9px;line-height:1;color:#64748b}}.student-dropdown,.notification-dropdown{{display:none;position:absolute;right:0;top:calc(100% + 8px);width:210px;background:rgba(255,255,255,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.55);border-radius:16px;box-shadow:0 14px 34px rgba(15,23,42,0.12);padding:8px;z-index:9999}}.notification-dropdown{{width:230px;right:46px}}.student-dropdown.open,.notification-dropdown.open{{display:block}}html,body{{max-width:100%;overflow-x:hidden}}.mobile-dashboard-header,.mobile-bottom-nav,.mobile-menu-backdrop{{display:none}}.mobile-dashboard-header{{position:fixed;top:10px;left:12px;right:12px;height:54px;z-index:9997;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:18px;background:rgba(255,255,255,.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 14px 32px rgba(15,23,42,.12);box-sizing:border-box}}.mobile-menu-toggle,.mobile-profile-pill{{width:38px;height:38px;border:0;border-radius:14px;background:#0f3b8f;color:white;display:grid;place-items:center;text-decoration:none;font-weight:900;cursor:pointer;flex:0 0 auto}}.mobile-menu-toggle svg{{width:22px;height:22px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round}}.mobile-brand{{display:flex;align-items:center;gap:8px;min-width:0;flex:1;padding:0 8px}}.mobile-brand img{{width:34px;height:34px;object-fit:contain;flex:0 0 auto}}.mobile-brand div{{min-width:0}}.mobile-brand strong{{display:block;font-size:13px;color:#0f172a;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}}.mobile-brand span{{display:block;font-size:11px;color:#64748b;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}}.mobile-profile-pill{{overflow:hidden;background:#1e3a8a}}.mobile-profile-pill img{{width:100%;height:100%;object-fit:cover;border-radius:14px}}.mobile-drawer-close{{display:none}}@media (max-width:768px){{body{{overflow-x:hidden !important}}body.mobile-menu-open{{overflow:hidden}}.app{{display:block !important;grid-template-columns:1fr !important;min-height:100vh;width:100% !important;max-width:100% !important;overflow-x:hidden !important}}.side{{position:fixed !important;inset:0 auto 0 0;width:min(86vw,320px) !important;max-width:320px !important;height:100vh !important;transform:translateX(-105%);transition:transform .25s ease;z-index:9999;overflow-y:auto;border-radius:0 28px 28px 0;box-shadow:24px 0 60px rgba(0,0,0,.28);box-sizing:border-box;background:linear-gradient(180deg,#061a4f 0%,#0f347a 55%,#123f91 100%) !important}}body.mobile-menu-open .side{{transform:translateX(0)}}.mobile-menu-backdrop{{display:none;position:fixed;inset:0;background:rgba(2,8,23,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9998}}body.mobile-menu-open .mobile-menu-backdrop{{display:block}}.mobile-dashboard-header{{display:flex !important}}.mobile-bottom-nav{{display:grid !important}}.mobile-drawer-close{{display:grid;position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:12px;background:rgba(255,255,255,.16);color:white;font-size:24px;line-height:1;place-items:center;cursor:pointer}}.main{{width:100% !important;max-width:100% !important;margin-left:0 !important;padding:82px 14px 86px !important;box-sizing:border-box;overflow-x:hidden !important}}.dashboard-content-inner,.dashboard-content,.dashboard-shell,.main-content{{width:100% !important;max-width:100% !important;margin-left:0 !important;box-sizing:border-box;overflow-x:hidden !important}}.dashboard-topbar,.top{{display:none !important}}.card,section,article,div{{max-width:100%;box-sizing:border-box}}table{{max-width:100%;display:block;overflow-x:auto}}img,video,canvas,iframe{{max-width:100%}}.mobile-bottom-nav{{position:fixed;left:12px;right:12px;bottom:12px;grid-template-columns:repeat(5,1fr);gap:4px;z-index:9997;padding:8px;border-radius:22px;background:rgba(255,255,255,.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 18px 44px rgba(15,23,42,.18);box-sizing:border-box}}.mobile-bottom-nav a{{min-height:52px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#64748b;font-size:17px;text-decoration:none;font-weight:800}}.mobile-bottom-nav a span{{font-size:10px}}.mobile-bottom-nav a.active{{background:linear-gradient(135deg,#1e66f5,#7c3aed);color:white}}}}</style></head>
     <body><header class='mobile-dashboard-header' aria-label='Student mobile header'><button class='mobile-menu-toggle' id='studentMobileMenuToggle' type='button' aria-label='Open menu' aria-controls='studentSidebar' aria-expanded='false'><svg viewBox='0 0 24 24'><path d='M4 7h16'></path><path d='M4 12h16'></path><path d='M4 17h16'></path></svg></button><div class='mobile-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS logo'><div><strong>{current_page_title}</strong><span>{escape(student.name)}</span></div></div><a class='mobile-profile-pill' href='/student/profile' aria-label='Student profile'>{f"<img src='{escape(profile_image_url)}' alt='Student photo'>" if profile_image_url else avatar_initials}</a></header><div class='mobile-menu-backdrop' id='studentMobileMenuBackdrop' aria-hidden='true'></div><div class='app'><aside class='side' id='studentSidebar'><button class='mobile-drawer-close' id='studentMobileMenuClose' type='button' aria-label='Close menu'>&times;</button><div class='sidebar-brand'><img src='/static/images/SLIS LOGO.png' alt='SLIS logo'><div class='sidebar-brand-title'>Spiral Learning Intelligence System</div></div>
     <nav class='sidebar-nav'>
@@ -19790,7 +19799,7 @@ def test_page() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'test_title').format(grade=selected_grade, subject=selected_subject)}</title>
@@ -20213,7 +20222,7 @@ def submit_test() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>SkillScan Result</title>
@@ -20410,7 +20419,7 @@ def retest_weak() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'retest_weak_topics')}</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'retest_weak_topics')}</title></head>
       <body>
         <h1>{t(selected_medium, 'retest_weak_topics')}</h1>
         <p><strong>{t(selected_medium, 'total_questions')}:</strong> {len(questions)}</p>
@@ -20433,7 +20442,7 @@ def upgrade_page() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>Upgrade</title>
@@ -20552,7 +20561,7 @@ def leaderboard(grade: str | None = None) -> str:
     )
 
     return f"""
-    <!doctype html><html lang='{'si' if is_si else 'en'}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head><body>
+    <!doctype html><html lang='{'si' if is_si else 'en'}'><head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{labels['title']}</title></head><body>
     <h1>{labels['title']}</h1>
     <p><a href='/leaderboard'>{'All Grades' if not is_si else 'සියලු ශ්‍රේණි'}</a> | {' | '.join(tabs)}</p>
     <table style='border-collapse:collapse;width:100%;'><thead><tr><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['rank']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['name']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['grade']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['xp']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['level']}</th><th style='border:1px solid #ccc;padding:8px;text-align:left;'>{labels['current_streak']}</th></tr></thead><tbody>{rows}</tbody></table>
@@ -20588,7 +20597,7 @@ def view_result(result_id: int) -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'result_title')}</title></head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5"><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>{t(selected_medium, 'result_title')}</title></head>
       <body>
         <h1>{t(selected_medium, 'result_title')}</h1>
         <p><strong>{t(selected_medium, 'total_questions')}:</strong> {student_result.total_questions}</p>
@@ -20710,7 +20719,7 @@ def practice_page() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
@@ -20803,7 +20812,7 @@ def student_recommended_practice() -> str:
         option_c = getattr(q, f"option_c_{medium_key}")
         option_d = getattr(q, f"option_d_{medium_key}")
         blocks.append(f"<div style='border:1px solid #ddd;padding:10px;margin:10px 0'><p><strong>{escape(q.topic_si if selected_medium=='Sinhala' else q.topic_en)}</strong> • L{q.difficulty_level or 1}</p><p>{escape(q_text)}</p><label><input type='radio' name='q_{q.id}' value='A'> {escape(option_a)}</label><br><label><input type='radio' name='q_{q.id}' value='B'> {escape(option_b)}</label><br><label><input type='radio' name='q_{q.id}' value='C'> {escape(option_c)}</label><br><label><input type='radio' name='q_{q.id}' value='D'> {escape(option_d)}</label></div>")
-    return f"<!doctype html><html><body><h1>{'Recommended Practice' if selected_medium=='English' else 'නිර්දේශිත පුහුණුව'}</h1><form method='post'>{''.join(blocks) if blocks else '<p>No dynamic questions available yet.</p>'}<button type='submit'>Submit Practice</button></form><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
+    return f"<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>{'Recommended Practice' if selected_medium=='English' else 'නිර්දේශිත පුහුණුව'}</h1><form method='post'>{''.join(blocks) if blocks else '<p>No dynamic questions available yet.</p>'}<button type='submit'>Submit Practice</button></form><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
 
 
 @app.route("/submit-practice", methods=["POST"])
@@ -20996,7 +21005,7 @@ def submit_practice() -> str:
     return f"""
     <!doctype html>
     <html lang='{'si' if selected_medium == 'Sinhala' else 'en'}'>
-      <head>
+      <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <title>{t(selected_medium, 'practice_title')}</title>
@@ -21068,7 +21077,7 @@ def student_homework_list():
     )
     empty_row = "<tr><td colspan='5' style='border:1px solid #ccc;padding:8px;'>No homework assigned.</td></tr>"
     title = "මගේ ගෙදර වැඩ" if student.medium == "Sinhala" else "My Homework"
-    return f"<!doctype html><html><body><h1>{title}</h1><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Title</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Difficulty</th><th style='border:1px solid #ccc;padding:8px;'>Due Date</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead><tbody>{rows if rows else empty_row}</tbody></table><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
+    return f"<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>{title}</h1><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Title</th><th style='border:1px solid #ccc;padding:8px;'>Topic</th><th style='border:1px solid #ccc;padding:8px;'>Difficulty</th><th style='border:1px solid #ccc;padding:8px;'>Due Date</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead><tbody>{rows if rows else empty_row}</tbody></table><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
 
 
 @app.route("/student/homework/<int:homework_id>", methods=["GET"])
@@ -21105,7 +21114,7 @@ def student_homework_detail(homework_id: int):
     q_html = "".join(q_html_parts)
     return f"""<!doctype html>
 <html>
-  <head>
+  <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
       .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
@@ -21283,7 +21292,7 @@ def student_tests_list():
         )
         rows.append(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(item.title)}</td><td style='border:1px solid #ccc;padding:8px;'>{item.test_date.strftime('%Y-%m-%d')}</td><td style='border:1px solid #ccc;padding:8px;'>{status}</td><td style='border:1px solid #ccc;padding:8px;'>{action}</td></tr>")
     rows_html = "".join(rows) if rows else "<tr><td colspan='4' style='border:1px solid #ccc;padding:8px;'>No tests found.</td></tr>"
-    return f"<!doctype html><html><body><h1>{'මගේ පරීක්ෂා' if is_si else 'My Tests'}</h1><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Title</th><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Status</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead><tbody>{rows_html}</tbody></table><p><a href='/student-dashboard'>Back</a></p></body></html>"
+    return f"<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>{'මගේ පරීක්ෂා' if is_si else 'My Tests'}</h1><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Title</th><th style='border:1px solid #ccc;padding:8px;'>Date</th><th style='border:1px solid #ccc;padding:8px;'>Status</th><th style='border:1px solid #ccc;padding:8px;'>Action</th></tr></thead><tbody>{rows_html}</tbody></table><p><a href='/student-dashboard'>Back</a></p></body></html>"
 
 @app.route("/student/test/<int:test_id>", methods=["GET", "POST"])
 def student_take_test(test_id: int):
@@ -21343,7 +21352,7 @@ def student_take_test(test_id: int):
     timer_html = f"<p><strong>{'කාලය' if student.medium == 'Sinhala' else 'Timer'}:</strong> {test.duration_minutes} {'මිනිත්තු' if student.medium == 'Sinhala' else 'minutes'}</p>" if test.duration_minutes else ""
     return f"""<!doctype html>
 <html>
-  <head>
+  <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>
       .box-layout {{font-family:monospace;white-space:pre;line-height:1.4;}}
@@ -21432,7 +21441,7 @@ def student_test_result_summary(test_id: int):
     marks_earned_label = "ලබාගත් ලකුණු"
     return f"""<!doctype html>
 <html>
-  <head>
+  <head><link rel="icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="shortcut icon" type="image/x-icon" href="/static/images/slis-favicon.ico?v=5"><link rel="apple-touch-icon" href="/static/images/slis-favicon.ico?v=5">
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <title>{escape(test.title)} - Result</title>
   </head>
@@ -21463,7 +21472,7 @@ def teacher_test_results(test_id: int):
     avg = round(sum(s.score for s in submissions) / len(submissions), 2) if submissions else 0
     sorted_students = sorted(students, key=lambda st: by_student.get(st.id).score if st.id in by_student else -1, reverse=True)
     rows = "".join(f"<tr><td style='border:1px solid #ccc;padding:8px;'>{escape(st.name)}</td><td style='border:1px solid #ccc;padding:8px;'>{('-' if st.id not in by_student else str(by_student[st.id].score)+'%')}</td><td style='border:1px solid #ccc;padding:8px;'>{('Not Submitted' if st.id not in by_student else 'Submitted')}</td></tr>" for st in sorted_students)
-    return f"<!doctype html><html><body><h1>Test Title: {escape(test.title)}</h1><p>Average Score: {avg}%</p><p>Total Students: {len(students)}</p><p>Submitted Count: {len(submissions)}</p><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student Name</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{rows}</tbody></table><p><a href='/teacher/class/{test.class_id}'>Back to Class</a></p></body></html>"
+    return f"<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>Test Title: {escape(test.title)}</h1><p>Average Score: {avg}%</p><p>Total Students: {len(students)}</p><p>Submitted Count: {len(submissions)}</p><table style='border-collapse:collapse;width:100%'><thead><tr><th style='border:1px solid #ccc;padding:8px;'>Student Name</th><th style='border:1px solid #ccc;padding:8px;'>Score</th><th style='border:1px solid #ccc;padding:8px;'>Status</th></tr></thead><tbody>{rows}</tbody></table><p><a href='/teacher/class/{test.class_id}'>Back to Class</a></p></body></html>"
 
 @app.route("/update-class-test-db", methods=["GET"])
 def update_class_test_db() -> tuple:
@@ -21544,7 +21553,7 @@ def student_revision_session():
             mastery.status_en, mastery.status_si = mastery_status_labels(float(mastery.mastery_score or 0))
         rows.append(f"<tr><td>{escape(item.skill_code)}</td><td>{escape(item.revision_reason)}</td><td>{int(item.priority_score)}</td><td>{item.due_date}</td></tr>")
     db.session.commit()
-    return f"<!doctype html><html><body><h1>Revision Session</h1><p>Weakest skills prioritized first.</p><table border='1' cellpadding='6'><tr><th>Skill</th><th>Reason</th><th>Priority</th><th>Next Due</th></tr>{''.join(rows)}</table><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
+    return f"<!doctype html><html><head><link rel=\"icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/static/images/slis-favicon.ico?v=5\"><link rel=\"apple-touch-icon\" href=\"/static/images/slis-favicon.ico?v=5\"></head><body><h1>Revision Session</h1><p>Weakest skills prioritized first.</p><table border='1' cellpadding='6'><tr><th>Skill</th><th>Reason</th><th>Priority</th><th>Next Due</th></tr>{''.join(rows)}</table><p><a href='/student-dashboard'>Back to Dashboard</a></p></body></html>"
 
 
 with app.app_context():
