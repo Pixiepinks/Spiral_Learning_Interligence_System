@@ -33,6 +33,47 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
+FAVICON_STATIC_PATH = "images/slis-favicon.ico"
+FAVICON_VERSION = "1"
+
+
+def favicon_links() -> str:
+    """Return SLIS favicon link tags for every HTML page head."""
+    favicon_href = f"{url_for('static', filename=FAVICON_STATIC_PATH)}?v={FAVICON_VERSION}"
+    return (
+        f'<link rel="icon" href="{favicon_href}" type="image/x-icon">\n'
+        f'<link rel="shortcut icon" href="{favicon_href}" type="image/x-icon">'
+    )
+
+
+def inject_favicon_links(html: str) -> str:
+    """Inject favicon links into an HTML document head when they are not already present."""
+    if "slis-favicon.ico" in html or "</head>" not in html.lower():
+        return html
+
+    return re.sub(r"</head>", f"{favicon_links()}\n</head>", html, count=1, flags=re.IGNORECASE)
+
+
+@app.after_request
+def add_favicon_to_html(response: Response) -> Response:
+    """Ensure every HTML page served by Flask advertises the SLIS favicon."""
+    if response.mimetype != "text/html":
+        return response
+
+    response.direct_passthrough = False
+    html = response.get_data(as_text=True)
+    updated_html = inject_favicon_links(html)
+    if updated_html != html:
+        response.set_data(updated_html)
+        response.headers["Content-Length"] = str(len(response.get_data()))
+    return response
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return redirect(url_for("static", filename=FAVICON_STATIC_PATH))
+
+
 UPLOAD_DIR = os.path.join(app.root_path, "static", "images", "questions")
 UPLOAD_URL_PREFIX = "/static/images/questions/"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
