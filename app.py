@@ -14032,7 +14032,8 @@ def student_lesson_page(lesson_id: int):
       .slide-video,
       .slide-media,
       .lesson-nav,
-      .lesson-fullscreen-controls {{
+      .lesson-fullscreen-controls,
+      .lesson-fullscreen-exit {{
         transition: width 300ms ease, height 300ms ease, max-width 300ms ease, max-height 300ms ease, margin 300ms ease, padding 300ms ease, border-radius 300ms ease, opacity 300ms ease, transform 300ms ease;
       }}
       .lesson-header-row {{
@@ -14060,38 +14061,65 @@ def student_lesson_page(lesson_id: int):
       }}
       .lesson-fullscreen-btn:hover {{ transform:translateY(-1px); box-shadow:0 16px 34px rgba(37,99,235,.32); }}
       .lesson-fullscreen-btn:focus-visible,
-      .lesson-fullscreen-controls button:focus-visible {{ outline:3px solid rgba(96,165,250,.8); outline-offset:3px; }}
+      .lesson-fullscreen-controls button:focus-visible,
+      .lesson-fullscreen-exit:focus-visible {{ outline:3px solid rgba(96,165,250,.8); outline-offset:3px; }}
       .lesson-fullscreen-controls {{
         position:fixed;
-        left:50%;
-        bottom:calc(18px + env(safe-area-inset-bottom, 0px));
-        transform:translate(-50%, 20px);
-        z-index:10050;
-        display:flex;
+        left:8px;
+        right:8px;
+        bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+        transform:translateY(20px);
+        z-index:1000;
+        display:grid;
+        grid-template-columns:1fr 1fr 1fr;
         align-items:center;
-        justify-content:center;
         gap:10px;
-        padding:10px;
+        padding:0;
         border-radius:999px;
-        background:rgba(15,23,42,.78);
-        border:1px solid rgba(255,255,255,.18);
-        box-shadow:0 18px 50px rgba(2,6,23,.34);
-        backdrop-filter:blur(18px);
-        -webkit-backdrop-filter:blur(18px);
+        background:transparent;
+        border:0;
+        box-shadow:none;
         opacity:0;
         pointer-events:none;
       }}
-      .lesson-fullscreen-controls button {{
+      .lesson-fullscreen-controls button,
+      .lesson-fullscreen-controls .fullscreen-slide-count {{
+        width:100%;
+        height:48px;
+        min-height:48px;
         border:0;
         border-radius:999px;
-        padding:10px 14px;
-        min-height:42px;
+        padding:0 12px;
         background:rgba(255,255,255,.94);
         color:#0f172a;
+        font-size:15px;
         font-weight:900;
-        cursor:pointer;
+        line-height:1;
+        white-space:nowrap;
+        box-sizing:border-box;
       }}
-      .lesson-fullscreen-controls .exit {{ background:#f97316; color:#fff; }}
+      .lesson-fullscreen-controls button {{ cursor:pointer; }}
+      .lesson-fullscreen-controls .fullscreen-slide-count {{ display:flex; align-items:center; justify-content:center; text-align:center; }}
+      .lesson-fullscreen-exit {{
+        position:fixed;
+        top:calc(env(safe-area-inset-top, 0px) + 12px);
+        right:12px;
+        z-index:1001;
+        border:0;
+        border-radius:999px;
+        min-height:44px;
+        padding:10px 14px;
+        background:#f97316;
+        color:#fff;
+        font-weight:900;
+        font-size:14px;
+        line-height:1;
+        white-space:nowrap;
+        cursor:pointer;
+        box-shadow:0 14px 32px rgba(249,115,22,.32);
+        opacity:0;
+        pointer-events:none;
+      }}
       .lesson-fullscreen-controls button:disabled {{ opacity:.45; cursor:not-allowed; }}
       body.lesson-fullscreen-active {{ overflow:hidden; scrollbar-width:none; }}
       body.lesson-fullscreen-active::-webkit-scrollbar,
@@ -14131,7 +14159,11 @@ def student_lesson_page(lesson_id: int):
       body.lesson-fullscreen-active .lesson-fullscreen-controls,
       .lesson-player-card.lesson-fullscreen-active .lesson-fullscreen-controls,
       .lesson-player-card:fullscreen .lesson-fullscreen-controls,
-      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-controls {{ opacity:1; pointer-events:auto; transform:translate(-50%, 0); }}
+      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-controls {{ opacity:1; pointer-events:auto; transform:translateY(0); }}
+      body.lesson-fullscreen-active .lesson-fullscreen-exit,
+      .lesson-player-card.lesson-fullscreen-active .lesson-fullscreen-exit,
+      .lesson-player-card:fullscreen .lesson-fullscreen-exit,
+      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-exit {{ opacity:1; pointer-events:auto; }}
       body.lesson-fullscreen-active .lesson-meta,
       .lesson-player-card.lesson-fullscreen-active .lesson-meta,
       .lesson-player-card:fullscreen .lesson-meta,
@@ -14229,11 +14261,7 @@ def student_lesson_page(lesson_id: int):
       body.lesson-fullscreen-active .lesson-fullscreen-controls .fullscreen-slide-count,
       .lesson-player-card.lesson-fullscreen-active .lesson-fullscreen-controls .fullscreen-slide-count,
       .lesson-player-card:fullscreen .lesson-fullscreen-controls .fullscreen-slide-count,
-      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-controls .fullscreen-slide-count {{ color:#e5f0ff; font-weight:900; font-size:13px; padding:0 6px; white-space:nowrap; }}
-      body.lesson-fullscreen-active .lesson-fullscreen-controls .exit,
-      .lesson-player-card.lesson-fullscreen-active .lesson-fullscreen-controls .exit,
-      .lesson-player-card:fullscreen .lesson-fullscreen-controls .exit,
-      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-controls .exit {{ position:fixed; top:calc(10px + env(safe-area-inset-top, 0px)); right:calc(10px + env(safe-area-inset-right, 0px)); z-index:10060; flex:0 0 auto; width:auto; box-shadow:0 14px 32px rgba(249,115,22,.32); }}
+      .lesson-player-card:-webkit-full-screen .lesson-fullscreen-controls .fullscreen-slide-count {{ color:#0f172a; font-weight:900; font-size:14px; padding:0 8px; white-space:nowrap; }}
       body.lesson-fullscreen-active #slideMediaWrap,
       .lesson-player-card.lesson-fullscreen-active #slideMediaWrap,
       .lesson-player-card:fullscreen #slideMediaWrap,
@@ -14305,12 +14333,33 @@ def student_lesson_page(lesson_id: int):
       @media (max-width: 768px) {{
         .lesson-header-row {{ align-items:stretch; }}
         .lesson-fullscreen-btn {{ width:100%; justify-content:center; }}
-        .lesson-fullscreen-controls {{ width:calc(100vw - 18px); gap:6px; padding:8px; border-radius:22px; }}
-        .lesson-fullscreen-controls button {{ flex:1; padding:10px 8px; font-size:12px; }}
+        .lesson-fullscreen-controls {{
+          position:fixed;
+          bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+          left:8px;
+          right:8px;
+          display:grid;
+          grid-template-columns:1fr 1fr 1fr;
+          gap:10px;
+          align-items:center;
+          z-index:1000;
+        }}
+        .lesson-fullscreen-controls button,
+        .lesson-fullscreen-controls .fullscreen-slide-count {{ width:100%; height:48px; border-radius:999px; font-size:14px; white-space:nowrap; }}
+        .lesson-fullscreen-exit {{ top:calc(env(safe-area-inset-top, 0px) + 12px); right:12px; font-size:14px; }}
         body.lesson-fullscreen-active .lesson-player-card,
         .lesson-player-card.lesson-fullscreen-active,
         .lesson-player-card:fullscreen,
-        .lesson-player-card:-webkit-full-screen {{ padding:10px 10px calc(78px + env(safe-area-inset-bottom, 0px)) !important; }}
+        .lesson-player-card:-webkit-full-screen {{
+          min-height:100dvh !important;
+          height:100dvh !important;
+          padding-top:calc(env(safe-area-inset-top, 0px) + 56px) !important;
+          padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 76px) !important;
+          padding-left:8px !important;
+          padding-right:8px !important;
+          overflow-y:auto !important;
+          overflow-x:hidden !important;
+        }}
         body.lesson-fullscreen-active .lesson-meta p,
         .lesson-player-card.lesson-fullscreen-active .lesson-meta p,
         .lesson-player-card:fullscreen .lesson-meta p,
@@ -14318,14 +14367,38 @@ def student_lesson_page(lesson_id: int):
         body.lesson-fullscreen-active .slide-stage,
         .lesson-player-card.lesson-fullscreen-active .slide-stage,
         .lesson-player-card:fullscreen .slide-stage,
-        .lesson-player-card:-webkit-full-screen .slide-stage {{ margin-top:0; padding:8px; border-radius:18px; }}
+        .lesson-player-card:-webkit-full-screen .slide-stage {{ margin-top:0; padding:8px; border-radius:18px; overflow:visible; background:#f8fafc; box-sizing:border-box; }}
+        body.lesson-fullscreen-active #slideMediaWrap,
+        .lesson-player-card.lesson-fullscreen-active #slideMediaWrap,
+        .lesson-player-card:fullscreen #slideMediaWrap,
+        .lesson-player-card:-webkit-full-screen #slideMediaWrap {{ justify-content:flex-start; overflow:visible; height:auto; min-height:0; }}
+        body.lesson-fullscreen-active .slide-content,
+        .lesson-player-card.lesson-fullscreen-active .slide-content,
+        .lesson-player-card:fullscreen .slide-content,
+        .lesson-player-card:-webkit-full-screen .slide-content {{ color:#1F2937 !important; font-weight:600; opacity:1; position:static; transform:none; margin-top:0; }}
+        body.lesson-fullscreen-active .activity-wrap,
+        body.lesson-fullscreen-active [data-activity-type],
+        body.lesson-fullscreen-active .select-color-activity,
+        body.lesson-fullscreen-active .drawing-activity,
+        .lesson-player-card.lesson-fullscreen-active .activity-wrap,
+        .lesson-player-card.lesson-fullscreen-active [data-activity-type],
+        .lesson-player-card.lesson-fullscreen-active .select-color-activity,
+        .lesson-player-card.lesson-fullscreen-active .drawing-activity,
+        .lesson-player-card:fullscreen .activity-wrap,
+        .lesson-player-card:fullscreen [data-activity-type],
+        .lesson-player-card:fullscreen .select-color-activity,
+        .lesson-player-card:fullscreen .drawing-activity,
+        .lesson-player-card:-webkit-full-screen .activity-wrap,
+        .lesson-player-card:-webkit-full-screen [data-activity-type],
+        .lesson-player-card:-webkit-full-screen .select-color-activity,
+        .lesson-player-card:-webkit-full-screen .drawing-activity {{ width:100%; max-width:none; margin-left:0; margin-right:0; padding-left:8px; padding-right:8px; box-sizing:border-box; justify-content:flex-start; }}
         body.lesson-fullscreen-active .slide-video,
         .lesson-player-card.lesson-fullscreen-active .slide-video,
         .lesson-player-card:fullscreen .slide-video,
         .lesson-player-card:-webkit-full-screen .slide-video {{ height:56vh; min-height:220px; }}
       }}
     </style>
-    <section class='lesson-player-card' id='lessonPlayerCard'><div class='lesson-meta'><div class='lesson-header-row'><div class='lesson-header-copy'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p></div><button type='button' class='lesson-fullscreen-btn' id='lessonFullscreenBtn' aria-pressed='false'>⛶ {'Full Screen' if not is_si else 'සම්පූර්ණ තිරය'}</button></div><div class='lesson-journey-card' aria-label='Lesson Journey'><div class='lesson-journey-head'><div><p class='lesson-journey-kicker'>SLIS Journey</p><h2 class='lesson-journey-title'>{'Lesson Journey' if not is_si else 'පාඩම් ගමන'}</h2></div></div><div class='lesson-journey-track'>{lesson_journey_html}</div><p class='lesson-journey-summary'>{escape(lessons_completed_summary)}</p><p class='chapter-progress-caption'>{'Chapter progress' if not is_si else 'පරිච්ඡේද ප්‍රගතිය'}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='lesson-fullscreen-controls' id='lessonFullscreenControls' aria-label='Full screen lesson controls'><button type='button' id='fullscreenPrevBtn'>‹ {'Previous' if not is_si else 'පෙර'}</button><span class='fullscreen-slide-count' id='fullscreenSlideCount'></span><button type='button' id='fullscreenNextBtn'>{'Next' if not is_si else 'ඊළඟ'} ›</button><button type='button' class='exit' id='fullscreenExitBtn'>✕ {'Exit Full Screen' if not is_si else 'ඉවත් වන්න'}</button></div><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
+    <section class='lesson-player-card' id='lessonPlayerCard'><div class='lesson-meta'><div class='lesson-header-row'><div class='lesson-header-copy'><h1>{escape(lesson_title)}</h1><p><strong>{'Chapter' if not is_si else 'පරිච්ඡේදය'}:</strong> {escape(chapter_name)}</p><p>{escape(context_label)}</p><p><strong>{'Mastery' if not is_si else 'දක්ෂතා මට්ටම'}:</strong> <span id='masteryBadge' class='slide-pill'>{escape(mastery_si if is_si else mastery_en)}</span></p></div><button type='button' class='lesson-fullscreen-btn' id='lessonFullscreenBtn' aria-pressed='false'>⛶ {'Full Screen' if not is_si else 'සම්පූර්ණ තිරය'}</button></div><div class='lesson-journey-card' aria-label='Lesson Journey'><div class='lesson-journey-head'><div><p class='lesson-journey-kicker'>SLIS Journey</p><h2 class='lesson-journey-title'>{'Lesson Journey' if not is_si else 'පාඩම් ගමන'}</h2></div></div><div class='lesson-journey-track'>{lesson_journey_html}</div><p class='lesson-journey-summary'>{escape(lessons_completed_summary)}</p><p class='chapter-progress-caption'>{'Chapter progress' if not is_si else 'පරිච්ඡේද ප්‍රගතිය'}</p><p id='completionText'>Completion: {int(progress.completion_percent)}%</p><div class='lesson-progress-line'><span id='completionBar' style='width:{int(progress.completion_percent)}%'></span></div></div></div><div class='slide-stage'><div class='slide-pill' id='slideTypePill'></div><h2 id='slideTitle'></h2><div class='slide-content' id='slideContent'></div><div id='slideMediaWrap'></div></div><div class='lesson-dots' id='progressDots'></div><div id='nextLessonPanel' style='display:none;margin-top:14px;'></div><div class='lesson-nav'><button type='button' class='lesson-btn prev' id='prevSlideBtn'>Previous</button><button type='button' class='lesson-btn next' id='finishLessonBtn'>Next</button></div><div class='lesson-fullscreen-controls' id='lessonFullscreenControls' aria-label='Full screen lesson controls'><button type='button' id='fullscreenPrevBtn'>‹ {'Previous' if not is_si else 'පෙර'}</button><span class='fullscreen-slide-count' id='fullscreenSlideCount'></span><button type='button' id='fullscreenNextBtn'>{'Next' if not is_si else 'ඊළඟ'} ›</button></div><button type='button' class='lesson-fullscreen-exit' id='fullscreenExitBtn'>✕ {'Exit Full Screen' if not is_si else 'ඉවත් වන්න'}</button><div class='xp-panel' id='xpPanel'><h3 style='margin:0 0 6px;'>🎉 Lesson Completed!</h3><p style='margin:0;'>You earned <strong>{lesson.xp_reward} XP</strong>.</p></div></section><aside class='ai-helper-card' id='aiHelperCard'><button type='button' class='ai-helper-close' id='aiHelperClose'>×</button><strong>🤖 AI Study Assistant</strong><div class='ai-helper-actions'><button class='ai-helper-btn' data-ai-action='hint'>Hint</button><button class='ai-helper-btn' data-ai-action='explain'>Explain</button><button class='ai-helper-btn' data-ai-action='example'>Show Example</button><button class='ai-helper-btn' data-ai-action='video'>Watch Teacher Clip</button></div><div class='ai-helper-panel' id='aiHelperPanel'></div></aside>
     <script>
       const lessonId = {lesson.id}; const slides = {json.dumps(slide_payload)}; const isSinhala = {str(is_si).lower()}; let currentIndex = Math.max(0, slides.findIndex((s)=>s.slide_order === {int(progress.current_slide_order)})); const solvedQuizSlides = new Set(); let slideStartedAt = Date.now();
       const fullscreenPreferenceKey = "slisLessonFullscreenPreferred";
