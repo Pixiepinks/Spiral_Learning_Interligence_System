@@ -4849,7 +4849,7 @@ def build_public_home_lesson_section() -> str:
         columns.append(f"""
           <section class="home-lessons-column" aria-label="{escape(section_title)} lessons">
             <h2>{escape(section_title)}</h2>
-            <div class="home-lessons-list">{cards}</div>
+            <div class="home-lessons-list lesson-grid lesson-carousel">{cards}</div>
           </section>
         """)
 
@@ -4984,9 +4984,20 @@ def render_public_home_page() -> str:
       }
 
       @media (max-width: 540px) {
-        .new-popular-lessons .home-lessons-list {
+        .new-popular-lessons,
+        .new-popular-lessons-inner,
+        .new-popular-lessons .home-lessons-grid,
+        .new-popular-lessons .home-lessons-column {
+          overflow-x: visible !important;
+          overflow-y: visible !important;
+        }
+
+        .new-popular-lessons .home-lessons-list,
+        .new-popular-lessons .lesson-grid,
+        .new-popular-lessons .lesson-carousel {
           display: flex !important;
           grid-template-columns: none !important;
+          flex-wrap: nowrap !important;
           justify-content: flex-start !important;
           align-items: stretch !important;
           gap: 18px !important;
@@ -4995,11 +5006,17 @@ def render_public_home_page() -> str:
           scroll-snap-type: x mandatory !important;
           scroll-behavior: smooth !important;
           -webkit-overflow-scrolling: touch !important;
+          touch-action: pan-x !important;
+          overscroll-behavior-x: contain !important;
+          width: 100% !important;
+          max-width: 100% !important;
           padding: 0 14px 8px !important;
           scrollbar-width: none !important;
         }
 
-        .new-popular-lessons .home-lessons-list::-webkit-scrollbar {
+        .new-popular-lessons .home-lessons-list::-webkit-scrollbar,
+        .new-popular-lessons .lesson-grid::-webkit-scrollbar,
+        .new-popular-lessons .lesson-carousel::-webkit-scrollbar {
           display: none !important;
         }
 
@@ -5007,6 +5024,7 @@ def render_public_home_page() -> str:
           flex: 0 0 86vw !important;
           width: 86vw !important;
           max-width: 86vw !important;
+          min-width: 86vw !important;
           scroll-snap-align: start !important;
           scroll-snap-stop: always !important;
         }
