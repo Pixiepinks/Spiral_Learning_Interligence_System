@@ -4984,12 +4984,23 @@ def render_public_home_page() -> str:
       }
 
       @media (max-width: 540px) {
+        html,
+        body {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+        }
+
+        .popular-section,
+        .lesson-section,
+        .category-card,
         .new-popular-lessons,
         .new-popular-lessons-inner,
         .new-popular-lessons .home-lessons-grid,
         .new-popular-lessons .home-lessons-column {
-          overflow-x: visible !important;
-          overflow-y: visible !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow: hidden !important;
         }
 
         .new-popular-lessons .home-lessons-list,
@@ -5000,7 +5011,7 @@ def render_public_home_page() -> str:
           flex-wrap: nowrap !important;
           justify-content: flex-start !important;
           align-items: stretch !important;
-          gap: 18px !important;
+          gap: 16px !important;
           overflow-x: auto !important;
           overflow-y: hidden !important;
           scroll-snap-type: x mandatory !important;
@@ -5010,7 +5021,7 @@ def render_public_home_page() -> str:
           overscroll-behavior-x: contain !important;
           width: 100% !important;
           max-width: 100% !important;
-          padding: 0 14px 8px !important;
+          padding: 0 4px 10px 4px !important;
           scrollbar-width: none !important;
         }
 
@@ -5020,11 +5031,12 @@ def render_public_home_page() -> str:
           display: none !important;
         }
 
-        .new-popular-lessons .home-lesson-card {
-          flex: 0 0 86vw !important;
-          width: 86vw !important;
-          max-width: 86vw !important;
-          min-width: 86vw !important;
+        .new-popular-lessons .home-lesson-card,
+        .new-popular-lessons .lesson-card {
+          flex: 0 0 86% !important;
+          width: 86% !important;
+          max-width: 86% !important;
+          min-width: 86% !important;
           scroll-snap-align: start !important;
           scroll-snap-stop: always !important;
         }
