@@ -11,8 +11,11 @@
 
 html,
 body {
+  width: 100%;
+  max-width: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
 }
 
 body {
@@ -1306,17 +1309,22 @@ body {
 }
 
 @media (max-width: 540px) {
+  .popular-section,
+  .lesson-section,
+  .category-card,
   .new-popular-lessons {
+    width: 100%;
+    max-width: 100%;
     padding: 28px 14px 40px;
-    overflow-x: visible;
-    overflow-y: visible;
+    overflow: hidden;
   }
 
   .new-popular-lessons-inner,
   .home-lessons-grid,
   .home-lessons-column {
-    overflow-x: visible;
-    overflow-y: visible;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .home-lessons-list,
@@ -1327,7 +1335,7 @@ body {
     flex-wrap: nowrap;
     justify-content: flex-start;
     align-items: stretch;
-    gap: 18px;
+    gap: 16px;
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
@@ -1337,7 +1345,7 @@ body {
     overscroll-behavior-x: contain;
     width: 100%;
     max-width: 100%;
-    padding: 0 14px 8px;
+    padding: 0 4px 10px 4px;
     scrollbar-width: none;
   }
 
@@ -1350,10 +1358,10 @@ body {
   .home-lesson-card,
   .lesson-card {
     border-radius: 18px;
-    flex: 0 0 86vw;
-    width: 86vw;
-    max-width: 86vw;
-    min-width: 86vw;
+    flex: 0 0 86%;
+    width: 86%;
+    max-width: 86%;
+    min-width: 86%;
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
