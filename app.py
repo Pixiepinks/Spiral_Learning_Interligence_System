@@ -15767,23 +15767,71 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
         root.querySelectorAll('.ca-brush-btn').forEach((button) => button.addEventListener('click', () => {{ root.querySelectorAll('.ca-brush-btn').forEach((btn) => btn.classList.remove('active')); button.classList.add('active'); brushSize = Number(button.dataset.size || brushSize); clearMessage(); }}));
         root.querySelector('.ca-undo')?.addEventListener('click', () => {{ strokes.pop(); redrawAllStrokes(); clearMessage(); }});
         root.querySelector('.ca-clear')?.addEventListener('click', () => {{ strokes = []; redrawAllStrokes(); clearMessage(); }});
-        finishButton?.addEventListener('click', async () => {{
-          console.log("Finish clicked");
-          layoutColoringBoard();
-          const exportCanvas = document.createElement('canvas');
-          exportCanvas.width = img.naturalWidth || canvas.width;
-          exportCanvas.height = img.naturalHeight || canvas.height;
-          const exportCtx = exportCanvas.getContext('2d');
-          exportCtx.drawImage(img, 0, 0, exportCanvas.width, exportCanvas.height);
-          exportCtx.drawImage(canvas, 0, 0, exportCanvas.width, exportCanvas.height);
-          const imageDataUrl = exportCanvas.toDataURL('image/png');
-          const drawingData = {{ type: 'coloring_activity_work', image_data_url: imageDataUrl, strokes, completed_at: new Date().toISOString() }};
-          if (message) {{ message.textContent = root.dataset.successMessage || (isSinhala ? 'හොඳයි! ඔබ කළ පාට කිරීම සුරක්ෂිත කර ඇත.' : 'Great work! Your coloring has been saved.'); message.className = 'ca-message success'; }}
-          setCurrentSlideCompleted('coloring-activity-finish');
-          console.log("Activity completed");
-          console.log("Next enabled");
-          await recordLessonAnswer(current.id, JSON.stringify(drawingData), true);
-        }});
+        function finishColoringSlide(event) {{
+          if (event) {{
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+
+          const current = slides[currentIndex];
+          if (!current) return;
+
+          const drawingData = {{
+            type: "coloring_activity",
+            completed: true,
+            stroke_count: strokes.length,
+            completed_at: new Date().toISOString()
+          }};
+
+          // 1. Mark slide complete immediately.
+          solvedQuizSlides.add(current.id);
+          setCurrentSlideCompleted("coloring-activity-finish");
+          updateLessonNavigationState("coloring-activity-finish");
+
+          // 2. Force-enable main and fullscreen next buttons.
+          const mainNext = document.getElementById("finishLessonBtn");
+          if (mainNext) {{
+            mainNext.disabled = false;
+            mainNext.removeAttribute("disabled");
+            mainNext.setAttribute("aria-disabled", "false");
+            mainNext.classList.remove("disabled");
+          }}
+
+          if (fullscreenNextBtn) {{
+            fullscreenNextBtn.disabled = false;
+            fullscreenNextBtn.removeAttribute("disabled");
+            fullscreenNextBtn.setAttribute("aria-disabled", "false");
+            fullscreenNextBtn.classList.remove("disabled");
+          }}
+
+          syncFullscreenControls("coloring-activity-finish");
+
+          if (message) {{
+            message.textContent = root.dataset.successMessage || "හොඳයි! ඔබ කළ පාට කිරීම සුරක්ෂිත කර ඇත.";
+            message.className = "ca-message success";
+          }}
+
+          // 3. Save in background only. Save failure must not block the lesson.
+          Promise.resolve()
+            .then(() => recordLessonAnswer(current.id, JSON.stringify(drawingData), true))
+            .catch((err) => console.error("[Coloring] recordLessonAnswer failed:", err));
+
+          console.log("[Coloring] finish completed", {{
+            slideId: current.id,
+            solved: solvedQuizSlides.has(current.id),
+            mainNextDisabled: mainNext ? mainNext.disabled : null
+          }});
+        }}
+
+        if (finishButton) {{
+          finishButton.disabled = false;
+          finishButton.removeAttribute("disabled");
+          finishButton.style.pointerEvents = "auto";
+          finishButton.onclick = finishColoringSlide;
+          finishButton.addEventListener("click", finishColoringSlide);
+          finishButton.addEventListener("touchstart", finishColoringSlide, {{ passive:false }});
+          finishButton.addEventListener("pointerup", finishColoringSlide);
+        }}
         canvas.addEventListener('pointerdown', startDrawing, {{ passive:false }});
         canvas.addEventListener('pointermove', moveDrawing, {{ passive:false }});
         canvas.addEventListener('pointerup', stopDrawing, {{ passive:false }});
