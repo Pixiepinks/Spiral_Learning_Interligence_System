@@ -14365,9 +14365,18 @@ def student_lesson_page(lesson_id: int):
                     ],
                 }
 
+        is_grade1_chapter3_lesson1_slide1_coloring = (
+            normalize_grade(term.grade if term else None) == "1"
+            and int(chapter.chapter_order or 0) == 3
+            and int(lesson.lesson_order or 0) == 1
+            and int(s.slide_order or 0) == 1
+            and slide_content_type in {"select_and_color", "coloring_activity"}
+        )
+
         slide_payload.append({
             "id": s.id,
             "slide_order": s.slide_order,
+            "is_grade1_chapter3_lesson1_slide1_coloring": is_grade1_chapter3_lesson1_slide1_coloring,
             "slide_type": s.slide_type,
             "content_type": slide_content_type,
             "title": (s.title_si if is_si else s.title_en) or "",
@@ -14837,6 +14846,51 @@ def student_lesson_page(lesson_id: int):
       .lesson-player-card:fullscreen .select-color-activity .sca-finish-btn,
       .lesson-player-card:-webkit-full-screen .select-color-activity .sca-tool-btn,
       .lesson-player-card:-webkit-full-screen .select-color-activity .sca-finish-btn {{ margin-left:0 !important; padding:9px 12px !important; border-radius:14px !important; }}
+      body.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix,
+      .lesson-player-card.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix,
+      .lesson-player-card:fullscreen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix,
+      .lesson-player-card:-webkit-full-screen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix {{
+        width:100vw !important;
+        max-width:100vw !important;
+        height:100vh !important;
+        max-height:100vh !important;
+        overflow:hidden !important;
+        display:flex !important;
+        flex-direction:column !important;
+        justify-content:center !important;
+        align-items:center !important;
+        padding:8px 8px calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+        box-sizing:border-box !important;
+      }}
+      body.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage,
+      .lesson-player-card.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage,
+      .lesson-player-card:fullscreen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage,
+      .lesson-player-card:-webkit-full-screen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage {{
+        flex:1 1 auto !important;
+        width:100% !important;
+        max-width:100% !important;
+        height:auto !important;
+        min-height:0 !important;
+        max-height:100% !important;
+        margin:0 auto !important;
+        display:flex !important;
+        justify-content:center !important;
+        align-items:center !important;
+        overflow:hidden !important;
+      }}
+      body.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage img.sca-base-image,
+      .lesson-player-card.lesson-fullscreen-active .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage img.sca-base-image,
+      .lesson-player-card:fullscreen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage img.sca-base-image,
+      .lesson-player-card:-webkit-full-screen .select-color-activity.grade1-ch3-lesson1-slide1-coloring-fix .sca-stage img.sca-base-image {{
+        display:block !important;
+        width:auto !important;
+        height:auto !important;
+        max-width:100% !important;
+        max-height:100% !important;
+        object-fit:contain !important;
+        object-position:center center !important;
+        flex:0 0 auto !important;
+      }}
       @media (max-width: 768px) {{
         body.lesson-fullscreen-active .select-color-activity,
         .lesson-player-card.lesson-fullscreen-active .select-color-activity,
@@ -15296,6 +15350,9 @@ body.lesson-fullscreen-active .ca-instruction,.lesson-player-card.lesson-fullscr
 body.lesson-fullscreen-active .ca-stage,.lesson-player-card.lesson-fullscreen-active .ca-stage,.lesson-player-card:fullscreen .ca-stage,.lesson-player-card:-webkit-full-screen .ca-stage{{flex:1 1 auto!important;height:calc(100dvh - 154px)!important;min-height:65vh!important;margin:0!important;border-radius:12px!important;border-width:1px!important}}
 body.lesson-fullscreen-active .ca-image-wrap,.lesson-player-card.lesson-fullscreen-active .ca-image-wrap,.lesson-player-card:fullscreen .ca-image-wrap,.lesson-player-card:-webkit-full-screen .ca-image-wrap{{max-width:100%!important;max-height:100%!important}}
 body.lesson-fullscreen-active .ca-stage img.ca-image,.lesson-player-card.lesson-fullscreen-active .ca-stage img.ca-image,.lesson-player-card:fullscreen .ca-stage img.ca-image,.lesson-player-card:-webkit-full-screen .ca-stage img.ca-image{{width:auto!important;height:auto!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;object-position:center center!important}}
+body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix{{height:100vh!important;width:100vw!important;overflow:hidden!important;display:flex!important;justify-content:center!important;align-items:center!important}}
+body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage{{display:flex!important;justify-content:center!important;align-items:center!important;overflow:hidden!important}}
+body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image{{object-fit:contain!important;object-position:center center!important}}
 body.lesson-fullscreen-active .ca-toolbar,.lesson-player-card.lesson-fullscreen-active .ca-toolbar,.lesson-player-card:fullscreen .ca-toolbar,.lesson-player-card:-webkit-full-screen .ca-toolbar{{position:static!important;margin-top:0!important;gap:4px!important;padding:5px!important;max-height:90px!important;overflow:visible!important}}
 body.lesson-fullscreen-active .ca-palette,.lesson-player-card.lesson-fullscreen-active .ca-palette,.lesson-player-card:fullscreen .ca-palette,.lesson-player-card:-webkit-full-screen .ca-palette{{gap:5px!important;padding:1px!important}}
 body.lesson-fullscreen-active .ca-tools,.lesson-player-card.lesson-fullscreen-active .ca-tools,.lesson-player-card:fullscreen .ca-tools,.lesson-player-card:-webkit-full-screen .ca-tools{{display:grid!important;grid-template-columns:auto 1fr auto!important;gap:5px!important}}
@@ -15651,6 +15708,8 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
         const root = mediaWrap.querySelector('.coloring-activity[data-activity-type="coloring_activity"]');
         if (!root) return;
         const current = slides[currentIndex];
+        const isGrade1Chapter3Lesson1Slide1Coloring = Boolean(current.is_grade1_chapter3_lesson1_slide1_coloring);
+        if (isGrade1Chapter3Lesson1Slide1Coloring) root.classList.add('grade1-ch3-lesson1-slide1-coloring-fix');
         const img = root.querySelector('.ca-image');
         const canvas = root.querySelector('.ca-canvas');
         const message = root.querySelector('.ca-message');
@@ -15666,7 +15725,7 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
         let strokes = [];
         const stage = root.querySelector('.ca-stage');
         const imageWrap = root.querySelector('.ca-image-wrap') || stage;
-        const ratio = () => window.devicePixelRatio || 1;
+        const ratio = () => isGrade1Chapter3Lesson1Slide1Coloring ? 1 : (window.devicePixelRatio || 1);
         let canvasRect = null;
         let canvasScaleX = ratio();
         let canvasScaleY = ratio();
@@ -15728,6 +15787,15 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           ctx.lineJoin = 'round';
           refreshCanvasRect();
           scaleExistingStrokes(oldWidth, oldHeight, newWidth, newHeight);
+          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
+            console.log({{
+              imageWidth: img.naturalWidth || Math.round(width),
+              imageHeight: img.naturalHeight || Math.round(height),
+              canvasWidth: canvas.width,
+              canvasHeight: canvas.height,
+              fullscreen: Boolean(document.fullscreenElement || document.webkitFullscreenElement || fullscreenRoot?.classList.contains('lesson-fullscreen-active') || document.body.classList.contains('lesson-fullscreen-active'))
+            }});
+          }}
           redraw();
         }}
         function scheduleCanvasSize() {{ window.requestAnimationFrame(() => {{ setCanvasSize(); window.setTimeout(setCanvasSize, 80); }}); }}
@@ -15836,6 +15904,8 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
         const current = slides[currentIndex];
         const activity = current.activity || {{}};
         if (!root) return;
+        const isGrade1Chapter3Lesson1Slide1Coloring = Boolean(current.is_grade1_chapter3_lesson1_slide1_coloring);
+        if (isGrade1Chapter3Lesson1Slide1Coloring) root.classList.add('grade1-ch3-lesson1-slide1-coloring-fix');
         const stage = root.querySelector('.sca-stage');
         const img = root.querySelector('.sca-base-image');
         const canvas = root.querySelector('.sca-draw-canvas');
@@ -15937,7 +16007,7 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           if (!stage || !img || !canvas || !svg || !ctx) return;
           const nw = naturalWidth(); const nh = naturalHeight();
           const rect = imageRelativeRect();
-          const ratio = window.devicePixelRatio || 1;
+          const ratio = isGrade1Chapter3Lesson1Slide1Coloring ? 1 : (window.devicePixelRatio || 1);
           const snapshot = canvas.width && canvas.height ? (() => {{ const temp = document.createElement('canvas'); temp.width = canvas.width; temp.height = canvas.height; temp.getContext('2d').drawImage(canvas, 0, 0); return temp; }})() : null;
           canvas.style.left = `${{rect.left}}px`; canvas.style.top = `${{rect.top}}px`;
           canvas.style.width = `${{rect.width}}px`; canvas.style.height = `${{rect.height}}px`;
@@ -15949,6 +16019,15 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           ctx.lineCap = 'round'; ctx.lineJoin = 'round';
           if (snapshot) ctx.drawImage(snapshot, 0, 0, rect.width, rect.height);
           renderObjectZones();
+          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
+            console.log({{
+              imageWidth: nw,
+              imageHeight: nh,
+              canvasWidth: canvas.width,
+              canvasHeight: canvas.height,
+              fullscreen: selectAndColorFullscreenState()
+            }});
+          }}
           console.log('[SelectAndColor resize]', {{
             naturalImageWidth: nw,
             naturalImageHeight: nh,
@@ -15975,7 +16054,19 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           showMessage(localized('correct_selection_message', isSinhala ? 'හරි! දැන් පාට කරන්න.' : 'Correct! Now color it.'), 'info');
           updateFinishState();
         }}
-        function pointerToCanvas(event) {{ const rect = canvas.getBoundingClientRect(); return {{ x: event.clientX - rect.left, y: event.clientY - rect.top }}; }}
+        function pointerToCanvas(event) {{
+          const rect = canvas.getBoundingClientRect();
+          const touch = event.touches?.[0] || event.changedTouches?.[0];
+          const clientX = touch ? touch.clientX : event.clientX;
+          const clientY = touch ? touch.clientY : event.clientY;
+          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
+            return {{
+              x: (clientX - rect.left) * (canvas.width / Math.max(1, rect.width)),
+              y: (clientY - rect.top) * (canvas.height / Math.max(1, rect.height))
+            }};
+          }}
+          return {{ x: clientX - rect.left, y: clientY - rect.top }};
+        }}
         function beginStroke(event) {{
           if (!selectedObjectId) return;
           event.preventDefault();
@@ -16015,6 +16106,8 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
         if (img.complete) resizeSelectAndColorCanvas();
         window.addEventListener('resize', resizeSelectAndColorCanvas, {{ passive: true }});
         window.addEventListener('orientationchange', resizeSelectAndColorCanvas, {{ passive: true }});
+        document.addEventListener('fullscreenchange', resizeSelectAndColorCanvas);
+        document.addEventListener('webkitfullscreenchange', resizeSelectAndColorCanvas);
         updateFinishState();
       }}
       function wireFillBlankInteraction(mediaWrap) {{ const input = mediaWrap.querySelector("#fillBlankAnswerInput"); const checkBtn = mediaWrap.querySelector("#checkFillBlankBtn"); const tryAgainBtn = mediaWrap.querySelector("#tryAgainBtn"); const resultBox = mediaWrap.querySelector("#activityResult"); const explainEl = mediaWrap.querySelector("#activityExplanation"); const nextBtn = document.getElementById("finishLessonBtn"); const current = slides[currentIndex]; if (!input || !checkBtn) return; const acceptable = Array.isArray(current.activity?.acceptable_answers) ? current.activity.acceptable_answers : []; const primaryAnswers = [current.activity?.answer_en, current.activity?.answer_si].filter((item)=>typeof item === "string" && item.trim()); const allAnswers = [...acceptable, ...primaryAnswers].filter((item)=>typeof item === "string" && item.trim()); const normalized = new Set(allAnswers.map((item)=>isSinhala ? normalizeSinhalaAnswer(item) : normalizeEnglishAnswer(item))); const explanation = isSinhala ? (current.activity?.explanation_si || current.activity?.explanation_en || "") : (current.activity?.explanation_en || current.activity?.explanation_si || ""); const resetState = () => {{ input.classList.remove("correct", "wrong"); if (resultBox) resultBox.style.display = "none"; if (explainEl) explainEl.style.display = "none"; checkBtn.style.display = "inline-block"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}; checkBtn.addEventListener("click", async () => {{ const rawValue = String(input.value || ""); const trimmed = rawValue.trim(); const normalizedStudent = isSinhala ? normalizeSinhalaAnswer(trimmed) : normalizeEnglishAnswer(trimmed); const isCorrect = trimmed.length > 0 && normalized.has(normalizedStudent); input.classList.remove("correct", "wrong"); input.classList.add(isCorrect ? "correct" : "wrong"); if (resultBox) {{ resultBox.style.display = "inline-block"; resultBox.className = `activity-result ${{isCorrect ? "success" : "fail"}}`; resultBox.textContent = isCorrect ? (isSinhala ? "ශබාශ! නිවැරදියි 🎉" : "Great job! Correct 🎉") : (isSinhala ? "වැරදියි. නැවත උත්සාහ කරන්න." : "Not quite. Try again."); }} if (isCorrect) {{ solvedQuizSlides.add(current.id); enableFinishLessonButton(); checkBtn.style.display = "none"; if (tryAgainBtn) tryAgainBtn.style.display = "none"; if (nextBtn) nextBtn.disabled = false; if (explainEl && explanation) {{ explainEl.textContent = explanation; explainEl.style.display = "block"; }} }} else {{ solvedQuizSlides.delete(current.id); if (tryAgainBtn) tryAgainBtn.style.display = "inline-block"; if (nextBtn) nextBtn.disabled = true; }} await recordLessonAnswer(current.id, trimmed, isCorrect); maybeShowAiAssistant(!isCorrect); }}); if (tryAgainBtn) tryAgainBtn.addEventListener("click", resetState); if (nextBtn) nextBtn.disabled = !solvedQuizSlides.has(current.id); }}
