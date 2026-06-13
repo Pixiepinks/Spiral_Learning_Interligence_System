@@ -15274,7 +15274,7 @@ def student_lesson_page(lesson_id: int):
 .ca-title{{text-align:center;color:#1d4ed8;margin:0;line-height:1.15}}
 .ca-instruction{{text-align:center;font-weight:900;font-size:clamp(.95rem,2.6vw,1.18rem);color:#0f172a;margin:4px 0 0;line-height:1.22}}
 .ca-board{{position:relative;flex:0 0 auto;width:100%;height:clamp(420px,62vh,680px);min-height:360px;border-radius:18px;overflow:hidden;background:#fff;border:2px solid #dbeafe;touch-action:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overscroll-behavior:contain}}
-.ca-image{{position:absolute;display:block;object-fit:contain;object-position:center center;user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;pointer-events:none}}
+.ca-image{{position:absolute;display:block;z-index:1;object-fit:contain;object-position:center center;user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;pointer-events:none}}
 .ca-canvas{{position:absolute;touch-action:none;cursor:crosshair;z-index:2;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;overscroll-behavior:contain}}
 .ca-toolbar{{flex:0 0 auto;display:grid;gap:7px;padding:8px;border-radius:15px;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border:1px solid #dbeafe;box-shadow:0 8px 18px rgba(15,23,42,.10)}}
 .ca-palette,.ca-tools,.ca-action-row{{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}}
@@ -15688,14 +15688,16 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
           const renderH = naturalH * scale;
           const left = (boardRect.width - renderW) / 2;
           const top = (boardRect.height - renderH) / 2;
-          img.style.left = left + "px";
-          img.style.top = top + "px";
-          img.style.width = renderW + "px";
-          img.style.height = renderH + "px";
-          canvas.style.left = left + "px";
-          canvas.style.top = top + "px";
-          canvas.style.width = renderW + "px";
-          canvas.style.height = renderH + "px";
+          img.style.position = "absolute";
+          img.style.left = `${{left}}px`;
+          img.style.top = `${{top}}px`;
+          img.style.width = `${{renderW}}px`;
+          img.style.height = `${{renderH}}px`;
+          canvas.style.position = "absolute";
+          canvas.style.left = `${{left}}px`;
+          canvas.style.top = `${{top}}px`;
+          canvas.style.width = `${{renderW}}px`;
+          canvas.style.height = `${{renderH}}px`;
           const dpr = window.devicePixelRatio || 1;
           canvas.width = Math.round(renderW * dpr);
           canvas.height = Math.round(renderH * dpr);
@@ -15703,9 +15705,15 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
           redrawAllStrokes();
         }}
         function scheduleLayout() {{ window.requestAnimationFrame(() => {{ layoutColoringBoard(); window.setTimeout(layoutColoringBoard, 80); }}); }}
-        function pointFromEvent(event) {{
+        function getCanvasPoint(event) {{
           const rect = canvas.getBoundingClientRect();
-          return {{ x: event.clientX - rect.left, y: event.clientY - rect.top }};
+          return {{
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+          }};
+        }}
+        function pointInsideCanvas(point, rect) {{
+          return !(point.x < 0 || point.y < 0 || point.x > rect.width || point.y > rect.height);
         }}
         function drawSegment(from, to, color, size) {{
           ctx.strokeStyle = color;
@@ -15723,10 +15731,13 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
           event.preventDefault();
           document.body.classList.add('ca-drawing-active');
           layoutColoringBoard();
+          const rect = canvas.getBoundingClientRect();
+          const p = getCanvasPoint(event);
+          if (!pointInsideCanvas(p, rect)) return;
           canvas.setPointerCapture?.(event.pointerId);
           activePointerId = event.pointerId;
           drawing = true;
-          lastPoint = pointFromEvent(event);
+          lastPoint = p;
           currentStroke = {{ color: selectedColor, size: Math.max(1, brushSize), points: [lastPoint] }};
           strokes.push(currentStroke);
           redrawAllStrokes();
@@ -15734,7 +15745,9 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
         function moveDrawing(event) {{
           if (!drawing || !currentStroke || event.pointerId !== activePointerId) return;
           event.preventDefault();
-          const point = pointFromEvent(event);
+          const rect = canvas.getBoundingClientRect();
+          const point = getCanvasPoint(event);
+          if (!pointInsideCanvas(point, rect)) return;
           currentStroke.points.push(point);
           drawSegment(lastPoint, point, currentStroke.color, currentStroke.size);
           lastPoint = point;
