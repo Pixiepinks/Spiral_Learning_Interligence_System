@@ -4814,9 +4814,8 @@ def build_public_home_lesson_section() -> str:
         subject_parts = []
         if term and (term.subject or "").strip():
             subject_parts.append((term.subject or "").strip())
-        module_name = (module.module_name_si or "").strip() or (module.module_name_en or "").strip()
-        if module_name:
-            subject_parts.append(module_name)
+        if module.module_order:
+            subject_parts.append(f"Module {module.module_order}")
         context_label = " • ".join(subject_parts) or "SLIS Learning Module"
         grade_label = f"Grade {display_grade(term.grade if term else '6')}"
         lesson_id = lesson_by_chapter_id.get(chapter.id)
@@ -4831,8 +4830,8 @@ def build_public_home_lesson_section() -> str:
                 <span>{escape(grade_label)}</span><span>Lesson</span><span>Chapter</span>
               </div>
               <div class="home-lesson-title-wrap"><h3>{escape(title)}</h3></div>
-              <p>{escape(context_label)}</p>
-              <a class="home-lesson-start" href="{escape(start_href)}">Start Learning</a>
+              <p class="home-lesson-meta">{escape(context_label)}</p>
+              <div class="home-lesson-action"><a class="home-lesson-start" href="{escape(start_href)}">Start Learning</a></div>
             </div>
           </article>
         """
@@ -4907,11 +4906,20 @@ def render_public_home_page() -> str:
         display: flex !important;
         flex-direction: column !important;
         gap: 8px !important;
+        flex: 1 1 auto !important;
       }
 
       .new-popular-lessons .home-lesson-content h3,
       .new-popular-lessons .home-lesson-content p {
         margin: 0 !important;
+      }
+
+      .new-popular-lessons .home-lesson-meta {
+        display: -webkit-box !important;
+        -webkit-box-orient: vertical !important;
+        -webkit-line-clamp: 1 !important;
+        line-clamp: 1 !important;
+        overflow: hidden !important;
       }
 
       .new-popular-lessons .home-lesson-title-wrap {
@@ -4932,8 +4940,13 @@ def render_public_home_page() -> str:
         line-height: 1.18 !important;
       }
 
+      .new-popular-lessons .home-lesson-action {
+        margin-top: auto !important;
+        align-self: flex-start !important;
+      }
+
       .new-popular-lessons .home-lesson-start {
-        margin-top: 8px !important;
+        margin-top: 0 !important;
         align-self: flex-start !important;
       }
 
@@ -4966,7 +4979,7 @@ def render_public_home_page() -> str:
         }
 
         .new-popular-lessons .home-lesson-start {
-          margin-top: 6px !important;
+          margin-top: 0 !important;
         }
       }
     </style>
