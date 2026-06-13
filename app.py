@@ -4982,6 +4982,35 @@ def render_public_home_page() -> str:
           margin-top: 0 !important;
         }
       }
+
+      @media (max-width: 540px) {
+        .new-popular-lessons .home-lessons-list {
+          display: flex !important;
+          grid-template-columns: none !important;
+          justify-content: flex-start !important;
+          align-items: stretch !important;
+          gap: 18px !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-snap-type: x mandatory !important;
+          scroll-behavior: smooth !important;
+          -webkit-overflow-scrolling: touch !important;
+          padding: 0 14px 8px !important;
+          scrollbar-width: none !important;
+        }
+
+        .new-popular-lessons .home-lessons-list::-webkit-scrollbar {
+          display: none !important;
+        }
+
+        .new-popular-lessons .home-lesson-card {
+          flex: 0 0 86vw !important;
+          width: 86vw !important;
+          max-width: 86vw !important;
+          scroll-snap-align: start !important;
+          scroll-snap-stop: always !important;
+        }
+      }
     </style>
     """
 
