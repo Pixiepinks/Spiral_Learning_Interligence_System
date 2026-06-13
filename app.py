@@ -4989,6 +4989,8 @@ def render_public_home_page() -> str:
           width: 100% !important;
           max-width: 100% !important;
           overflow-x: hidden !important;
+          overflow-y: auto !important;
+          overscroll-behavior-y: auto !important;
         }
 
         .popular-section,
@@ -5017,8 +5019,8 @@ def render_public_home_page() -> str:
           scroll-snap-type: x mandatory !important;
           scroll-behavior: smooth !important;
           -webkit-overflow-scrolling: touch !important;
-          touch-action: pan-x !important;
-          overscroll-behavior-x: contain !important;
+          touch-action: pan-y pan-x !important;
+          overscroll-behavior-x: auto !important;
           width: 100% !important;
           max-width: 100% !important;
           padding: 0 4px 10px 4px !important;
@@ -5039,6 +5041,7 @@ def render_public_home_page() -> str:
           min-width: 86% !important;
           scroll-snap-align: start !important;
           scroll-snap-stop: always !important;
+          touch-action: auto !important;
         }
       }
     </style>
