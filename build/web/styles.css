@@ -1311,12 +1311,31 @@ body {
   }
 
   .home-lessons-list {
-    grid-template-columns: minmax(0, 320px);
-    padding: 0 12px 14px;
+    display: flex;
+    grid-template-columns: none;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 18px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 14px 8px;
+    scrollbar-width: none;
+  }
+
+  .home-lessons-list::-webkit-scrollbar {
+    display: none;
   }
 
   .home-lesson-card {
     border-radius: 18px;
+    flex: 0 0 86vw;
+    width: 86vw;
+    max-width: 86vw;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
   }
 
   .home-lessons-column h2 {
