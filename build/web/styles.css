@@ -1168,13 +1168,26 @@ body {
   white-space: nowrap;
 }
 
+.home-lesson-title-wrap {
+  height: 42px;
+  min-height: 42px;
+  display: flex;
+  align-items: flex-start;
+  overflow: hidden;
+}
+
 .home-lesson-content h3 {
   margin: 0;
   color: #ffffff;
   font-family: "Noto Sans Sinhala", "Nunito", sans-serif;
-  font-size: 1.02rem;
-  line-height: 1.25;
+  font-size: 0.98rem;
+  line-height: 1.18;
   font-weight: 900;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 .home-lesson-content p {
@@ -1255,8 +1268,14 @@ body {
     min-height: 0 !important;
   }
 
+  .home-lesson-title-wrap {
+    height: 38px;
+    min-height: 38px;
+  }
+
   .home-lesson-content h3 {
     margin: 0 !important;
+    font-size: 0.94rem;
     line-height: 1.15;
   }
 

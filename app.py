@@ -4830,7 +4830,7 @@ def build_public_home_lesson_section() -> str:
               <div class="home-lesson-badges" aria-label="Lesson labels">
                 <span>{escape(grade_label)}</span><span>Lesson</span><span>Chapter</span>
               </div>
-              <h3>{escape(title)}</h3>
+              <div class="home-lesson-title-wrap"><h3>{escape(title)}</h3></div>
               <p>{escape(context_label)}</p>
               <a class="home-lesson-start" href="{escape(start_href)}">Start Learning</a>
             </div>
@@ -4914,6 +4914,24 @@ def render_public_home_page() -> str:
         margin: 0 !important;
       }
 
+      .new-popular-lessons .home-lesson-title-wrap {
+        height: 42px !important;
+        min-height: 42px !important;
+        display: flex !important;
+        align-items: flex-start !important;
+        overflow: hidden !important;
+      }
+
+      .new-popular-lessons .home-lesson-content h3 {
+        display: -webkit-box !important;
+        -webkit-box-orient: vertical !important;
+        -webkit-line-clamp: 2 !important;
+        line-clamp: 2 !important;
+        overflow: hidden !important;
+        font-size: 0.98rem !important;
+        line-height: 1.18 !important;
+      }
+
       .new-popular-lessons .home-lesson-start {
         margin-top: 8px !important;
         align-self: flex-start !important;
@@ -4933,7 +4951,13 @@ def render_public_home_page() -> str:
           margin-bottom: 2px !important;
         }
 
+        .new-popular-lessons .home-lesson-title-wrap {
+          height: 38px !important;
+          min-height: 38px !important;
+        }
+
         .new-popular-lessons .home-lesson-content h3 {
+          font-size: 0.94rem !important;
           line-height: 1.15 !important;
         }
 
