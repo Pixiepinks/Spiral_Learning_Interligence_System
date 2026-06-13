@@ -15273,10 +15273,10 @@ def student_lesson_page(lesson_id: int):
 .ca-header{{flex:0 0 auto;text-align:center}}
 .ca-title{{text-align:center;color:#1d4ed8;margin:0;line-height:1.15}}
 .ca-instruction{{text-align:center;font-weight:900;font-size:clamp(.95rem,2.6vw,1.18rem);color:#0f172a;margin:4px 0 0;line-height:1.22}}
-.ca-board{{position:relative;flex:0 0 auto;width:100%;height:clamp(420px,62vh,680px);min-height:360px;border-radius:18px;overflow:hidden;background:#fff;border:2px solid #dbeafe;touch-action:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overscroll-behavior:contain}}
+.ca-board{{flex:1;position:relative;width:100%;height:clamp(420px,62vh,680px);min-height:360px;border-radius:18px;overflow:hidden;background:#fff;border:2px solid #dbeafe;touch-action:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box;overscroll-behavior:contain}}
 .ca-image{{position:absolute;display:block;z-index:1;object-fit:contain;object-position:center center;user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;pointer-events:none}}
 .ca-canvas{{position:absolute;touch-action:none;cursor:crosshair;z-index:2;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;overscroll-behavior:contain}}
-.ca-toolbar{{flex:0 0 auto;display:grid;gap:7px;padding:8px;border-radius:15px;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border:1px solid #dbeafe;box-shadow:0 8px 18px rgba(15,23,42,.10)}}
+.ca-toolbar{{position:relative;z-index:100;flex:0 0 auto;display:grid;gap:7px;padding:8px;border-radius:15px;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border:1px solid #dbeafe;box-shadow:0 8px 18px rgba(15,23,42,.10)}}
 .ca-palette,.ca-tools,.ca-action-row{{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}}
 .ca-palette{{overflow-x:auto;padding:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}}.ca-palette::-webkit-scrollbar{{display:none}}
 .ca-tools{{justify-content:space-between;align-items:center;gap:8px}}.ca-brush-group,.ca-action-row{{display:flex;gap:5px;align-items:center;flex-wrap:nowrap}}
@@ -15768,6 +15768,7 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
         root.querySelector('.ca-undo')?.addEventListener('click', () => {{ strokes.pop(); redrawAllStrokes(); clearMessage(); }});
         root.querySelector('.ca-clear')?.addEventListener('click', () => {{ strokes = []; redrawAllStrokes(); clearMessage(); }});
         finishButton?.addEventListener('click', async () => {{
+          console.log("Finish clicked");
           layoutColoringBoard();
           const exportCanvas = document.createElement('canvas');
           exportCanvas.width = img.naturalWidth || canvas.width;
@@ -15779,6 +15780,8 @@ body.lesson-fullscreen-active .lesson-fullscreen-controls,.lesson-player-card.le
           const drawingData = {{ type: 'coloring_activity_work', image_data_url: imageDataUrl, strokes, completed_at: new Date().toISOString() }};
           if (message) {{ message.textContent = root.dataset.successMessage || (isSinhala ? 'හොඳයි! ඔබ කළ පාට කිරීම සුරක්ෂිත කර ඇත.' : 'Great work! Your coloring has been saved.'); message.className = 'ca-message success'; }}
           setCurrentSlideCompleted('coloring-activity-finish');
+          console.log("Activity completed");
+          console.log("Next enabled");
           await recordLessonAnswer(current.id, JSON.stringify(drawingData), true);
         }});
         canvas.addEventListener('pointerdown', startDrawing, {{ passive:false }});
