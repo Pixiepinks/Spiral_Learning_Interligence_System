@@ -14370,7 +14370,7 @@ def student_lesson_page(lesson_id: int):
             and int(chapter.chapter_order or 0) == 3
             and int(lesson.lesson_order or 0) == 1
             and int(s.slide_order or 0) == 1
-            and slide_content_type in {"select_and_color", "coloring_activity"}
+            and slide_content_type == "coloring_activity"
         )
 
         slide_payload.append({
@@ -15351,8 +15351,8 @@ body.lesson-fullscreen-active .ca-stage,.lesson-player-card.lesson-fullscreen-ac
 body.lesson-fullscreen-active .ca-image-wrap,.lesson-player-card.lesson-fullscreen-active .ca-image-wrap,.lesson-player-card:fullscreen .ca-image-wrap,.lesson-player-card:-webkit-full-screen .ca-image-wrap{{max-width:100%!important;max-height:100%!important}}
 body.lesson-fullscreen-active .ca-stage img.ca-image,.lesson-player-card.lesson-fullscreen-active .ca-stage img.ca-image,.lesson-player-card:fullscreen .ca-stage img.ca-image,.lesson-player-card:-webkit-full-screen .ca-stage img.ca-image{{width:auto!important;height:auto!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;object-position:center center!important}}
 body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage{{display:flex!important;justify-content:center!important;align-items:center!important;overflow:hidden!important}}
-body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap{{display:inline-flex!important;justify-content:center!important;align-items:center!important}}
-body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image{{object-fit:contain!important;object-position:center center!important;margin:auto!important}}
+body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-image-wrap{{width:min(92vw,900px)!important;height:auto!important;aspect-ratio:12 / 7!important;margin:auto!important;position:relative!important}}
+body.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card.lesson-fullscreen-active .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:fullscreen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image,.lesson-player-card:-webkit-full-screen .coloring-activity.grade1-ch3-lesson1-slide1-coloring-fix .ca-stage img.ca-image{{width:100%!important;height:100%!important;object-fit:contain!important;object-position:center center!important;display:block!important}}
 body.lesson-fullscreen-active .ca-toolbar,.lesson-player-card.lesson-fullscreen-active .ca-toolbar,.lesson-player-card:fullscreen .ca-toolbar,.lesson-player-card:-webkit-full-screen .ca-toolbar{{position:static!important;margin-top:0!important;gap:4px!important;padding:5px!important;max-height:90px!important;overflow:visible!important}}
 body.lesson-fullscreen-active .ca-palette,.lesson-player-card.lesson-fullscreen-active .ca-palette,.lesson-player-card:fullscreen .ca-palette,.lesson-player-card:-webkit-full-screen .ca-palette{{gap:5px!important;padding:1px!important}}
 body.lesson-fullscreen-active .ca-tools,.lesson-player-card.lesson-fullscreen-active .ca-tools,.lesson-player-card:fullscreen .ca-tools,.lesson-player-card:-webkit-full-screen .ca-tools{{display:grid!important;grid-template-columns:auto 1fr auto!important;gap:5px!important}}
@@ -15755,68 +15755,6 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
             (stroke.points || []).forEach((point) => {{ point.x *= sx; point.y *= sy; }});
           }});
         }}
-        function prepareCroppedColoringImageForSpecialSlide() {{
-          if (!isGrade1Chapter3Lesson1Slide1Coloring || !img || img.dataset.croppedForGrade1Ch3Slide1 === '1') return false;
-          img.dataset.croppedForGrade1Ch3Slide1 = '1';
-          const originalSrc = img.currentSrc || img.src;
-          if (!originalSrc) return false;
-          const sourceImage = new Image();
-          sourceImage.crossOrigin = 'anonymous';
-          sourceImage.onload = () => {{
-            try {{
-              const sourceWidth = sourceImage.naturalWidth || sourceImage.width;
-              const sourceHeight = sourceImage.naturalHeight || sourceImage.height;
-              if (!sourceWidth || !sourceHeight) {{ scheduleCanvasSize(); return; }}
-              const offscreenCanvas = document.createElement('canvas');
-              offscreenCanvas.width = sourceWidth;
-              offscreenCanvas.height = sourceHeight;
-              const offscreenCtx = offscreenCanvas.getContext('2d', {{ willReadFrequently: true }});
-              offscreenCtx.drawImage(sourceImage, 0, 0, sourceWidth, sourceHeight);
-              const pixels = offscreenCtx.getImageData(0, 0, sourceWidth, sourceHeight).data;
-              let minX = sourceWidth;
-              let minY = sourceHeight;
-              let maxX = -1;
-              let maxY = -1;
-              for (let y = 0; y < sourceHeight; y += 1) {{
-                for (let x = 0; x < sourceWidth; x += 1) {{
-                  const index = (y * sourceWidth + x) * 4;
-                  const alpha = pixels[index + 3];
-                  const nearWhite = pixels[index] > 245 && pixels[index + 1] > 245 && pixels[index + 2] > 245;
-                  if (alpha > 10 && !nearWhite) {{
-                    if (x < minX) minX = x;
-                    if (y < minY) minY = y;
-                    if (x > maxX) maxX = x;
-                    if (y > maxY) maxY = y;
-                  }}
-                }}
-              }}
-              if (maxX < minX || maxY < minY) {{ scheduleCanvasSize(); return; }}
-              const padding = 24;
-              const cropX = Math.max(0, minX - padding);
-              const cropY = Math.max(0, minY - padding);
-              const cropRight = Math.min(sourceWidth - 1, maxX + padding);
-              const cropBottom = Math.min(sourceHeight - 1, maxY + padding);
-              const cropWidth = Math.max(1, cropRight - cropX + 1);
-              const cropHeight = Math.max(1, cropBottom - cropY + 1);
-              const croppedCanvas = document.createElement('canvas');
-              croppedCanvas.width = cropWidth;
-              croppedCanvas.height = cropHeight;
-              croppedCanvas.getContext('2d').drawImage(offscreenCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-              img.src = croppedCanvas.toDataURL('image/png');
-            }} catch (err) {{
-              console.debug('Grade 1 Chapter 3 Lesson 1 coloring crop skipped', err);
-              scheduleCanvasSize();
-            }}
-          }};
-          sourceImage.onerror = () => scheduleCanvasSize();
-          try {{
-            sourceImage.src = originalSrc;
-          }} catch (err) {{
-            console.debug('Grade 1 Chapter 3 Lesson 1 coloring crop load skipped', err);
-            scheduleCanvasSize();
-          }}
-          return true;
-        }}
         function fitImageWrapper() {{
           if (!imageWrap || !stage) return;
           const stageRect = stage.getBoundingClientRect();
@@ -15832,18 +15770,25 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           const stageRect = (imageWrap || stage || root).getBoundingClientRect();
           const rect = img.getBoundingClientRect();
           const dpr = ratio();
-          const width = Math.max(1, rect.width);
-          const height = Math.max(1, rect.height);
+          const width = Math.max(1, isGrade1Chapter3Lesson1Slide1Coloring && imageWrap ? imageWrap.clientWidth : rect.width);
+          const height = Math.max(1, isGrade1Chapter3Lesson1Slide1Coloring && imageWrap ? imageWrap.clientHeight : rect.height);
           const oldWidth = canvas.width;
           const oldHeight = canvas.height;
           const newWidth = Math.max(1, Math.round(width * dpr));
           const newHeight = Math.max(1, Math.round(height * dpr));
           canvas.width = newWidth;
           canvas.height = newHeight;
-          canvas.style.left = Math.max(0, rect.left - stageRect.left) + 'px';
-          canvas.style.top = Math.max(0, rect.top - stageRect.top) + 'px';
-          canvas.style.width = width + 'px';
-          canvas.style.height = height + 'px';
+          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
+            canvas.style.left = '0px';
+            canvas.style.top = '0px';
+            canvas.style.width = imageWrap.clientWidth + 'px';
+            canvas.style.height = imageWrap.clientHeight + 'px';
+          }} else {{
+            canvas.style.left = Math.max(0, rect.left - stageRect.left) + 'px';
+            canvas.style.top = Math.max(0, rect.top - stageRect.top) + 'px';
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+          }}
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
@@ -15945,16 +15890,8 @@ body.lesson-fullscreen-active:has(.coloring-activity),body.lesson-fullscreen-act
           canvas.addEventListener('mouseleave', stopDrawing, {{ passive:false }});
         }}
         canvas.addEventListener('dragstart', (event) => event.preventDefault());
-        img.addEventListener('load', () => {{
-          if (isGrade1Chapter3Lesson1Slide1Coloring && img.dataset.croppedForGrade1Ch3Slide1 !== '1') {{
-            prepareCroppedColoringImageForSpecialSlide();
-            return;
-          }}
-          scheduleCanvasSize();
-        }}, {{ once:false }});
-        if (isGrade1Chapter3Lesson1Slide1Coloring) {{
-          prepareCroppedColoringImageForSpecialSlide();
-        }} else if (img.complete) scheduleCanvasSize();
+        img.addEventListener('load', scheduleCanvasSize, {{ once:false }});
+        if (img.complete) scheduleCanvasSize();
         window.addEventListener('resize', scheduleCanvasSize, {{ passive:true }});
         window.addEventListener('orientationchange', scheduleCanvasSize, {{ passive:true }});
         document.addEventListener('fullscreenchange', scheduleCanvasSize);
