@@ -1660,7 +1660,7 @@ def upload_student_profile_image_to_supabase(student_id: int, file_storage) -> t
 
 
 LESSON_IMAGE_BUCKET = (os.environ.get("SUPABASE_BUCKET") or "lesson-images").strip() or "lesson-images"
-LESSON_AUDIO_BUCKET = (os.environ.get("SUPABASE_AUDIO_BUCKET") or "lesson-audio").strip() or "lesson-audio"
+LESSON_AUDIO_BUCKET = "lesson-audio"
 MAX_LESSON_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
 MAX_ACTIVITY_IMAGE_UPLOAD_SIZE = 1 * 1024 * 1024
 MAX_LESSON_AUDIO_UPLOAD_SIZE = 10 * 1024 * 1024
@@ -1892,38 +1892,48 @@ def upload_activity_image_to_supabase(lesson_id: int, slide_ref: int | str | Non
 
 
 def upload_lesson_instruction_audio_to_supabase(lesson_id: int, slide_ref: int | str | None, language_code: str, file_storage) -> tuple[str | None, str | None]:
-    if not file_storage or not file_storage.filename:
-        return None, None
-
+    bucket_name = "lesson-audio"
     lang = "si" if language_code == "si" else "en"
+    slide_id_for_path = str(slide_ref or "temp").strip() or "temp"
+    object_name = f"instructions/lesson-{lesson_id}/slide-{slide_id_for_path}/{lang}.mp3"
+    content_type = "audio/mpeg"
+
+    def detailed_error(actual_error: str, size: int = 0) -> str:
+        return (
+            "Audio upload failed: "
+            f"bucket={bucket_name}, path={object_name}, size={size}, "
+            f"content_type={content_type}, error={actual_error}"
+        )
+
+    if not file_storage or not file_storage.filename:
+        return None, detailed_error("missing file or input name mismatch", 0)
+
     original_name = secure_filename(file_storage.filename)
     if not original_name:
-        return None, "Invalid audio filename."
+        return None, detailed_error("invalid audio filename")
     ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
     if ext != "mp3":
-        return None, "Instruction audio must be an MP3 file."
+        return None, detailed_error("Instruction audio must be an MP3 file.")
 
     file_storage.stream.seek(0, os.SEEK_END)
     size = file_storage.stream.tell()
     file_storage.stream.seek(0)
+    if size <= 0:
+        return None, detailed_error("uploaded file is empty after form submit", size)
     if size > MAX_LESSON_AUDIO_UPLOAD_SIZE:
-        return None, "Instruction audio files must be 10MB or less."
-
-    uploaded_content_type = (file_storage.mimetype or "").lower()
-    allowed_mimes = {"audio/mpeg", "audio/mp3", "application/octet-stream"}
-    if uploaded_content_type and uploaded_content_type not in allowed_mimes:
-        return None, "Invalid audio MIME type. Upload MP3 files only."
+        return None, detailed_error("Instruction audio files must be 10MB or less.", size)
 
     supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
     supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
     if not supabase_url or not supabase_key:
-        return None, "Supabase storage is not configured."
+        return None, detailed_error("Supabase storage is not configured or upload key is missing.", size)
 
-    safe_slide_ref = secure_filename(str(slide_ref or "temp")) or "temp"
-    object_name = f"instructions/lesson-{lesson_id}/slide-{safe_slide_ref}/{lang}.mp3"
     audio_bytes = file_storage.read()
     file_storage.stream.seek(0)
-    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{LESSON_AUDIO_BUCKET}/{object_name}"
+    if not audio_bytes:
+        return None, detailed_error("uploaded file read produced empty bytes", size)
+
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{bucket_name}/{object_name}"
     req = Request(
         upload_url,
         data=audio_bytes,
@@ -1931,15 +1941,24 @@ def upload_lesson_instruction_audio_to_supabase(lesson_id: int, slide_ref: int |
         headers={
             "Authorization": f"Bearer {supabase_key}",
             "apikey": supabase_key,
-            "Content-Type": "audio/mpeg",
+            "Content-Type": content_type,
             "x-upsert": "true",
         },
     )
     try:
-        urlopen(req, timeout=30).read()
-    except (HTTPError, URLError, TimeoutError) as exc:
-        return None, f"Failed to upload instruction audio: {exc}"
-    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{LESSON_AUDIO_BUCKET}/{object_name}"
+        with urlopen(req, timeout=30) as resp:
+            resp.read()
+            if resp.status not in {200, 201}:
+                return None, detailed_error(f"Supabase returned HTTP {resp.status}", size)
+    except HTTPError as exc:
+        error_body = exc.read().decode("utf-8", "ignore")
+        return None, detailed_error(f"HTTP {exc.code} {exc.reason}: {error_body or '<empty response body>'}", size)
+    except URLError as exc:
+        return None, detailed_error(f"URL error: {exc.reason}", size)
+    except TimeoutError as exc:
+        return None, detailed_error(f"timeout: {exc}", size)
+
+    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket_name}/{object_name}"
     return public_url, None
 
 
@@ -18187,12 +18206,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             if instruction_audio_si_upload and instruction_audio_si_upload.filename:
                 audio_url, audio_error = upload_lesson_instruction_audio_to_supabase(lesson.id, obj.id or "temp", "si", instruction_audio_si_upload)
                 if audio_error:
-                    db.session.rollback(); return f"<h2>Sinhala instruction audio upload failed</h2><p>{escape(audio_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                    db.session.rollback()
+                    flash(audio_error, "error")
+                    return redirect(request.path)
                 obj.instruction_audio_si_url = audio_url or obj.instruction_audio_si_url
             if instruction_audio_en_upload and instruction_audio_en_upload.filename:
                 audio_url, audio_error = upload_lesson_instruction_audio_to_supabase(lesson.id, obj.id or "temp", "en", instruction_audio_en_upload)
                 if audio_error:
-                    db.session.rollback(); return f"<h2>English instruction audio upload failed</h2><p>{escape(audio_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                    db.session.rollback()
+                    flash(audio_error, "error")
+                    return redirect(request.path)
                 obj.instruction_audio_en_url = audio_url or obj.instruction_audio_en_url
             base_payload = parse_match_pairs_activity(submitted_activity_json) or parse_match_pairs_activity(old_activity_json) or default_match_pairs_activity_payload(obj.title_en, obj.title_si, obj.content_en, obj.content_si)
             left_items = []
@@ -18715,8 +18738,13 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         or ""
     )
     manual_question_count = slide.question_count if slide and slide.question_count else max(1, len(selected_manual_question_ids) or 1)
+    flash_messages_html = "".join(
+        f"<div style='padding:12px;margin:10px 0;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:8px;'>{escape(message)}</div>"
+        for category, message in get_flashed_messages(with_categories=True)
+    )
     return f"""
     <h1>{'Edit Slide' if slide else 'Add Slide'}</h1>
+    {flash_messages_html}
     <p><a href='/admin/lesson-builder/{lesson.id}/slides'>Back to Slides</a></p>
     <form method='post' enctype='multipart/form-data'>
       <label>Slide Order <input type='number' name='slide_order' value='{slide.slide_order if slide else 1}' min='1' required></label><br><br>
