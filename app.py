@@ -1964,6 +1964,80 @@ def upload_lesson_instruction_audio_to_supabase(lesson_id: int, slide_ref: int |
 
 
 
+
+def _ftm_clamp_count(value, fallback=4) -> int:
+    try:
+        return max(1, min(10, int(value)))
+    except (TypeError, ValueError):
+        return fallback
+
+def fish_tank_more_positions(count: int) -> list[dict]:
+    presets = {
+        4: [{"x":22,"y":28},{"x":58,"y":28},{"x":32,"y":58},{"x":68,"y":58}],
+        8: [{"x":18,"y":22},{"x":45,"y":22},{"x":72,"y":22},{"x":30,"y":42},{"x":60,"y":42},{"x":18,"y":64},{"x":45,"y":64},{"x":72,"y":64}],
+    }
+    count = _ftm_clamp_count(count, 4)
+    if count in presets:
+        return [dict(item) for item in presets[count]]
+    cols = 3 if count > 4 else 2
+    rows = (count + cols - 1) // cols
+    positions = []
+    for idx in range(count):
+        col = idx % cols
+        row = idx // cols
+        x = 22 + (col * (56 / max(1, cols - 1))) if cols > 1 else 50
+        y = 24 + (row * (42 / max(1, rows - 1))) if rows > 1 else 45
+        if rows > 1 and row % 2 == 1 and cols == 3:
+            x += 6
+        positions.append({"x": round(max(14, min(78, x))), "y": round(max(20, min(70, y)))})
+    return positions
+
+def parse_fish_tank_more_activity(activity_json: str | dict | None) -> dict:
+    payload = activity_json if isinstance(activity_json, dict) else {}
+    if activity_json and not isinstance(activity_json, dict):
+        try:
+            parsed = json.loads(activity_json)
+            payload = parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or payload.get("slide_type") or "").strip().lower()
+    if activity_type and activity_type != "fish_tank_more_activity":
+        return {}
+    left_count = _ftm_clamp_count(payload.get("left_count"), 4)
+    right_count = _ftm_clamp_count(payload.get("right_count"), 8)
+    correct_more_side = str(payload.get("correct_more_side") or "auto").strip().lower()
+    if correct_more_side not in {"auto", "left", "right", "equal"}:
+        correct_more_side = "auto"
+    normalized = {
+        "activity_type": "fish_tank_more_activity",
+        "tank_image_url": str(payload.get("tank_image_url") or "").strip(),
+        "left_fish_image_url": str(payload.get("left_fish_image_url") or "").strip(),
+        "right_fish_image_url": str(payload.get("right_fish_image_url") or "").strip(),
+        "left_count": left_count,
+        "right_count": right_count,
+        "correct_more_side": correct_more_side,
+        "title_si": str(payload.get("title_si") or "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු").strip(),
+        "title_en": str(payload.get("title_en") or "Find the Tank with More Fish").strip(),
+        "instruction_si": str(payload.get("instruction_si") or "මාළුවෙකුට මාළුවෙකු යා කරන්න.").strip(),
+        "instruction_en": str(payload.get("instruction_en") or "Match one fish to one fish.").strip(),
+        "success_message_si": str(payload.get("success_message_si") or "හොඳයි! දකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.").strip(),
+        "success_message_en": str(payload.get("success_message_en") or "Good job! The right tank has more fish.").strip(),
+        "try_again_message_si": str(payload.get("try_again_message_si") or "නැවත උත්සාහ කරන්න.").strip(),
+        "try_again_message_en": str(payload.get("try_again_message_en") or "Try again.").strip(),
+        "completion_narration_si": str(payload.get("completion_narration_si") or "බලන්න දරුවනේ! වම් පැත්තේ සියලුම මාළු යා කර අවසන්. දකුණු පැත්තේ තවත් මාළු ඉතිරි වී ඇත. එබැවින් දකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.").strip(),
+        "completion_narration_en": str(payload.get("completion_narration_en") or "").strip(),
+        "left_positions": payload.get("left_positions") if isinstance(payload.get("left_positions"), list) else [],
+        "right_positions": payload.get("right_positions") if isinstance(payload.get("right_positions"), list) else [],
+    }
+    if not normalized["left_positions"]:
+        normalized["left_positions"] = fish_tank_more_positions(left_count)
+    if not normalized["right_positions"]:
+        normalized["right_positions"] = fish_tank_more_positions(right_count)
+    return normalized
+
+def default_fish_tank_more_activity_payload() -> dict:
+    return parse_fish_tank_more_activity({"activity_type":"fish_tank_more_activity"})
+
 def parse_match_pairs_activity(activity_json: str | dict | None) -> dict:
     if not activity_json:
         return {}
@@ -15520,8 +15594,38 @@ def student_lesson_page(lesson_id: int):
         }}
         return hasShapeRun(mixed, maxRun) ? fisherYates(source) : mixed;
       }}
+      function renderFishTankMoreActivity(slide, config) {{
+        try {{
+          const activityData = (slide && typeof slide === "object") ? slide : {{}};
+          const useSinhala = Boolean(config && config.isSinhala);
+          const textFor = (key, fallback) => useSinhala ? (activityData[`${{key}}_si`] || activityData[`${{key}}_en`] || fallback) : (activityData[`${{key}}_en`] || activityData[`${{key}}_si`] || fallback);
+          const clampCount = (value, fallback) => {{ const n = Number.parseInt(value, 10); return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fallback; }};
+          const defaultPositions = (count) => {{ const presets = {{4:[{{x:22,y:28}},{{x:58,y:28}},{{x:32,y:58}},{{x:68,y:58}}],8:[{{x:18,y:22}},{{x:45,y:22}},{{x:72,y:22}},{{x:30,y:42}},{{x:60,y:42}},{{x:18,y:64}},{{x:45,y:64}},{{x:72,y:64}}]}}; if (presets[count]) return presets[count]; const cols = count > 4 ? 3 : 2; const rows = Math.ceil(count / cols); return Array.from({{length:count}}, (_, idx) => {{ const col = idx % cols; const row = Math.floor(idx / cols); return {{x:Math.round(Math.max(14, Math.min(78, cols > 1 ? 22 + col * (56 / Math.max(1, cols - 1)) + (row % 2 && cols === 3 ? 6 : 0) : 50))), y:Math.round(Math.max(20, Math.min(70, rows > 1 ? 24 + row * (42 / Math.max(1, rows - 1)) : 45)))}}; }}); }};
+          const tankUrl = String(activityData.tank_image_url || "").trim(); const leftFishUrl = String(activityData.left_fish_image_url || "").trim(); const rightFishUrl = String(activityData.right_fish_image_url || "").trim();
+          const title = textFor("title", useSinhala ? "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු" : "Find the Tank with More Fish");
+          if (!tankUrl || !leftFishUrl || !rightFishUrl) return `<div class="ftm-error" data-activity-type="fish_tank_more_activity"><h3>${{escapeHtml(title)}}</h3><p>Fish Tank More Activity is not fully configured.</p></div>`;
+          const leftCount = clampCount(activityData.left_count, 4); const rightCount = clampCount(activityData.right_count, 8);
+          const leftPositions = (Array.isArray(activityData.left_positions) && activityData.left_positions.length ? activityData.left_positions : defaultPositions(leftCount)).slice(0, leftCount);
+          const rightPositions = (Array.isArray(activityData.right_positions) && activityData.right_positions.length ? activityData.right_positions : defaultPositions(rightCount)).slice(0, rightCount);
+          const fish = (side, url, positions) => positions.map((pos, idx) => `<button type="button" class="ftm-fish" data-ftm-side="${{side}}" data-ftm-index="${{idx}}" style="--ftm-x:${{Math.max(0, Math.min(100, Number(pos.x)||50))}}%;--ftm-y:${{Math.max(0, Math.min(100, Number(pos.y)||50))}}%;"><img src="${{escapeHtml(url)}}" alt="" draggable="false"><span class="ftm-check">✓</span></button>`).join("");
+          const payload = {{leftCount, rightCount, correctMoreSide: String(activityData.correct_more_side || "auto"), successSi: activityData.success_message_si || "හොඳයි! දකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.", successEn: activityData.success_message_en || "Good job! The right tank has more fish.", equalSi: "ටැංකි දෙකේම මාළු සමානයි.", equalEn: "Both tanks have the same number of fish."}};
+          return `<style>.ftm-activity{{width:100%;max-width:1180px;margin:0 auto;box-sizing:border-box}}.ftm-title{{text-align:center;margin:.2rem 0}}.ftm-instruction{{text-align:center;margin:.2rem 0 .6rem;color:#334155}}.ftm-board{{display:flex;gap:18px;align-items:center;justify-content:center;overflow:visible}}.ftm-tank{{position:relative;flex:1 1 0;max-width:520px;aspect-ratio:4/3;border:4px solid transparent;border-radius:24px;overflow:visible;background:#ecfeff}}.ftm-tank.ftm-more-tank{{border-color:#22c55e;box-shadow:0 0 0 6px rgba(34,197,94,.2)}}.ftm-tank-img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}}.ftm-fish{{position:absolute;left:var(--ftm-x);top:var(--ftm-y);transform:translate(-50%,-50%);width:clamp(64px,8vw,96px);height:clamp(64px,8vw,96px);border:3px solid transparent;border-radius:999px;background:rgba(255,255,255,.08);display:grid;place-items:center;cursor:pointer;touch-action:manipulation}}.ftm-fish img{{max-width:82%;max-height:82%;object-fit:contain;pointer-events:none}}.ftm-fish.ftm-selected{{filter:drop-shadow(0 0 12px #facc15);border-color:#facc15}}.ftm-fish.ftm-matched{{opacity:.4;pointer-events:none}}.ftm-check{{display:none;position:absolute;right:2px;top:2px;background:#22c55e;color:#fff;border-radius:999px;width:24px;height:24px;font-weight:900}}.ftm-matched .ftm-check{{display:grid;place-items:center}}.ftm-fish.ftm-remaining{{filter:drop-shadow(0 0 14px #facc15);animation:ftm-pulse 1s ease-in-out infinite}}@keyframes ftm-pulse{{50%{{transform:translate(-50%,-50%) scale(1.12)}}}}.ftm-message{{text-align:center;margin-top:10px;font-weight:900;color:#166534;background:#dcfce7;border-radius:14px;padding:10px;display:none}}.ftm-error{{padding:18px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:14px;text-align:center}}@media(max-width:680px) and (orientation:portrait){{.ftm-board{{flex-direction:column}}.ftm-tank{{width:100%;flex:auto}}}}body.lesson-fullscreen-active .ftm-activity,.lesson-player-card:fullscreen .ftm-activity{{height:calc(100dvh - 110px);display:flex;flex-direction:column}}.lesson-player-card:fullscreen .ftm-board,body.lesson-fullscreen-active .ftm-board{{flex:1;min-height:0}}</style><div class="ftm-activity" data-activity-type="fish_tank_more_activity" data-ftm-config='${{escapeHtml(JSON.stringify(payload))}}'><h3 class="ftm-title">${{escapeHtml(title)}}</h3><p class="ftm-instruction">${{escapeHtml(textFor("instruction", useSinhala ? "මාළුවෙකුට මාළුවෙකු යා කරන්න." : "Match one fish to one fish."))}}</p><div class="ftm-board"><section class="ftm-tank" data-ftm-tank="left"><img class="ftm-tank-img" src="${{escapeHtml(tankUrl)}}" alt="">${{fish("left", leftFishUrl, leftPositions)}}</section><section class="ftm-tank" data-ftm-tank="right"><img class="ftm-tank-img" src="${{escapeHtml(tankUrl)}}" alt="">${{fish("right", rightFishUrl, rightPositions)}}</section></div><div class="ftm-message" aria-live="polite"></div></div>`;
+        }} catch (fishTankMoreError) {{ console.error("fishTankMore render failed", fishTankMoreError); return `<div class="ftm-error" data-activity-type="fish_tank_more_activity">Fish Tank More Activity could not load.</div>`; }}
+      }}
+      function wireFishTankMoreActivity(scope) {{
+        try {{
+          const root = scope.querySelector('.ftm-activity[data-activity-type="fish_tank_more_activity"]'); if (!root || root.dataset.fishTankMoreWired === '1') return; root.dataset.fishTankMoreWired = '1';
+          const cfg = JSON.parse(root.dataset.ftmConfig || '{{}}'); const useSinhala = Boolean(isSinhala);
+          const autoLarger = cfg.leftCount === cfg.rightCount ? 'equal' : (cfg.leftCount > cfg.rightCount ? 'left' : 'right');
+          const larger = ['left','right','equal'].includes(String(cfg.correctMoreSide || '').toLowerCase()) ? String(cfg.correctMoreSide).toLowerCase() : autoLarger;
+          const smaller = cfg.leftCount === cfg.rightCount ? 'equal' : (larger === 'left' ? 'right' : larger === 'right' ? 'left' : (cfg.leftCount < cfg.rightCount ? 'left' : 'right'));
+          const needed = Math.min(Number(cfg.leftCount)||0, Number(cfg.rightCount)||0); let selected = null; let matched = 0; const message = root.querySelector('.ftm-message');
+          const complete = () => {{ if (larger === 'equal') {{ root.querySelectorAll('.ftm-tank').forEach(t=>t.classList.add('ftm-more-tank')); message.textContent = useSinhala ? cfg.equalSi : cfg.equalEn; }} else {{ root.querySelector(`.ftm-tank[data-ftm-tank="${{larger}}"]`)?.classList.add('ftm-more-tank'); root.querySelectorAll(`.ftm-fish[data-ftm-side="${{larger}}"]:not(.ftm-matched)`).forEach(f=>f.classList.add('ftm-remaining')); message.textContent = useSinhala ? cfg.successSi : cfg.successEn; }} message.style.display = 'block'; if (typeof setCurrentSlideCompleted === 'function') setCurrentSlideCompleted('fishTankMoreComplete'); else if (typeof updateLessonNavigationState === 'function') updateLessonNavigationState('fishTankMoreComplete'); }};
+          root.addEventListener('click', (event) => {{ try {{ const fish = event.target.closest('.ftm-fish'); if (!fish || fish.classList.contains('ftm-matched')) return; const side = fish.dataset.ftmSide; if (!selected) {{ if (smaller !== 'equal' && side !== smaller) return; selected = fish; fish.classList.add('ftm-selected'); return; }} if (selected === fish) {{ selected.classList.remove('ftm-selected'); selected = null; return; }} if (selected.dataset.ftmSide === side) {{ selected.classList.remove('ftm-selected'); selected = fish; fish.classList.add('ftm-selected'); return; }} selected.classList.remove('ftm-selected'); selected.classList.add('ftm-matched'); fish.classList.add('ftm-matched'); selected = null; matched += 1; if (matched >= needed) complete(); }} catch (fishTankMoreClickError) {{ console.error('fishTankMore click failed', fishTankMoreClickError); }} }});
+        }} catch (fishTankMoreWireError) {{ console.error('fishTankMore wire failed', fishTankMoreWireError); const err = scope.querySelector('.ftm-message'); if (err) {{ err.textContent = 'Fish Tank More Activity could not load.'; err.style.display = 'block'; }} }}
+      }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "coloring_activity") {{ const title = localizedActivityText(activityData, "title", isSinhala ? "පාට කිරීමේ ක්‍රියාකාරකම" : "Coloring Activity"); const instruction = localizedActivityText(activityData, "instruction", activityData.question || ""); const imageUrl = activityData.image_url || activityData.base_image_url || ""; const palette = Array.isArray(activityData.color_palette) && activityData.color_palette.length ? activityData.color_palette : [{{name_en:"Red",name_si:"රතු",hex:"#EF4444"}},{{name_en:"Blue",name_si:"නිල්",hex:"#3B82F6"}},{{name_en:"Green",name_si:"කොළ",hex:"#22C55E"}},{{name_en:"Yellow",name_si:"කහ",hex:"#FACC15"}},{{name_en:"Orange",name_si:"තැඹිලි",hex:"#F97316"}},{{name_en:"Purple",name_si:"දම්",hex:"#A855F7"}},{{name_en:"Pink",name_si:"රෝස",hex:"#EC4899"}}]; const brushes = Array.isArray(activityData.brush_sizes) && activityData.brush_sizes.length ? activityData.brush_sizes : [{{key:"small",label_en:"Small",label_si:"කුඩා",size:4}},{{key:"medium",label_en:"Medium",label_si:"මධ්‍යම",size:8}},{{key:"large",label_en:"Large",label_si:"විශාල",size:14}}]; const paletteHtml = palette.map((color, idx)=>{{ const label = isSinhala ? (color.name_si || color.name_en || color.hex) : (color.name_en || color.name_si || color.hex); return `<button type="button" class="ca-color-btn ${{idx === 0 ? "active" : ""}}" data-color="${{escapeHtml(color.hex || "#EF4444")}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}" style="background:${{escapeHtml(color.hex || "#EF4444")}}"></button>`; }}).join(""); const brushHtml = brushes.map((brush, idx)=>{{ const label = isSinhala ? (brush.label_si || brush.label_en || brush.key) : (brush.label_en || brush.label_si || brush.key); const compactLabel = idx === 0 ? "S" : idx === 1 ? "M" : idx === 2 ? "L" : String(label || brush.key || idx + 1).slice(0, 2).toUpperCase(); return `<button type="button" class="ca-brush-btn ${{idx === 1 ? "active" : ""}}" data-size="${{Number(brush.size || 8)}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}">${{escapeHtml(compactLabel)}}</button>`; }}).join(""); return `<style>
+      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; if (normalizedActivityType === "fish_tank_more_activity") return renderFishTankMoreActivity(activityData, {{isSinhala}}); const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "coloring_activity") {{ const title = localizedActivityText(activityData, "title", isSinhala ? "පාට කිරීමේ ක්‍රියාකාරකම" : "Coloring Activity"); const instruction = localizedActivityText(activityData, "instruction", activityData.question || ""); const imageUrl = activityData.image_url || activityData.base_image_url || ""; const palette = Array.isArray(activityData.color_palette) && activityData.color_palette.length ? activityData.color_palette : [{{name_en:"Red",name_si:"රතු",hex:"#EF4444"}},{{name_en:"Blue",name_si:"නිල්",hex:"#3B82F6"}},{{name_en:"Green",name_si:"කොළ",hex:"#22C55E"}},{{name_en:"Yellow",name_si:"කහ",hex:"#FACC15"}},{{name_en:"Orange",name_si:"තැඹිලි",hex:"#F97316"}},{{name_en:"Purple",name_si:"දම්",hex:"#A855F7"}},{{name_en:"Pink",name_si:"රෝස",hex:"#EC4899"}}]; const brushes = Array.isArray(activityData.brush_sizes) && activityData.brush_sizes.length ? activityData.brush_sizes : [{{key:"small",label_en:"Small",label_si:"කුඩා",size:4}},{{key:"medium",label_en:"Medium",label_si:"මධ්‍යම",size:8}},{{key:"large",label_en:"Large",label_si:"විශාල",size:14}}]; const paletteHtml = palette.map((color, idx)=>{{ const label = isSinhala ? (color.name_si || color.name_en || color.hex) : (color.name_en || color.name_si || color.hex); return `<button type="button" class="ca-color-btn ${{idx === 0 ? "active" : ""}}" data-color="${{escapeHtml(color.hex || "#EF4444")}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}" style="background:${{escapeHtml(color.hex || "#EF4444")}}"></button>`; }}).join(""); const brushHtml = brushes.map((brush, idx)=>{{ const label = isSinhala ? (brush.label_si || brush.label_en || brush.key) : (brush.label_en || brush.label_si || brush.key); const compactLabel = idx === 0 ? "S" : idx === 1 ? "M" : idx === 2 ? "L" : String(label || brush.key || idx + 1).slice(0, 2).toUpperCase(); return `<button type="button" class="ca-brush-btn ${{idx === 1 ? "active" : ""}}" data-size="${{Number(brush.size || 8)}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}">${{escapeHtml(compactLabel)}}</button>`; }}).join(""); return `<style>
 .coloring-activity{{width:100%;max-width:980px;margin:0 auto;padding:14px;border-radius:22px;background:linear-gradient(180deg,#eff6ff,#fff7ed);border:1px solid #bfdbfe;box-shadow:0 16px 36px rgba(30,64,175,.10);box-sizing:border-box;display:flex;flex-direction:column;gap:10px;overflow:hidden}}
 .ca-header{{flex:0 0 auto;text-align:center}}
 .ca-title{{text-align:center;color:#1d4ed8;margin:0;line-height:1.15}}
@@ -15646,7 +15750,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
         const normalizedType = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase();
         if (current.is_required === false) return false;
-        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
+        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || normalizedType === "fish_tank_more_activity" || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
       }}
       function setCurrentSlideCompleted(source = "activity-complete") {{
         const current = slides[currentIndex];
@@ -16980,6 +17084,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           if (normalizedType === "sort_by_size_drag_drop") wireSortBySizeMangoBaskets(mediaWrap);
           if (normalizedType === "drag_color_match") wireDragColorMatch(mediaWrap);
           if (normalizedType === "match_pairs_activity") wireMatchPairsActivity(mediaWrap);
+          if (normalizedType === "fish_tank_more_activity") wireFishTankMoreActivity(mediaWrap);
           if (normalizedType === "drawing_activity") wireDrawingActivity(mediaWrap);
           if (normalizedType === "coloring_activity") wireColoringActivity(mediaWrap);
           if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap);
@@ -17870,6 +17975,9 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         has_select_color_upload = bool(select_color_upload and select_color_upload.filename)
         coloring_upload = request.files.get("coloring_activity_image")
         has_coloring_upload = bool(coloring_upload and coloring_upload.filename)
+        fish_tank_more_upload_fields = ("ftm_tank_image", "ftm_left_fish_image", "ftm_right_fish_image")
+        fish_tank_more_uploads = {field: request.files.get(field) for field in fish_tank_more_upload_fields}
+        has_fish_tank_more_uploads = any(upload and upload.filename for upload in fish_tank_more_uploads.values())
         match_left_upload_files = request.files.getlist("match_left_images")
         match_right_upload_files = request.files.getlist("match_right_images")
         has_match_pair_uploads = any(upload and upload.filename for upload in match_left_upload_files + match_right_upload_files)
@@ -17947,6 +18055,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             or (submitted_activity_payload or {}).get("type") == "coloring_activity"
             or (submitted_activity_payload or {}).get("slide_type") == "coloring_activity"
             or has_coloring_upload
+        )
+        is_fish_tank_more_submission = (
+            selected_slide_type == "fish_tank_more_activity"
+            or has_fish_tank_more_uploads
+            or (old_activity_payload or {}).get("activity_type") == "fish_tank_more_activity"
+            or (old_activity_payload or {}).get("type") == "fish_tank_more_activity"
+            or (old_activity_payload or {}).get("slide_type") == "fish_tank_more_activity"
+            or (submitted_activity_payload or {}).get("activity_type") == "fish_tank_more_activity"
+            or (submitted_activity_payload or {}).get("type") == "fish_tank_more_activity"
+            or (submitted_activity_payload or {}).get("slide_type") == "fish_tank_more_activity"
         )
         is_match_pairs_submission = (
             selected_slide_type == "match_pairs_activity"
@@ -18208,6 +18326,54 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                 request.form.get("drag_color_try_again_message_en"),
                 request.form.get("drag_color_try_again_message_si"),
             )
+        elif is_fish_tank_more_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+            fish_payload = parse_fish_tank_more_activity(submitted_activity_json) or parse_fish_tank_more_activity(old_activity_json) or default_fish_tank_more_activity_payload()
+            url_by_key = {
+                "tank_image_url": (request.form.get("ftm_existing_tank_image_url") or fish_payload.get("tank_image_url") or "").strip(),
+                "left_fish_image_url": (request.form.get("ftm_existing_left_fish_image_url") or fish_payload.get("left_fish_image_url") or "").strip(),
+                "right_fish_image_url": (request.form.get("ftm_existing_right_fish_image_url") or fish_payload.get("right_fish_image_url") or "").strip(),
+            }
+            upload_key_by_field = {"ftm_tank_image":"tank_image_url", "ftm_left_fish_image":"left_fish_image_url", "ftm_right_fish_image":"right_fish_image_url"}
+            for field, key in upload_key_by_field.items():
+                upload = fish_tank_more_uploads.get(field)
+                if not upload or not upload.filename:
+                    continue
+                public_url, _, upload_error = upload_activity_image_to_supabase(lesson.id, obj.id or "temp", upload)
+                if upload_error:
+                    db.session.rollback()
+                    return f"<h2>Fish Tank More Activity image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                if public_url:
+                    url_by_key[key] = public_url
+            left_count = _ftm_clamp_count(request.form.get("ftm_left_count") or fish_payload.get("left_count"), 4)
+            right_count = _ftm_clamp_count(request.form.get("ftm_right_count") or fish_payload.get("right_count"), 8)
+            fish_payload.update({
+                "activity_type": "fish_tank_more_activity",
+                "slide_type": "fish_tank_more_activity",
+                "type": "fish_tank_more_activity",
+                "tank_image_url": url_by_key["tank_image_url"],
+                "left_fish_image_url": url_by_key["left_fish_image_url"],
+                "right_fish_image_url": url_by_key["right_fish_image_url"],
+                "left_count": left_count,
+                "right_count": right_count,
+                "correct_more_side": (request.form.get("ftm_correct_more_side") or fish_payload.get("correct_more_side") or "auto").strip(),
+                "title_si": (request.form.get("ftm_title_si") or fish_payload.get("title_si") or "").strip(),
+                "title_en": (request.form.get("ftm_title_en") or fish_payload.get("title_en") or "").strip(),
+                "instruction_si": (request.form.get("ftm_instruction_si") or fish_payload.get("instruction_si") or "").strip(),
+                "instruction_en": (request.form.get("ftm_instruction_en") or fish_payload.get("instruction_en") or "").strip(),
+                "success_message_si": (request.form.get("ftm_success_message_si") or fish_payload.get("success_message_si") or "").strip(),
+                "success_message_en": (request.form.get("ftm_success_message_en") or fish_payload.get("success_message_en") or "").strip(),
+                "try_again_message_si": (request.form.get("ftm_try_again_message_si") or fish_payload.get("try_again_message_si") or "").strip(),
+                "try_again_message_en": (request.form.get("ftm_try_again_message_en") or fish_payload.get("try_again_message_en") or "").strip(),
+                "completion_narration_si": (request.form.get("ftm_completion_narration_si") or fish_payload.get("completion_narration_si") or "").strip(),
+                "completion_narration_en": (request.form.get("ftm_completion_narration_en") or fish_payload.get("completion_narration_en") or "").strip(),
+                "left_positions": fish_tank_more_positions(left_count),
+                "right_positions": fish_tank_more_positions(right_count),
+            })
+            obj.activity_json = json.dumps(parse_fish_tank_more_activity(fish_payload), ensure_ascii=False)
         elif is_match_pairs_submission:
             obj.image_url = None
             if not slide:
@@ -18522,6 +18688,11 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             "එකකට එකක් යා කරන්න",
         ),
         (
+            "fish_tank_more_activity",
+            "Fish Tank More Activity",
+            "මාළු වැඩි ටැංකිය සොයන්න",
+        ),
+        (
             "select_and_color",
             "Select and Color Activity",
             "තෝරා පාට කිරීම",
@@ -18596,6 +18767,9 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         <div class='match-admin-row'><img src='{escape(item.get('image_url') or '')}' alt='Right match image'><input type='hidden' name='match_existing_right_id' value='{escape(item.get('id') or '')}'><input type='hidden' name='match_existing_right_image_url' value='{escape(item.get('image_url') or '')}'><strong>{escape(item.get('id') or '')}</strong><label class='remove-image'><input type='checkbox' name='match_remove_right' value='{escape(item.get('image_url') or '')}'> Remove</label></div>
         """ for item in match_right_items if item.get('image_url'))
     match_pair_options_html = "".join(f"<label class='match-pair-choice'><input type='checkbox' name='match_pair_map' value='{escape(left.get('id') or '')}::{escape(right.get('id') or '')}' {'checked' if (left.get('id'), right.get('id')) in match_pair_set else ''}> {escape(left.get('id') or '')} → {escape(right.get('id') or '')}</label>" for left in match_left_items for right in match_right_items)
+    fish_tank_more_activity = parse_fish_tank_more_activity(slide.activity_json if slide else None) or default_fish_tank_more_activity_payload()
+    def ftm_preview(url: str, label: str) -> str:
+        return f"<img src='{escape(url)}' alt='{escape(label)} current image' style='width:120px;height:90px;object-fit:contain;background:#fff;border:1px solid #bfdbfe;border-radius:12px;'>" if url else "<div style='width:120px;height:90px;display:grid;place-items:center;border:2px dashed #93c5fd;border-radius:12px;color:#1d4ed8;background:#eff6ff;'>No image</div>"
     drag_color_activity = parse_drag_color_match_activity(slide.activity_json if slide else None)
     drag_color_items = drag_color_activity.get("items", []) if drag_color_activity else []
     drag_color_zones = drag_color_activity.get("drop_zones", []) if drag_color_activity else []
@@ -19339,6 +19513,33 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         <h4>Correct pairs</h4><p style='color:#0369a1;'>After uploading images and saving once, edit this slide again to select the correct left → right pairs.</p><div class='match-pair-grid'>{match_pair_options_html or '<p>Add left and right images, save, then return here to define pairs.</p>'}</div>
       </fieldset>
       <script>(function(){{const typeSelect=document.getElementById('slideTypeSelect');const builder=document.getElementById('matchPairsBuilder');function toggle(){{if(builder&&typeSelect)builder.style.display=typeSelect.value==='match_pairs_activity'?'block':'none';}}typeSelect?.addEventListener('change',toggle);toggle();}})();</script>
+
+      <fieldset id='fishTankMoreBuilder' style='border:1px solid #67e8f9;border-radius:12px;padding:14px;max-width:980px;margin-bottom:18px;background:#ecfeff;'>
+        <legend><strong>Fish Tank More Activity</strong></legend>
+        <p>Upload the tank and fish images to the existing <code>lesson-images</code> bucket. Public URLs are saved in <code>activity_json</code>.</p>
+        <style>.ftm-admin-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.ftm-admin-upload{{display:grid;grid-template-columns:132px 1fr;gap:12px;align-items:center;background:#fff;border:1px solid #bae6fd;border-radius:12px;padding:10px}}.ftm-admin-grid label{{font-weight:700}}.ftm-admin-grid input,.ftm-admin-grid textarea,.ftm-admin-grid select{{width:100%;box-sizing:border-box}}@media(max-width:760px){{.ftm-admin-upload{{grid-template-columns:1fr}}}}</style>
+        <div class='ftm-admin-grid'>
+          <label>Sinhala title <input type='text' name='ftm_title_si' value='{escape(fish_tank_more_activity.get("title_si") or "")}' lang='si'></label>
+          <label>English title <input type='text' name='ftm_title_en' value='{escape(fish_tank_more_activity.get("title_en") or "")}'></label>
+          <label>Sinhala instruction <textarea name='ftm_instruction_si' rows='2' lang='si'>{escape(fish_tank_more_activity.get("instruction_si") or "")}</textarea></label>
+          <label>English instruction <textarea name='ftm_instruction_en' rows='2'>{escape(fish_tank_more_activity.get("instruction_en") or "")}</textarea></label>
+          <label>Left fish count <input type='number' min='1' max='10' name='ftm_left_count' value='{int(fish_tank_more_activity.get("left_count") or 4)}'></label>
+          <label>Right fish count <input type='number' min='1' max='10' name='ftm_right_count' value='{int(fish_tank_more_activity.get("right_count") or 8)}'></label>
+          <label>Correct more side <select name='ftm_correct_more_side'><option value='auto' {'selected' if fish_tank_more_activity.get("correct_more_side") == "auto" else ''}>auto</option><option value='left' {'selected' if fish_tank_more_activity.get("correct_more_side") == "left" else ''}>left</option><option value='right' {'selected' if fish_tank_more_activity.get("correct_more_side") == "right" else ''}>right</option><option value='equal' {'selected' if fish_tank_more_activity.get("correct_more_side") == "equal" else ''}>equal</option></select></label>
+          <label>Success message Sinhala <textarea name='ftm_success_message_si' rows='2' lang='si'>{escape(fish_tank_more_activity.get("success_message_si") or "")}</textarea></label>
+          <label>Success message English <textarea name='ftm_success_message_en' rows='2'>{escape(fish_tank_more_activity.get("success_message_en") or "")}</textarea></label>
+          <label>Try again message Sinhala <textarea name='ftm_try_again_message_si' rows='2' lang='si'>{escape(fish_tank_more_activity.get("try_again_message_si") or "")}</textarea></label>
+          <label>Try again message English <textarea name='ftm_try_again_message_en' rows='2'>{escape(fish_tank_more_activity.get("try_again_message_en") or "")}</textarea></label>
+          <label>Completion narration Sinhala <textarea name='ftm_completion_narration_si' rows='3' lang='si'>{escape(fish_tank_more_activity.get("completion_narration_si") or "")}</textarea></label>
+          <label>Completion narration English <textarea name='ftm_completion_narration_en' rows='3'>{escape(fish_tank_more_activity.get("completion_narration_en") or "")}</textarea></label>
+        </div>
+        <div class='ftm-admin-grid' style='margin-top:12px;'>
+          <div class='ftm-admin-upload'>{ftm_preview(fish_tank_more_activity.get("tank_image_url") or "", "Tank image")}<label>Tank image<input type='hidden' name='ftm_existing_tank_image_url' value='{escape(fish_tank_more_activity.get("tank_image_url") or "")}'><input type='file' name='ftm_tank_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label></div>
+          <div class='ftm-admin-upload'>{ftm_preview(fish_tank_more_activity.get("left_fish_image_url") or "", "Left fish image")}<label>Left fish image<input type='hidden' name='ftm_existing_left_fish_image_url' value='{escape(fish_tank_more_activity.get("left_fish_image_url") or "")}'><input type='file' name='ftm_left_fish_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label></div>
+          <div class='ftm-admin-upload'>{ftm_preview(fish_tank_more_activity.get("right_fish_image_url") or "", "Right fish image")}<label>Right fish image<input type='hidden' name='ftm_existing_right_fish_image_url' value='{escape(fish_tank_more_activity.get("right_fish_image_url") or "")}'><input type='file' name='ftm_right_fish_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label></div>
+        </div>
+      </fieldset>
+      <script>(function(){{const typeSelect=document.getElementById('slideTypeSelect');const builder=document.getElementById('fishTankMoreBuilder');function toggle(){{if(builder&&typeSelect)builder.style.display=typeSelect.value==='fish_tank_more_activity'?'block':'none';}}typeSelect?.addEventListener('change',toggle);toggle();}})();</script>
       <fieldset id='tapCorrectPictureBuilder' style='border:1px solid #bbf7d0;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;background:#f0fdf4;'>
         <legend><strong>Tap Correct Picture Activity</strong></legend>
         <p>Upload PNG, JPG, JPEG, or WebP files. Each image must be 1MB or less and uploads to Supabase Storage bucket <code>lesson-images</code>.</p>
