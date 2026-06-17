@@ -2774,6 +2774,107 @@ def parse_select_and_color_activity(activity_json: str | dict | None) -> dict:
     return normalized
 
 
+
+def parse_select_and_color_correct_object_activity(activity_json: str | dict | None) -> dict:
+    if not activity_json:
+        return {}
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    if not isinstance(payload, dict):
+        return {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or payload.get("slide_type") or "").strip().lower()
+    if activity_type != "select_and_color_correct_object":
+        return {}
+    objects = []
+    for index, item in enumerate(payload.get("objects") if isinstance(payload.get("objects"), list) else []):
+        if not isinstance(item, dict):
+            continue
+        object_id = str(item.get("id") or f"object_{index + 1}").strip()
+        objects.append({
+            "id": object_id,
+            "label": str(item.get("label") or object_id).strip(),
+            "image_bw": str(item.get("image_bw") or "").strip(),
+            "image_color": str(item.get("image_color") or "").strip(),
+            "correct": bool(item.get("correct")),
+            "success_text": str(item.get("success_text") or "").strip(),
+        })
+    return {
+        "type": "select_and_color_correct_object",
+        "slide_type": "select_and_color_correct_object",
+        "activity_type": "select_and_color_correct_object",
+        "question": str(payload.get("question") or "").strip(),
+        "wrong_text": str(payload.get("wrong_text") or "නැවත උත්සාහ කරන්න.").strip() or "නැවත උත්සාහ කරන්න.",
+        "objects": objects,
+    }
+
+def default_select_and_color_correct_object_activity_payload() -> dict:
+    return parse_select_and_color_correct_object_activity({
+        "type": "select_and_color_correct_object",
+        "question": "පේළියේ මුලින්ම සිටින සත්වයා මත ක්ලික් කරන්න.",
+        "wrong_text": "නැවත උත්සාහ කරන්න.",
+        "objects": [
+            {"id":"elephant","label":"අලියා","image_bw":"","image_color":"","correct":True,"success_text":"හරි! අලියා පේළියේ මුලින්ම සිටී."},
+            {"id":"lion","label":"සිංහයා","image_bw":"","image_color":"","correct":False,"success_text":""},
+            {"id":"horse","label":"අශ්වයා","image_bw":"","image_color":"","correct":False,"success_text":""},
+        ],
+    })
+
+def validate_select_and_color_correct_object_activity(payload: dict) -> str | None:
+    if not str(payload.get("question") or "").strip():
+        return "Question is required."
+    objects = payload.get("objects") if isinstance(payload.get("objects"), list) else []
+    if len(objects) < 2:
+        return "At least 2 objects are required."
+    correct_objects = [obj for obj in objects if obj.get("correct")]
+    if len(correct_objects) != 1:
+        return "Exactly 1 object must be marked correct."
+    for index, obj in enumerate(objects, start=1):
+        if not str(obj.get("id") or "").strip():
+            return f"Object {index} must have an id."
+        if not str(obj.get("label") or "").strip():
+            return f"Object {index} must have a label."
+        if not str(obj.get("image_bw") or "").strip():
+            return f"Object {index} must have a black and white image."
+        if not str(obj.get("image_color") or "").strip():
+            return f"Object {index} must have a color image."
+    if not str(correct_objects[0].get("success_text") or "").strip():
+        return "Correct object should have success text."
+    return None
+
+def upload_select_color_object_image_to_supabase(lesson, slide_ref: int | str | None, object_id: str, variant: str, file_storage) -> tuple[str | None, str | None]:
+    if not file_storage or not file_storage.filename:
+        return None, None
+    original_name = secure_filename(file_storage.filename)
+    ext = original_name.rsplit('.', 1)[-1].lower() if '.' in original_name else ''
+    if ext not in IMAGE_CONTENT_TYPE_BY_EXT:
+        return None, "Invalid file type. Upload png, jpg, jpeg, or webp images only."
+    file_storage.stream.seek(0, os.SEEK_END); size = file_storage.stream.tell(); file_storage.stream.seek(0)
+    if size > MAX_ACTIVITY_IMAGE_UPLOAD_SIZE:
+        return None, "Activity images must be 1MB or less."
+    supabase_url = (os.environ.get("SUPABASE_URL") or "").strip(); supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not supabase_key:
+        return None, "Supabase storage is not configured."
+    chapter = db.session.get(SyllabusChapter, getattr(lesson, "chapter_id", None))
+    module_id = chapter.module_id if chapter else "1"
+    term = db.session.get(SyllabusTerm, db.session.get(SyllabusModule, module_id).term_id) if str(module_id).isdigit() and db.session.get(SyllabusModule, module_id) else None
+    grade_raw = str(term.grade if term else "1")
+    grade_num = ''.join(ch for ch in grade_raw if ch.isdigit()) or grade_raw or "1"
+    safe_object_id = secure_filename(object_id) or "object"
+    safe_slide_ref = secure_filename(str(slide_ref or "temp")) or "temp"
+    object_name = f"grade-{grade_num}/module-{module_id}/chapter-{getattr(lesson, 'chapter_id', '1')}/select-color/{safe_slide_ref}/{safe_object_id}-{variant}.png"
+    req = Request(f"{supabase_url.rstrip('/')}/storage/v1/object/lesson-images/{object_name}", data=file_storage.read(), method="POST", headers={"Authorization": f"Bearer {supabase_key}", "apikey": supabase_key, "Content-Type": IMAGE_CONTENT_TYPE_BY_EXT[ext], "x-upsert": "true"})
+    file_storage.stream.seek(0)
+    try:
+        urlopen(req, timeout=30).read()
+    except (HTTPError, URLError, TimeoutError) as exc:
+        return None, f"Failed to upload activity image: {exc}"
+    return f"{supabase_url.rstrip('/')}/storage/v1/object/public/lesson-images/{object_name}", None
+
 def validate_select_and_color_activity(payload: dict) -> str | None:
     if not str(payload.get("base_image_url") or "").strip():
         return "Select and Color Activity requires an uploaded base image."
@@ -15661,7 +15762,7 @@ def student_lesson_page(lesson_id: int):
         }} catch (fishTankMoreWireError) {{ console.error('fishTankMore wire failed', fishTankMoreWireError); const err = scope.querySelector('.ftm-message'); if (err) {{ err.textContent = 'Fish Tank More Activity could not load.'; err.style.display = 'block'; }} }}
       }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq","more_object_matching_activity":"fish_tank_more_activity"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; if (normalizedActivityType === "fish_tank_more_activity") return renderFishTankMoreActivity(activityData, {{isSinhala}}); const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "coloring_activity") {{ const title = localizedActivityText(activityData, "title", isSinhala ? "පාට කිරීමේ ක්‍රියාකාරකම" : "Coloring Activity"); const instruction = localizedActivityText(activityData, "instruction", activityData.question || ""); const imageUrl = activityData.image_url || activityData.base_image_url || ""; const palette = Array.isArray(activityData.color_palette) && activityData.color_palette.length ? activityData.color_palette : [{{name_en:"Red",name_si:"රතු",hex:"#EF4444"}},{{name_en:"Blue",name_si:"නිල්",hex:"#3B82F6"}},{{name_en:"Green",name_si:"කොළ",hex:"#22C55E"}},{{name_en:"Yellow",name_si:"කහ",hex:"#FACC15"}},{{name_en:"Orange",name_si:"තැඹිලි",hex:"#F97316"}},{{name_en:"Purple",name_si:"දම්",hex:"#A855F7"}},{{name_en:"Pink",name_si:"රෝස",hex:"#EC4899"}}]; const brushes = Array.isArray(activityData.brush_sizes) && activityData.brush_sizes.length ? activityData.brush_sizes : [{{key:"small",label_en:"Small",label_si:"කුඩා",size:4}},{{key:"medium",label_en:"Medium",label_si:"මධ්‍යම",size:8}},{{key:"large",label_en:"Large",label_si:"විශාල",size:14}}]; const paletteHtml = palette.map((color, idx)=>{{ const label = isSinhala ? (color.name_si || color.name_en || color.hex) : (color.name_en || color.name_si || color.hex); return `<button type="button" class="ca-color-btn ${{idx === 0 ? "active" : ""}}" data-color="${{escapeHtml(color.hex || "#EF4444")}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}" style="background:${{escapeHtml(color.hex || "#EF4444")}}"></button>`; }}).join(""); const brushHtml = brushes.map((brush, idx)=>{{ const label = isSinhala ? (brush.label_si || brush.label_en || brush.key) : (brush.label_en || brush.label_si || brush.key); const compactLabel = idx === 0 ? "S" : idx === 1 ? "M" : idx === 2 ? "L" : String(label || brush.key || idx + 1).slice(0, 2).toUpperCase(); return `<button type="button" class="ca-brush-btn ${{idx === 1 ? "active" : ""}}" data-size="${{Number(brush.size || 8)}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}">${{escapeHtml(compactLabel)}}</button>`; }}).join(""); return `<style>
+      function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq","more_object_matching_activity":"fish_tank_more_activity"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; if (normalizedActivityType === "fish_tank_more_activity") return renderFishTankMoreActivity(activityData, {{isSinhala}}); const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "select_and_color_correct_object") {{ const question = String(activityData.question || questionTitle || ""); const wrongText = String(activityData.wrong_text || "නැවත උත්සාහ කරන්න."); const objects = Array.isArray(activityData.objects) ? activityData.objects.filter((obj)=>String(obj?.id||"").trim()) : []; const cards = objects.map((obj)=>{{ const id=String(obj.id||""); const label=String(obj.label||id); const bw=String(obj.image_bw||""); const color=String(obj.image_color||bw); return `<button type="button" class="select-color-object-card" data-object-id="${{escapeHtml(id)}}" data-correct="${{obj.correct ? "1" : "0"}}" data-bw="${{escapeHtml(bw)}}" data-color="${{escapeHtml(color)}}" data-success-text="${{escapeHtml(String(obj.success_text||""))}}" aria-label="${{escapeHtml(label)}}"><img class="select-color-object-image" src="${{escapeHtml(normalizeLocalImageUrl(bw))}}" alt="${{escapeHtml(label)}}" draggable="false" loading="lazy"><span>${{escapeHtml(label)}}</span></button>`; }}).join(""); return `<style>.select-color-activity[data-activity-type="select_and_color_correct_object"]{{width:100%;max-width:1120px;margin:0 auto;padding:12px;box-sizing:border-box;overflow:visible}}.select-color-question{{font-size:clamp(1.35rem,3vw,2.1rem);font-weight:900;text-align:center;color:#1e293b;margin:0 0 22px;line-height:1.25}}.select-color-objects{{display:flex;justify-content:center;align-items:stretch;gap:clamp(14px,3vw,32px);flex-wrap:wrap}}.select-color-object-card{{appearance:none;border:4px solid #e0f2fe;border-radius:24px;background:rgba(255,255,255,.94);padding:16px;min-width:170px;min-height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;touch-action:manipulation;box-shadow:0 14px 30px rgba(15,23,42,.12);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}}.select-color-object-card:hover,.select-color-object-card:focus-visible{{transform:translateY(-3px);border-color:#38bdf8;outline:0}}.select-color-object-image{{display:block;max-width:220px;max-height:270px;width:auto;height:auto;object-fit:contain;pointer-events:none;user-select:none}}.select-color-object-card span{{font-size:1.08rem;font-weight:900;color:#334155}}.select-color-object-card.correct{{border-color:#22c55e;box-shadow:0 0 0 7px rgba(34,197,94,.22),0 16px 34px rgba(34,197,94,.22)}}.select-color-object-card.wrong{{border-color:#ef4444;animation:selectColorShake .34s ease}}.select-color-feedback{{text-align:center;margin:20px auto 0;min-height:34px;font-size:1.18rem;font-weight:900;border-radius:16px;padding:10px 14px;max-width:720px}}.select-color-feedback.success{{background:#dcfce7;color:#166534}}.select-color-feedback.wrong{{background:#fee2e2;color:#991b1b}}@keyframes selectColorShake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-8px)}}50%{{transform:translateX(8px)}}75%{{transform:translateX(-5px)}}}}body.lesson-fullscreen-active .select-color-activity[data-activity-type="select_and_color_correct_object"],.lesson-player-card.lesson-fullscreen-active .select-color-activity[data-activity-type="select_and_color_correct_object"],.lesson-player-card:fullscreen .select-color-activity[data-activity-type="select_and_color_correct_object"],.lesson-player-card:-webkit-full-screen .select-color-activity[data-activity-type="select_and_color_correct_object"]{{height:auto;min-height:calc(100dvh - 110px);max-width:none;display:flex;flex-direction:column;justify-content:center;overflow:visible;padding:8px 16px 70px}}@media(max-width:640px){{.select-color-question{{font-size:1.15rem;margin-bottom:12px}}.select-color-objects{{gap:10px}}.select-color-object-card{{min-width:118px;min-height:138px;border-radius:18px;padding:10px}}.select-color-object-image{{max-width:132px;max-height:165px}}.select-color-object-card span{{font-size:.9rem}}.select-color-feedback{{font-size:1rem;margin-top:12px}}.lesson-player-card:fullscreen .select-color-object-image,body.lesson-fullscreen-active .select-color-object-image{{max-height:150px}}}}</style><div class="activity-wrap select-color-activity" data-activity-type="select_and_color_correct_object" data-wrong-text="${{escapeHtml(wrongText)}}"><h3 class="select-color-question">${{escapeHtml(question)}}</h3><div class="select-color-objects">${{cards}}</div><div class="select-color-feedback" aria-live="polite"></div></div>`; }} if (normalizedActivityType === "coloring_activity") {{ const title = localizedActivityText(activityData, "title", isSinhala ? "පාට කිරීමේ ක්‍රියාකාරකම" : "Coloring Activity"); const instruction = localizedActivityText(activityData, "instruction", activityData.question || ""); const imageUrl = activityData.image_url || activityData.base_image_url || ""; const palette = Array.isArray(activityData.color_palette) && activityData.color_palette.length ? activityData.color_palette : [{{name_en:"Red",name_si:"රතු",hex:"#EF4444"}},{{name_en:"Blue",name_si:"නිල්",hex:"#3B82F6"}},{{name_en:"Green",name_si:"කොළ",hex:"#22C55E"}},{{name_en:"Yellow",name_si:"කහ",hex:"#FACC15"}},{{name_en:"Orange",name_si:"තැඹිලි",hex:"#F97316"}},{{name_en:"Purple",name_si:"දම්",hex:"#A855F7"}},{{name_en:"Pink",name_si:"රෝස",hex:"#EC4899"}}]; const brushes = Array.isArray(activityData.brush_sizes) && activityData.brush_sizes.length ? activityData.brush_sizes : [{{key:"small",label_en:"Small",label_si:"කුඩා",size:4}},{{key:"medium",label_en:"Medium",label_si:"මධ්‍යම",size:8}},{{key:"large",label_en:"Large",label_si:"විශාල",size:14}}]; const paletteHtml = palette.map((color, idx)=>{{ const label = isSinhala ? (color.name_si || color.name_en || color.hex) : (color.name_en || color.name_si || color.hex); return `<button type="button" class="ca-color-btn ${{idx === 0 ? "active" : ""}}" data-color="${{escapeHtml(color.hex || "#EF4444")}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}" style="background:${{escapeHtml(color.hex || "#EF4444")}}"></button>`; }}).join(""); const brushHtml = brushes.map((brush, idx)=>{{ const label = isSinhala ? (brush.label_si || brush.label_en || brush.key) : (brush.label_en || brush.label_si || brush.key); const compactLabel = idx === 0 ? "S" : idx === 1 ? "M" : idx === 2 ? "L" : String(label || brush.key || idx + 1).slice(0, 2).toUpperCase(); return `<button type="button" class="ca-brush-btn ${{idx === 1 ? "active" : ""}}" data-size="${{Number(brush.size || 8)}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}">${{escapeHtml(compactLabel)}}</button>`; }}).join(""); return `<style>
 .coloring-activity{{width:100%;max-width:980px;margin:0 auto;padding:14px;border-radius:22px;background:linear-gradient(180deg,#eff6ff,#fff7ed);border:1px solid #bfdbfe;box-shadow:0 16px 36px rgba(30,64,175,.10);box-sizing:border-box;display:flex;flex-direction:column;gap:10px;overflow:hidden}}
 .ca-header{{flex:0 0 auto;text-align:center}}
 .ca-title{{text-align:center;color:#1d4ed8;margin:0;line-height:1.15}}
@@ -15786,7 +15887,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq","more_object_matching_activity":"fish_tank_more_activity"}};
         const normalizedType = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase();
         if (current.is_required === false) return false;
-        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || (normalizedType === "fish_tank_more_activity" || normalizedType === "more_object_matching_activity") || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
+        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "select_and_color_correct_object" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || (normalizedType === "fish_tank_more_activity" || normalizedType === "more_object_matching_activity") || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
       }}
       function setCurrentSlideCompleted(source = "activity-complete") {{
         const current = slides[currentIndex];
@@ -16361,6 +16462,32 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         document.addEventListener('fullscreenchange', scheduleLayout);
         document.addEventListener('webkitfullscreenchange', scheduleLayout);
       }}
+      function wireSelectAndColorCorrectObjectActivity(mediaWrap) {{
+        const root = mediaWrap.querySelector('.select-color-activity[data-activity-type="select_and_color_correct_object"]');
+        if (!root) return;
+        const feedback = root.querySelector('.select-color-feedback');
+        let completed = false;
+        root.querySelectorAll('.select-color-object-card').forEach((card) => {{
+          card.addEventListener('click', () => {{
+            if (completed) return;
+            const isCorrect = card.dataset.correct === '1';
+            root.querySelectorAll('.select-color-object-card.wrong').forEach((item)=>item.classList.remove('wrong'));
+            if (!isCorrect) {{
+              card.classList.remove('wrong'); void card.offsetWidth; card.classList.add('wrong');
+              if (feedback) {{ feedback.textContent = root.dataset.wrongText || 'නැවත උත්සාහ කරන්න.'; feedback.className = 'select-color-feedback wrong'; }}
+              return;
+            }}
+            completed = true;
+            const img = card.querySelector('.select-color-object-image');
+            if (img && card.dataset.color) img.src = normalizeLocalImageUrl(card.dataset.color);
+            card.classList.add('correct');
+            root.querySelectorAll('.select-color-object-card').forEach((item)=>{{ if (item !== card) item.disabled = true; }});
+            if (feedback) {{ feedback.textContent = card.dataset.successText || 'හරි!'; feedback.className = 'select-color-feedback success'; }}
+            markCurrentSlideComplete('select_and_color_correct_object');
+          }});
+        }});
+      }}
+
       function wireSelectAndColorActivity(mediaWrap) {{
         const root = mediaWrap.querySelector('.select-color-activity[data-activity-type="select_and_color"]');
         const current = slides[currentIndex];
@@ -17124,6 +17251,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           if (normalizedType === "drawing_activity") wireDrawingActivity(mediaWrap);
           if (normalizedType === "coloring_activity") wireColoringActivity(mediaWrap);
           if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap);
+          if (normalizedType === "select_and_color_correct_object") wireSelectAndColorCorrectObjectActivity(mediaWrap);
           if (normalizedType === "select_and_color") wireSelectAndColorActivity(mediaWrap);
           if (normalizedType === "mcq") wireMcqInteraction(mediaWrap);
           if (normalizedType === "fill_blank") wireFillBlankInteraction(mediaWrap);
@@ -18009,6 +18137,7 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         has_mango_uploads = any(upload and upload.filename for upload in mango_upload_files.values())
         select_color_upload = request.files.get("select_color_base_image")
         has_select_color_upload = bool(select_color_upload and select_color_upload.filename)
+        has_select_color_correct_object_uploads = any(upload and upload.filename for key, upload in request.files.items() if key.startswith("scco_object_") and (key.endswith("_bw") or key.endswith("_color")))
         coloring_upload = request.files.get("coloring_activity_image")
         has_coloring_upload = bool(coloring_upload and coloring_upload.filename)
         fish_tank_more_upload_fields = ("ftm_tank_image", "ftm_left_group_image", "ftm_right_group_image", "ftm_left_fish_image", "ftm_right_fish_image")
@@ -18111,6 +18240,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             or (submitted_activity_payload or {}).get("activity_type") == "match_pairs_activity"
             or (submitted_activity_payload or {}).get("type") == "match_pairs_activity"
             or (submitted_activity_payload or {}).get("slide_type") == "match_pairs_activity"
+        )
+        is_select_color_correct_object_submission = (
+            selected_slide_type == "select_and_color_correct_object"
+            or has_select_color_correct_object_uploads
+            or (old_activity_payload or {}).get("activity_type") == "select_and_color_correct_object"
+            or (old_activity_payload or {}).get("type") == "select_and_color_correct_object"
+            or (old_activity_payload or {}).get("slide_type") == "select_and_color_correct_object"
+            or (submitted_activity_payload or {}).get("activity_type") == "select_and_color_correct_object"
+            or (submitted_activity_payload or {}).get("type") == "select_and_color_correct_object"
+            or (submitted_activity_payload or {}).get("slide_type") == "select_and_color_correct_object"
         )
         is_select_and_color_submission = (
             selected_slide_type == "select_and_color"
@@ -18532,6 +18671,40 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                 request.form.get("tap_wrong_message_en"),
                 request.form.get("tap_wrong_message_si"),
             )
+        elif is_select_color_correct_object_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+            base_payload = parse_select_and_color_correct_object_activity(submitted_activity_json) or parse_select_and_color_correct_object_activity(old_activity_json) or default_select_and_color_correct_object_activity_payload()
+            object_ids = request.form.getlist("scco_object_id")
+            labels = request.form.getlist("scco_object_label")
+            existing_bw = request.form.getlist("scco_existing_image_bw")
+            existing_color = request.form.getlist("scco_existing_image_color")
+            success_texts = request.form.getlist("scco_success_text")
+            correct_index = request.form.get("scco_correct_index") or ""
+            objects = []
+            max_len = max(len(object_ids), len(labels), len(existing_bw), len(existing_color), len(success_texts))
+            for index in range(max_len):
+                object_id = (object_ids[index] if index < len(object_ids) else f"object_{index + 1}").strip()
+                image_bw = (existing_bw[index] if index < len(existing_bw) else "").strip()
+                image_color = (existing_color[index] if index < len(existing_color) else "").strip()
+                bw_upload = request.files.get(f"scco_object_{index}_bw")
+                color_upload = request.files.get(f"scco_object_{index}_color")
+                if bw_upload and bw_upload.filename:
+                    image_bw, upload_error = upload_select_color_object_image_to_supabase(lesson, obj.id or "temp", object_id, "bw", bw_upload)
+                    if upload_error:
+                        db.session.rollback(); return f"<h2>Select and Color Correct Object upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                if color_upload and color_upload.filename:
+                    image_color, upload_error = upload_select_color_object_image_to_supabase(lesson, obj.id or "temp", object_id, "color", color_upload)
+                    if upload_error:
+                        db.session.rollback(); return f"<h2>Select and Color Correct Object upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                objects.append({"id": object_id, "label": (labels[index] if index < len(labels) else object_id).strip(), "image_bw": image_bw or "", "image_color": image_color or "", "correct": str(index) == str(correct_index), "success_text": (success_texts[index] if index < len(success_texts) else "").strip()})
+            payload = parse_select_and_color_correct_object_activity({"type":"select_and_color_correct_object", "question": request.form.get("scco_question") or base_payload.get("question") or "", "wrong_text": request.form.get("scco_wrong_text") or base_payload.get("wrong_text") or "නැවත උත්සාහ කරන්න.", "objects": objects})
+            validation_error = validate_select_and_color_correct_object_activity(payload)
+            if validation_error:
+                db.session.rollback(); return f"<h2>Could not save Select and Color Correct Object Activity</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+            obj.activity_json = json.dumps(payload, ensure_ascii=False)
         elif is_select_and_color_submission:
             obj.image_url = None
             if not slide:
@@ -18764,6 +18937,25 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         """
         for item in existing_grid_images
     )
+    select_color_correct_object_activity = parse_select_and_color_correct_object_activity(slide.activity_json if slide else None) or default_select_and_color_correct_object_activity_payload()
+    scco_objects = select_color_correct_object_activity.get("objects") or []
+    scco_rows = []
+    for idx, obj in enumerate(scco_objects):
+        bw_url = str(obj.get("image_bw") or "")
+        color_url = str(obj.get("image_color") or "")
+        bw_preview = f"<img src='{escape(bw_url)}' alt='BW preview'>" if bw_url else ""
+        color_preview = f"<img src='{escape(color_url)}' alt='Color preview'>" if color_url else ""
+        checked = "checked" if obj.get("correct") else ""
+        scco_rows.append(f"""<div class='scco-row'>
+          <label>Object ID <input type='text' name='scco_object_id' value='{escape(str(obj.get('id') or ''))}'></label>
+          <label>Label <input type='text' name='scco_object_label' value='{escape(str(obj.get('label') or ''))}' lang='si'></label>
+          <label class='scco-preview'>Black & white image{bw_preview}<input type='hidden' name='scco_existing_image_bw' value='{escape(bw_url)}'><input type='file' name='scco_object_{idx}_bw' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
+          <label class='scco-preview'>Color image{color_preview}<input type='hidden' name='scco_existing_image_color' value='{escape(color_url)}'><input type='file' name='scco_object_{idx}_color' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
+          <label class='scco-correct'><input type='radio' name='scco_correct_index' value='{idx}' {checked}> Correct answer</label>
+          <label>Success text <textarea name='scco_success_text' rows='2' lang='si'>{escape(str(obj.get('success_text') or ''))}</textarea></label>
+          <button type='button' class='scco-remove'>Remove</button>
+        </div>""")
+    scco_rows_html = "".join(scco_rows)
     select_color_activity = parse_select_and_color_activity(slide.activity_json if slide else None) or default_select_and_color_activity_payload()
     select_color_object_zones_json = json.dumps(select_color_activity.get("object_zones") or [], ensure_ascii=False, indent=2)
     select_color_palette_json = json.dumps(select_color_activity.get("color_palette") or [], ensure_ascii=False, indent=2)
@@ -19645,6 +19837,18 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
           if (typeSelect && typeSelect.value === 'tap_correct_picture' && rows && !rows.children.length) addRow();
         }})();
       </script>
+      <fieldset id='selectColorCorrectObjectBuilder' style='border:1px solid #fed7aa;border-radius:12px;padding:14px;max-width:980px;margin-bottom:18px;background:#fff7ed;'>
+        <legend><strong>Select and Color Correct Object</strong></legend>
+        <p>Upload each object's black-and-white and color image to Supabase Storage bucket <code>lesson-images</code>. Saved JSON stores usable URLs in <code>image_bw</code> and <code>image_color</code>.</p>
+        <style>.scco-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}}.scco-row{{display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));gap:10px;align-items:end;margin:12px 0;padding:12px;background:#fff;border:1px solid #fed7aa;border-radius:14px}}.scco-row label{{font-weight:800}}.scco-row input[type=text],.scco-row textarea{{width:100%;box-sizing:border-box}}.scco-preview img{{display:block;width:96px;height:96px;object-fit:contain;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin:6px 0}}.scco-correct{{color:#166534}}.scco-remove{{border:0;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:900;padding:9px 12px;cursor:pointer}}@media(max-width:760px){{.scco-row{{grid-template-columns:1fr}}}}</style>
+        <div class='scco-grid'>
+          <label>Question text <textarea name='scco_question' rows='3' lang='si'>{escape(select_color_correct_object_activity.get("question") or "")}</textarea></label>
+          <label>Wrong answer feedback text <textarea name='scco_wrong_text' rows='3' lang='si'>{escape(select_color_correct_object_activity.get("wrong_text") or "නැවත උත්සාහ කරන්න.")}</textarea></label>
+        </div>
+        <h4>Objects</h4><div id='sccoRows'>{scco_rows_html}</div><button type='button' id='sccoAddObject'>Add object</button>
+        <p style='color:#9a3412;font-weight:800;'>Save requires a question, at least 2 objects, exactly 1 correct object, labels, and both images for every object.</p>
+      </fieldset>
+      <script>(function(){{ const typeSelect=document.getElementById('slideTypeSelect'); const builder=document.getElementById('selectColorCorrectObjectBuilder'); const rows=document.getElementById('sccoRows'); const addBtn=document.getElementById('sccoAddObject'); function toggle(){{ if(builder&&typeSelect) builder.style.display=typeSelect.value==='select_and_color_correct_object'?'block':'none'; }} function reindex(){{ rows?.querySelectorAll('.scco-row').forEach((row,idx)=>{{ row.querySelectorAll('input[type=file]').forEach((input)=>{{ input.name = input.name.includes('_color') ? `scco_object_${{idx}}_color` : `scco_object_${{idx}}_bw`; }}); const radio=row.querySelector('input[type=radio]'); if(radio) radio.value=String(idx); }}); }} function addRow(){{ const idx=rows ? rows.children.length : 0; const row=document.createElement('div'); row.className='scco-row'; row.innerHTML=`<label>Object ID <input type='text' name='scco_object_id' value='object_${{idx+1}}'></label><label>Label <input type='text' name='scco_object_label' lang='si'></label><label class='scco-preview'>Black & white image<input type='hidden' name='scco_existing_image_bw' value=''><input type='file' name='scco_object_${{idx}}_bw' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label><label class='scco-preview'>Color image<input type='hidden' name='scco_existing_image_color' value=''><input type='file' name='scco_object_${{idx}}_color' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label><label class='scco-correct'><input type='radio' name='scco_correct_index' value='${{idx}}'> Correct answer</label><label>Success text <textarea name='scco_success_text' rows='2' lang='si'></textarea></label><button type='button' class='scco-remove'>Remove</button>`; rows?.appendChild(row); }} rows?.addEventListener('click',(event)=>{{ if(event.target && event.target.classList.contains('scco-remove')){{ event.target.closest('.scco-row')?.remove(); reindex(); }} }}); addBtn?.addEventListener('click',addRow); typeSelect?.addEventListener('change',toggle); toggle(); if(typeSelect && typeSelect.value==='select_and_color_correct_object' && rows && !rows.children.length){{ addRow(); addRow(); }} }})();</script>
       <label>XP Reward <input type='number' name='xp_reward' value='{slide.xp_reward if slide else 10}' min='0'></label><br><br>
       <label><input type='checkbox' name='is_required' value='1' {'checked' if (slide.is_required if slide else True) else ''}> Is Required</label><br><br>
       <label><input type='checkbox' name='is_active' value='1' {'checked' if (slide.is_active if slide else True) else ''}> Is Active</label><br><br>
