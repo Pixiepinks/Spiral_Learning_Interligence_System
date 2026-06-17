@@ -1,0 +1,37 @@
+{
+  "type": "match_pairs_activity",
+  "slide_type": "match_pairs_activity",
+  "activity_type": "match_pairs_activity",
+  "layout_mode": "background_positioned",
+  "title_si": "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු",
+  "instruction_si": "මාළුවෙකුට මාළුවෙකු යා කරන්න.",
+  "success_message_si": "හොඳයි!\nදකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.",
+  "enable_more_side_highlight": true,
+  "more_side": "right",
+  "more_message_si": "දකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.",
+  "background_image_url": "/static/images/fish-tanks-two-empty.svg",
+  "left_tank": {"x": 4, "y": 13, "width": 43, "height": 70},
+  "right_tank": {"x": 53, "y": 13, "width": 43, "height": 70},
+  "left_items": [
+    {"id":"left-fish-1","image_url":"/static/images/yellow-fish.svg","label_si":"කහ මාළු 1","x":15,"y":25},
+    {"id":"left-fish-2","image_url":"/static/images/yellow-fish.svg","label_si":"කහ මාළු 2","x":45,"y":18},
+    {"id":"left-fish-3","image_url":"/static/images/yellow-fish.svg","label_si":"කහ මාළු 3","x":75,"y":20},
+    {"id":"left-fish-4","image_url":"/static/images/yellow-fish.svg","label_si":"කහ මාළු 4","x":55,"y":50}
+  ],
+  "right_items": [
+    {"id":"right-fish-1","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 1","x":15,"y":15},
+    {"id":"right-fish-2","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 2","x":50,"y":15},
+    {"id":"right-fish-3","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 3","x":80,"y":15},
+    {"id":"right-fish-4","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 4","x":20,"y":35},
+    {"id":"right-fish-5","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 5","x":60,"y":35},
+    {"id":"right-fish-6","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 6","x":20,"y":60},
+    {"id":"right-fish-7","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 7","x":55,"y":60},
+    {"id":"right-fish-8","image_url":"/static/images/clown-fish.svg","label_si":"කවුළු මාළු 8","x":80,"y":60}
+  ],
+  "pairs": [
+    {"left_id":"left-fish-1","right_id":"right-fish-1"},
+    {"left_id":"left-fish-2","right_id":"right-fish-2"},
+    {"left_id":"left-fish-3","right_id":"right-fish-3"},
+    {"left_id":"left-fish-4","right_id":"right-fish-4"}
+  ]
+}
