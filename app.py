@@ -1978,11 +1978,11 @@ def fish_tank_more_positions(count: int) -> list[dict]:
     }
     count = _ftm_clamp_count(count, 4)
     presets[5] = [
-        {"x": 45, "y": 18},
-        {"x": 30, "y": 38},
-        {"x": 60, "y": 38},
-        {"x": 35, "y": 62},
-        {"x": 58, "y": 62},
+        {"x": 42, "y": 22},
+        {"x": 36, "y": 34},
+        {"x": 61, "y": 38},
+        {"x": 38, "y": 60},
+        {"x": 59, "y": 62},
     ]
     presets[6] = [
         {"x": 40, "y": 18},
