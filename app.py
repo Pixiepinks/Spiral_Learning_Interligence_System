@@ -2881,74 +2881,6 @@ def build_image_grid_activity_json(images: list[dict]) -> str:
     return json.dumps({"type": "image_grid", "images": normalized}, ensure_ascii=False)
 
 
-
-def default_object_match_compare_activity_payload(title_en=None, title_si=None, content_en=None, content_si=None) -> dict:
-    return {
-        "activity_type": "object_match_compare",
-        "slide_type": "object_match_compare",
-        "title": title_si or title_en or "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු",
-        "instruction": content_si or content_en or "මාළුවෙකුට මාළුවෙකු යා කරන්න.",
-        "leftLabel": "වම් ටැංකිය",
-        "rightLabel": "දකුණු ටැංකිය",
-        "leftCount": 4,
-        "rightCount": 8,
-        "leftContainerImage": "",
-        "rightContainerImage": "",
-        "leftObjectImage": "",
-        "rightObjectImage": "",
-        "leftObjectPositions": [],
-        "rightObjectPositions": [],
-        "introNarration": "",
-        "rightMoreNarration": "",
-        "leftMoreNarration": "",
-        "equalNarration": "",
-        "rightMoreMessage": "🎉 හොඳයි!\nදකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.",
-        "leftMoreMessage": "🎉 හොඳයි!\nවම් පැත්තේ ටැංකියේ මාළු වැඩියි.",
-        "equalMessage": "🎉 හොඳයි!\nටැංකි දෙකේම මාළු සමානයි.",
-    }
-
-
-def parse_object_match_compare_activity(activity_json: str | dict | None) -> dict | None:
-    if not activity_json:
-        return None
-    if isinstance(activity_json, dict):
-        payload = dict(activity_json)
-    else:
-        try:
-            parsed = json.loads(activity_json)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-        if not isinstance(parsed, dict):
-            return None
-        payload = parsed
-    activity_type = str(payload.get("activity_type") or payload.get("slide_type") or payload.get("type") or "").strip().lower()
-    if activity_type != "object_match_compare":
-        return None
-    base = default_object_match_compare_activity_payload()
-    base.update(payload)
-    base["activity_type"] = "object_match_compare"
-    base["slide_type"] = "object_match_compare"
-    for key in ("leftCount", "rightCount"):
-        try:
-            base[key] = max(0, int(base.get(key) or 0))
-        except (TypeError, ValueError):
-            base[key] = 0
-    for key in ("leftObjectPositions", "rightObjectPositions"):
-        positions = base.get(key) if isinstance(base.get(key), list) else []
-        clean = []
-        for idx, pos in enumerate(positions):
-            if not isinstance(pos, dict):
-                continue
-            clean.append({
-                "id": str(pos.get("id") or f"{key}-{idx + 1}"),
-                "x": float(pos.get("x") or 50),
-                "y": float(pos.get("y") or 50),
-                "scale": float(pos.get("scale") or 1),
-                "rotation": float(pos.get("rotation") or 0),
-            })
-        base[key] = clean
-    return base
-
 def upload_profile_image_to_supabase(student_id: int, image_bytes: bytes, content_type: str) -> tuple[str | None, str | None]:
     supabase_url = (os.environ.get("SUPABASE_URL") or "").strip()
     supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
@@ -15589,30 +15521,6 @@ def student_lesson_page(lesson_id: int):
         return hasShapeRun(mixed, maxRun) ? fisherYates(source) : mixed;
       }}
       function renderImageGrid(images) {{ const safeImages = Array.isArray(images) ? images.filter((item)=>item && item.url) : []; if (!safeImages.length) return ""; const cards = safeImages.map((item, idx) => {{ const caption = isSinhala ? (item.caption_si || item.caption_en || "") : (item.caption_en || item.caption_si || ""); const alt = caption || (isSinhala ? `රූපය ${{idx + 1}}` : `Image ${{idx + 1}}`); const captionHtml = caption ? `<figcaption class="image-grid-caption">${{escapeHtml(caption)}}</figcaption>` : ""; return `<figure class="image-grid-card"><img src="${{escapeHtml(item.url)}}" alt="${{escapeHtml(alt)}}" loading="lazy">${{captionHtml}}</figure>`; }}).join(""); return `<div class="image-grid-gallery" aria-label="${{isSinhala ? "රූප ගැලරිය" : "Image gallery"}}">${{cards}}</div>`; }}
-      function renderObjectMatchCompareActivity(slide, activityConfig) {{
-        try {{
-          const cfg = activityConfig && typeof activityConfig === "object" ? activityConfig : {{}};
-          const leftCount = Math.max(0, Number(cfg.leftCount || 0));
-          const rightCount = Math.max(0, Number(cfg.rightCount || 0));
-          const leftPositions = Array.isArray(cfg.leftObjectPositions) ? cfg.leftObjectPositions : [];
-          const rightPositions = Array.isArray(cfg.rightObjectPositions) ? cfg.rightObjectPositions : [];
-          const makeObjects = (side, count, imageUrl, positions) => Array.from({{length: count}}, (_, idx) => {{
-            const pos = positions[idx] || {{id:`${{side}}-${{idx+1}}`, x:20 + ((idx*13)%60), y:25 + ((idx*11)%50), scale:1, rotation:0}};
-            return `<button type="button" class="omc-object" data-omc-side="${{side}}" data-omc-index="${{idx}}" style="left:${{Number(pos.x||50)}}%;top:${{Number(pos.y||50)}}%;transform:translate(-50%,-50%) scale(${{Number(pos.scale||1)}}) rotate(${{Number(pos.rotation||0)}}deg)"><img src="${{escapeHtml(imageUrl||"")}}" alt=""><span class="omc-check">✓</span></button>`;
-          }}).join("");
-          return `<section class="omc-activity" data-activity-type="object_match_compare">
-            <style>.omc-activity{{margin-top:18px;padding:18px;border-radius:22px;background:linear-gradient(180deg,#ecfeff,#f0fdf4);border:1px solid #a7f3d0}}.omc-title{{margin:0 0 6px;color:#0f172a}}.omc-instruction{{margin:0 0 16px;color:#334155;font-weight:800}}.omc-board{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}.omc-container{{border:4px solid transparent;border-radius:22px;background:#fff;padding:12px;box-shadow:0 14px 30px rgba(15,23,42,.10)}}.omc-container.omc-more{{border-color:#22c55e}}.omc-label{{text-align:center;font-weight:900;color:#166534;margin-bottom:8px}}.omc-scene{{position:relative;aspect-ratio:4/3;overflow:hidden;border-radius:18px;background:#dff7ff}}.omc-scene>img{{width:100%;height:100%;object-fit:contain;display:block}}.omc-object{{position:absolute;width:13%;border:0;background:transparent;padding:0;cursor:pointer;transform-origin:center;transition:opacity .2s,filter .2s}}.omc-object img{{width:100%;display:block;pointer-events:none}}.omc-object.omc-selected{{filter:drop-shadow(0 0 10px #facc15) drop-shadow(0 0 4px #facc15)}}.omc-object.omc-matched{{opacity:.4}}.omc-object.omc-extra{{filter:drop-shadow(0 0 10px #22c55e)}}.omc-check{{display:none;position:absolute;right:-8px;top:-8px;width:24px;height:24px;border-radius:999px;background:#22c55e;color:#fff;font-weight:900;place-items:center}}.omc-object.omc-matched .omc-check{{display:grid}}.omc-message{{display:none;margin-top:16px;padding:14px;border-radius:16px;background:#dcfce7;color:#14532d;font-weight:900;white-space:pre-wrap;text-align:center}}@media(max-width:760px){{.omc-board{{grid-template-columns:1fr}}}}</style>
-            <h3 class="omc-title">${{escapeHtml(cfg.title || "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු")}}</h3><p class="omc-instruction">${{escapeHtml(cfg.instruction || "මාළුවෙකුට මාළුවෙකු යා කරන්න.")}}</p>
-            <div class="omc-board"><div class="omc-container" data-omc-container="left"><div class="omc-label">${{escapeHtml(cfg.leftLabel || "වම් ටැංකිය")}}</div><div class="omc-scene"><img src="${{escapeHtml(cfg.leftContainerImage||"")}}" alt="">${{makeObjects("left", leftCount, cfg.leftObjectImage, leftPositions)}}</div></div><div class="omc-container" data-omc-container="right"><div class="omc-label">${{escapeHtml(cfg.rightLabel || "දකුණු ටැංකිය")}}</div><div class="omc-scene"><img src="${{escapeHtml(cfg.rightContainerImage||"")}}" alt="">${{makeObjects("right", rightCount, cfg.rightObjectImage, rightPositions)}}</div></div></div><div class="omc-message" aria-live="polite"></div></section>`;
-        }} catch (error) {{ console.error("objectMatchCompare render failed", error); return `<div class="omc-activity-error">Object Match Compare activity could not load.</div>`; }}
-      }}
-      function wireObjectMatchCompareActivity(root, slide, activityConfig) {{
-        try {{
-          const wrap = root.querySelector('.omc-activity'); if (!wrap) return; let selectedLeft = null; const matchedLeft = new Set(); const matchedRight = new Set();
-          const leftCount = Number(activityConfig?.leftCount || 0), rightCount = Number(activityConfig?.rightCount || 0), target = Math.min(leftCount, rightCount);
-          wrap.querySelectorAll('.omc-object').forEach(btn => btn.addEventListener('click', () => {{ const side=btn.dataset.omcSide, idx=Number(btn.dataset.omcIndex); if (btn.classList.contains('omc-matched')) return; if (side === 'left') {{ wrap.querySelectorAll('.omc-object.omc-selected').forEach(el=>el.classList.remove('omc-selected')); selectedLeft=btn; btn.classList.add('omc-selected'); return; }} if (!selectedLeft) return; selectedLeft.classList.remove('omc-selected'); selectedLeft.classList.add('omc-matched'); btn.classList.add('omc-matched'); matchedLeft.add(Number(selectedLeft.dataset.omcIndex)); matchedRight.add(idx); selectedLeft=null; if (Math.min(matchedLeft.size, matchedRight.size) >= target) {{ const more = leftCount === rightCount ? 'equal' : (leftCount > rightCount ? 'left' : 'right'); if (more !== 'equal') {{ wrap.querySelector(`[data-omc-container="${{more}}"]`)?.classList.add('omc-more'); wrap.querySelectorAll(`.omc-object[data-omc-side="${{more}}"]`).forEach((el)=>{{ const set = more === 'left' ? matchedLeft : matchedRight; if (!set.has(Number(el.dataset.omcIndex))) el.classList.add('omc-extra'); }}); }} const msg = more === 'right' ? (activityConfig?.rightMoreMessage || '🎉 හොඳයි!\nදකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.') : more === 'left' ? (activityConfig?.leftMoreMessage || '🎉 හොඳයි!\nවම් පැත්තේ ටැංකියේ මාළු වැඩියි.') : (activityConfig?.equalMessage || '🎉 හොඳයි!\nටැංකි දෙකේම මාළු සමානයි.'); const box=wrap.querySelector('.omc-message'); if (box) {{ box.textContent=msg; box.style.display='block'; }} }} }}));
-        }} catch (error) {{ console.error("objectMatchCompare wire failed", error); const wrap=root.querySelector('.omc-activity'); if (wrap) wrap.innerHTML = 'Object Match Compare activity could not load.'; }}
-      }}
       function render_activity_slide(activityData) {{ if (!activityData || typeof activityData !== "object") return ""; const activityType = String(activityData.type || activityData.activity_type || activityData.slide_type || "").trim().toLowerCase(); const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}}; const normalizedActivityType = activityTypeMap[activityType] || activityType; const questionTitle = isSinhala ? (activityData.question_si || activityData.question_en || "Activity") : (activityData.question_en || activityData.question_si || "Activity"); if (normalizedActivityType === "coloring_activity") {{ const title = localizedActivityText(activityData, "title", isSinhala ? "පාට කිරීමේ ක්‍රියාකාරකම" : "Coloring Activity"); const instruction = localizedActivityText(activityData, "instruction", activityData.question || ""); const imageUrl = activityData.image_url || activityData.base_image_url || ""; const palette = Array.isArray(activityData.color_palette) && activityData.color_palette.length ? activityData.color_palette : [{{name_en:"Red",name_si:"රතු",hex:"#EF4444"}},{{name_en:"Blue",name_si:"නිල්",hex:"#3B82F6"}},{{name_en:"Green",name_si:"කොළ",hex:"#22C55E"}},{{name_en:"Yellow",name_si:"කහ",hex:"#FACC15"}},{{name_en:"Orange",name_si:"තැඹිලි",hex:"#F97316"}},{{name_en:"Purple",name_si:"දම්",hex:"#A855F7"}},{{name_en:"Pink",name_si:"රෝස",hex:"#EC4899"}}]; const brushes = Array.isArray(activityData.brush_sizes) && activityData.brush_sizes.length ? activityData.brush_sizes : [{{key:"small",label_en:"Small",label_si:"කුඩා",size:4}},{{key:"medium",label_en:"Medium",label_si:"මධ්‍යම",size:8}},{{key:"large",label_en:"Large",label_si:"විශාල",size:14}}]; const paletteHtml = palette.map((color, idx)=>{{ const label = isSinhala ? (color.name_si || color.name_en || color.hex) : (color.name_en || color.name_si || color.hex); return `<button type="button" class="ca-color-btn ${{idx === 0 ? "active" : ""}}" data-color="${{escapeHtml(color.hex || "#EF4444")}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}" style="background:${{escapeHtml(color.hex || "#EF4444")}}"></button>`; }}).join(""); const brushHtml = brushes.map((brush, idx)=>{{ const label = isSinhala ? (brush.label_si || brush.label_en || brush.key) : (brush.label_en || brush.label_si || brush.key); const compactLabel = idx === 0 ? "S" : idx === 1 ? "M" : idx === 2 ? "L" : String(label || brush.key || idx + 1).slice(0, 2).toUpperCase(); return `<button type="button" class="ca-brush-btn ${{idx === 1 ? "active" : ""}}" data-size="${{Number(brush.size || 8)}}" title="${{escapeHtml(label)}}" aria-label="${{escapeHtml(label)}}">${{escapeHtml(compactLabel)}}</button>`; }}).join(""); return `<style>
 .coloring-activity{{width:100%;max-width:980px;margin:0 auto;padding:14px;border-radius:22px;background:linear-gradient(180deg,#eff6ff,#fff7ed);border:1px solid #bfdbfe;box-shadow:0 16px 36px rgba(30,64,175,.10);box-sizing:border-box;display:flex;flex-direction:column;gap:10px;overflow:hidden}}
 .ca-header{{flex:0 0 auto;text-align:center}}
@@ -17030,27 +16938,16 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         const mediaWrap = document.getElementById("slideMediaWrap");
         mediaWrap.innerHTML = "";
         const contentType = String(current.content_type || current.slide_type || current.activity?.type || "").trim().toLowerCase();
-        const activityTypeForObjectMatchCompare = String(current.activity?.activity_type || current.activity?.slide_type || current.activity?.type || "").trim().toLowerCase();
-        const isObjectMatchCompareSlide = contentType === "object_match_compare" || activityTypeForObjectMatchCompare === "object_match_compare";
-        if (isObjectMatchCompareSlide) {{
-          try {{
-            mediaWrap.insertAdjacentHTML("beforeend", renderObjectMatchCompareActivity(current, current.activity || {{}}));
-            wireObjectMatchCompareActivity(mediaWrap, current, current.activity || {{}});
-          }} catch (error) {{
-            console.error("objectMatchCompare isolated failure", error);
-            mediaWrap.innerHTML = "<div class='omc-activity-error'>Object Match Compare activity could not load.</div>";
-          }}
-        }}
-        if (!isObjectMatchCompareSlide && contentType === "interactive_video") {{
+        if (contentType === "interactive_video") {{
           wireInteractiveVideo(mediaWrap, current);
         }}
-        if (!isObjectMatchCompareSlide && contentType === "manual_interim_test") {{
+        if (contentType === "manual_interim_test") {{
           mediaWrap.insertAdjacentHTML("beforeend", current.manual_test_html || "");
           if (window.initTapSelectUI) window.initTapSelectUI(mediaWrap);
           if (window.initTapCorrectImageUI) window.initTapCorrectImageUI(mediaWrap);
           wireManualInterimTest(mediaWrap, current);
         }}
-        if (!isObjectMatchCompareSlide && contentType === "intro_video" && current.video_url) {{
+        if (contentType === "intro_video" && current.video_url) {{
           const iframe = document.createElement("iframe");
           iframe.className = "slide-video";
           iframe.src = normalizeYouTube(current.video_url);
@@ -17072,7 +16969,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           image.src = current.image_url;
           mediaWrap.appendChild(image);
         }}
-        const activityHtml = (contentType === "interactive_video" || isObjectMatchCompareSlide) ? "" : render_activity_slide(current.activity);
+        const activityHtml = contentType === "interactive_video" ? "" : render_activity_slide(current.activity);
         if (activityHtml) {{
           mediaWrap.insertAdjacentHTML("beforeend", activityHtml);
           const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
@@ -17978,14 +17875,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         has_match_pair_uploads = any(upload and upload.filename for upload in match_left_upload_files + match_right_upload_files)
         instruction_audio_si_upload = request.files.get("instruction_audio_si_file")
         instruction_audio_en_upload = request.files.get("instruction_audio_en_file")
-        object_match_compare_upload_fields = (
-            "omc_left_container_image",
-            "omc_right_container_image",
-            "omc_left_object_image",
-            "omc_right_object_image",
-        )
-        object_match_compare_uploads = {field: request.files.get(field) for field in object_match_compare_upload_fields}
-        has_object_match_compare_uploads = any(upload and upload.filename for upload in object_match_compare_uploads.values())
         old_activity_payload = None
         if old_activity_json:
             try:
@@ -18068,14 +17957,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             or (submitted_activity_payload or {}).get("activity_type") == "match_pairs_activity"
             or (submitted_activity_payload or {}).get("type") == "match_pairs_activity"
             or (submitted_activity_payload or {}).get("slide_type") == "match_pairs_activity"
-        )
-        is_object_match_compare_submission = (
-            selected_slide_type == "object_match_compare"
-            or has_object_match_compare_uploads
-            or (old_activity_payload or {}).get("activity_type") == "object_match_compare"
-            or (old_activity_payload or {}).get("slide_type") == "object_match_compare"
-            or (submitted_activity_payload or {}).get("activity_type") == "object_match_compare"
-            or (submitted_activity_payload or {}).get("slide_type") == "object_match_compare"
         )
         is_select_and_color_submission = (
             selected_slide_type == "select_and_color"
@@ -18440,58 +18321,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
                 request.form.get("tap_wrong_message_en"),
                 request.form.get("tap_wrong_message_si"),
             )
-        elif is_object_match_compare_submission:
-            obj.image_url = None
-            if not slide:
-                db.session.add(obj)
-                db.session.flush()
-            base_payload = parse_object_match_compare_activity(submitted_activity_payload) or parse_object_match_compare_activity(old_activity_payload) or default_object_match_compare_activity_payload(obj.title_en, obj.title_si, obj.content_en, obj.content_si)
-            image_keys = {
-                "omc_left_container_image": "leftContainerImage",
-                "omc_right_container_image": "rightContainerImage",
-                "omc_left_object_image": "leftObjectImage",
-                "omc_right_object_image": "rightObjectImage",
-            }
-            for form_field, payload_key in image_keys.items():
-                existing_url = (request.form.get(f"{form_field}_url") or base_payload.get(payload_key) or "").strip()
-                upload = object_match_compare_uploads.get(form_field)
-                if upload and upload.filename:
-                    public_url, upload_error = upload_lesson_image_to_supabase(lesson.id, obj.id or "new", upload)
-                    if upload_error:
-                        db.session.rollback()
-                        return f"<h2>Object Match Compare image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
-                    existing_url = public_url or existing_url
-                base_payload[payload_key] = existing_url
-            def _omc_positions(field_name, fallback):
-                raw = (request.form.get(field_name) or "").strip()
-                if not raw:
-                    return fallback if isinstance(fallback, list) else []
-                try:
-                    parsed = json.loads(raw)
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    return fallback if isinstance(fallback, list) else []
-                return parsed if isinstance(parsed, list) else []
-            object_match_payload = {
-                **base_payload,
-                "activity_type": "object_match_compare",
-                "slide_type": "object_match_compare",
-                "title": (request.form.get("omc_title") or obj.title_si or obj.title_en or base_payload.get("title") or "").strip(),
-                "instruction": (request.form.get("omc_instruction") or obj.content_si or obj.content_en or base_payload.get("instruction") or "").strip(),
-                "leftLabel": (request.form.get("omc_left_label") or base_payload.get("leftLabel") or "වම් ටැංකිය").strip(),
-                "rightLabel": (request.form.get("omc_right_label") or base_payload.get("rightLabel") or "දකුණු ටැංකිය").strip(),
-                "leftCount": int(request.form.get("omc_left_count") or base_payload.get("leftCount") or 0),
-                "rightCount": int(request.form.get("omc_right_count") or base_payload.get("rightCount") or 0),
-                "introNarration": (request.form.get("omc_intro_narration") or base_payload.get("introNarration") or "").strip(),
-                "rightMoreNarration": (request.form.get("omc_right_more_narration") or base_payload.get("rightMoreNarration") or "").strip(),
-                "leftMoreNarration": (request.form.get("omc_left_more_narration") or base_payload.get("leftMoreNarration") or "").strip(),
-                "equalNarration": (request.form.get("omc_equal_narration") or base_payload.get("equalNarration") or "").strip(),
-                "rightMoreMessage": (request.form.get("omc_right_more_message") or base_payload.get("rightMoreMessage") or "").strip(),
-                "leftMoreMessage": (request.form.get("omc_left_more_message") or base_payload.get("leftMoreMessage") or "").strip(),
-                "equalMessage": (request.form.get("omc_equal_message") or base_payload.get("equalMessage") or "").strip(),
-                "leftObjectPositions": _omc_positions("omc_left_positions", base_payload.get("leftObjectPositions")),
-                "rightObjectPositions": _omc_positions("omc_right_positions", base_payload.get("rightObjectPositions")),
-            }
-            obj.activity_json = json.dumps(parse_object_match_compare_activity(object_match_payload) or object_match_payload, ensure_ascii=False)
         elif is_select_and_color_submission:
             obj.image_url = None
             if not slide:
@@ -18697,11 +18526,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             "Select and Color Activity",
             "තෝරා පාට කිරීම",
         ),
-        (
-            "object_match_compare",
-            "Object Match Compare",
-            "වස්තු ගලපා සසඳන්න",
-        ),
     ]
     selected_type = (slide.slide_type if slide else "explanation")
     type_opts = "".join(
@@ -18711,8 +18535,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         )
         for value, label, label_si in slide_type_options
     )
-    object_match_compare_activity = parse_object_match_compare_activity(slide.activity_json if slide else None) or default_object_match_compare_activity_payload(slide.title_en if slide else None, slide.title_si if slide else None, slide.content_en if slide else None, slide.content_si if slide else None)
-    object_match_compare_json = json.dumps(object_match_compare_activity, ensure_ascii=False).replace("</", "<\\/")
     existing_grid_images = parse_image_grid_activity(slide.activity_json if slide else None)
     existing_grid_html = "".join(
         f"""
@@ -19061,55 +18883,6 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
       </script>
 
       <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json else ''}</textarea></label>
-      <fieldset id='objectMatchCompareBuilder' style='border:1px solid #86efac;border-radius:12px;padding:14px;max-width:980px;margin:18px 0;background:#f0fdf4;'>
-        <legend><strong>Object Match Compare</strong></legend>
-        <p style='color:#166534;margin-top:0;'>Safe isolated fish tank comparison activity. Images upload to <code>lesson-images</code>; saved positions are percentages.</p>
-        <style>.omc-admin-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}.omc-admin-grid label{{font-weight:700}}.omc-admin-grid input,.omc-admin-grid textarea{{display:block;width:100%;margin-top:5px}}.omc-position-stage{{position:relative;max-width:640px;aspect-ratio:4/3;margin:12px 0;border:2px dashed #22c55e;border-radius:16px;background:#fff;overflow:hidden}}.omc-position-stage>img{{width:100%;height:100%;object-fit:contain;display:block}}.omc-position-object{{position:absolute;width:12%;height:auto;cursor:move;filter:drop-shadow(0 3px 6px rgba(15,23,42,.25));transform-origin:center}}.omc-position-panel{{display:none;margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #bbf7d0}}</style>
-        <div class='omc-admin-grid'>
-          <label>Title <input type='text' name='omc_title' value='{escape(object_match_compare_activity.get("title") or "")}'></label>
-          <label>Instruction <textarea name='omc_instruction' rows='2'>{escape(object_match_compare_activity.get("instruction") or "")}</textarea></label>
-          <label>Left label <input type='text' name='omc_left_label' value='{escape(object_match_compare_activity.get("leftLabel") or "")}'></label>
-          <label>Right label <input type='text' name='omc_right_label' value='{escape(object_match_compare_activity.get("rightLabel") or "")}'></label>
-          <label>Left count <input id='omcLeftCount' type='number' min='0' name='omc_left_count' value='{int(object_match_compare_activity.get("leftCount") or 0)}'></label>
-          <label>Right count <input id='omcRightCount' type='number' min='0' name='omc_right_count' value='{int(object_match_compare_activity.get("rightCount") or 0)}'></label>
-          <label>Left container image <input type='url' name='omc_left_container_image_url' value='{escape(object_match_compare_activity.get("leftContainerImage") or "")}'><input type='file' name='omc_left_container_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
-          <label>Right container image <input type='url' name='omc_right_container_image_url' value='{escape(object_match_compare_activity.get("rightContainerImage") or "")}'><input type='file' name='omc_right_container_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
-          <label>Left object image <input type='url' name='omc_left_object_image_url' value='{escape(object_match_compare_activity.get("leftObjectImage") or "")}'><input type='file' name='omc_left_object_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
-          <label>Right object image <input type='url' name='omc_right_object_image_url' value='{escape(object_match_compare_activity.get("rightObjectImage") or "")}'><input type='file' name='omc_right_object_image' accept='.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'></label>
-          <label>Intro narration <textarea name='omc_intro_narration' rows='2'>{escape(object_match_compare_activity.get("introNarration") or "")}</textarea></label>
-          <label>Right more narration <textarea name='omc_right_more_narration' rows='2'>{escape(object_match_compare_activity.get("rightMoreNarration") or "")}</textarea></label>
-          <label>Left more narration <textarea name='omc_left_more_narration' rows='2'>{escape(object_match_compare_activity.get("leftMoreNarration") or "")}</textarea></label>
-          <label>Equal narration <textarea name='omc_equal_narration' rows='2'>{escape(object_match_compare_activity.get("equalNarration") or "")}</textarea></label>
-          <label>Right more message <textarea name='omc_right_more_message' rows='3'>{escape(object_match_compare_activity.get("rightMoreMessage") or "")}</textarea></label>
-          <label>Left more message <textarea name='omc_left_more_message' rows='3'>{escape(object_match_compare_activity.get("leftMoreMessage") or "")}</textarea></label>
-          <label>Equal message <textarea name='omc_equal_message' rows='3'>{escape(object_match_compare_activity.get("equalMessage") or "")}</textarea></label>
-        </div>
-        <input id='omcLeftPositions' type='hidden' name='omc_left_positions' value='{escape(json.dumps(object_match_compare_activity.get("leftObjectPositions") or [], ensure_ascii=False))}'>
-        <input id='omcRightPositions' type='hidden' name='omc_right_positions' value='{escape(json.dumps(object_match_compare_activity.get("rightObjectPositions") or [], ensure_ascii=False))}'>
-        <p><button type='button' id='omcEditLeft'>Edit Left Positions</button> <button type='button' id='omcEditRight'>Edit Right Positions</button> <button type='button' id='omcSavePositions'>Save Positions</button></p>
-        <div id='omcPositionPanel' class='omc-position-panel'><strong id='omcPositionTitle'>Positions</strong><div id='omcPositionStage' class='omc-position-stage'></div><p>Drag objects. Selected object: <input id='omcScaleInput' type='range' min='0.4' max='2.5' step='0.05' value='1'> scale <input id='omcRotationInput' type='range' min='-180' max='180' step='1' value='0'> rotation</p></div>
-        <script>
-          (function objectMatchCompareAdminBuilder() {{
-            const typeSelect = document.getElementById('slideTypeSelect'); const builder = document.getElementById('objectMatchCompareBuilder');
-            function toggle() {{ if (builder && typeSelect) builder.style.display = typeSelect.value === 'object_match_compare' ? 'block' : 'none'; }}
-            typeSelect?.addEventListener('change', toggle); toggle();
-            const initial = {object_match_compare_json}; let side = 'left'; let selected = null;
-            const panel=document.getElementById('omcPositionPanel'), stage=document.getElementById('omcPositionStage'), title=document.getElementById('omcPositionTitle');
-            const leftHidden=document.getElementById('omcLeftPositions'), rightHidden=document.getElementById('omcRightPositions');
-            function field(name) {{ return builder.querySelector(`[name="${{name}}"]`)?.value || ''; }}
-            function getPositions(s) {{ try {{ return JSON.parse((s==='left'?leftHidden:rightHidden).value || '[]'); }} catch(e) {{ return []; }} }}
-            function setPositions(s, value) {{ (s==='left'?leftHidden:rightHidden).value = JSON.stringify(value); }}
-            function ensurePositions(s) {{ const count=Number(document.getElementById(s==='left'?'omcLeftCount':'omcRightCount')?.value||0); const existing=getPositions(s); while(existing.length<count) existing.push({{id:`${{s}}-${{existing.length+1}}`,x:20+((existing.length*13)%60),y:25+((existing.length*11)%50),scale:1,rotation:0}}); return existing.slice(0,count); }}
-            function render(s) {{ side=s; selected=null; panel.style.display='block'; title.textContent = s==='left'?'Left positions':'Right positions'; const imgUrl=field(s==='left'?'omc_left_container_image_url':'omc_right_container_image_url') || initial[s==='left'?'leftContainerImage':'rightContainerImage']; const objUrl=field(s==='left'?'omc_left_object_image_url':'omc_right_object_image_url') || initial[s==='left'?'leftObjectImage':'rightObjectImage']; const positions=ensurePositions(s); setPositions(s, positions); stage.innerHTML=`<img src="${{imgUrl}}" alt="container">`; positions.forEach((pos,idx)=>{{ const img=document.createElement('img'); img.className='omc-position-object'; img.src=objUrl; img.dataset.index=idx; img.style.left=pos.x+'%'; img.style.top=pos.y+'%'; img.style.transform=`translate(-50%,-50%) scale(${{pos.scale||1}}) rotate(${{pos.rotation||0}}deg)`; stage.appendChild(img); }}); }}
-            stage?.addEventListener('pointerdown', (ev)=>{{ const target=ev.target.closest('.omc-position-object'); if(!target) return; selected=target; target.setPointerCapture(ev.pointerId); }});
-            stage?.addEventListener('pointermove', (ev)=>{{ if(!selected) return; const r=stage.getBoundingClientRect(); const positions=getPositions(side); const idx=Number(selected.dataset.index); positions[idx].x=Math.max(0,Math.min(100,((ev.clientX-r.left)/r.width)*100)); positions[idx].y=Math.max(0,Math.min(100,((ev.clientY-r.top)/r.height)*100)); setPositions(side,positions); selected.style.left=positions[idx].x+'%'; selected.style.top=positions[idx].y+'%'; }});
-            stage?.addEventListener('pointerup', ()=>{{ selected=null; }});
-            function transformSelected() {{ if(!selected) return; const positions=getPositions(side); const idx=Number(selected.dataset.index); positions[idx].scale=Number(document.getElementById('omcScaleInput').value||1); positions[idx].rotation=Number(document.getElementById('omcRotationInput').value||0); setPositions(side,positions); selected.style.transform=`translate(-50%,-50%) scale(${{positions[idx].scale}}) rotate(${{positions[idx].rotation}}deg)`; }}
-            document.getElementById('omcScaleInput')?.addEventListener('input', transformSelected); document.getElementById('omcRotationInput')?.addEventListener('input', transformSelected);
-            document.getElementById('omcEditLeft')?.addEventListener('click', ()=>render('left')); document.getElementById('omcEditRight')?.addEventListener('click', ()=>render('right')); document.getElementById('omcSavePositions')?.addEventListener('click', ()=>alert('Positions saved into the form. Click Save Slide to persist.'));
-          }})();
-        </script>
-      </fieldset>
       <p style='max-width:760px;color:#475569;'>For <strong>image_grid</strong>, uploaded image URLs and captions are saved automatically in this JSON field as <code>{{"type":"image_grid","images":[...]}}</code>.</p>
       <fieldset style='border:1px solid #cbd5e1;border-radius:12px;padding:14px;max-width:900px;margin-bottom:18px;'>
         <legend><strong>Image Grid Gallery</strong></legend>
