@@ -1964,6 +1964,83 @@ def upload_lesson_instruction_audio_to_supabase(lesson_id: int, slide_ref: int |
 
 
 
+
+OBJECT_MATCH_COMPARE_DEFAULT_INTRO = "දරුවනේ, ටැංකි දෙකේ ඇති මාළු බලන්න. වම් පැත්තේ මාළුවෙකු තෝරා, දකුණු පැත්තේ මාළුවෙකු සමඟ යා කරන්න. අවසානයේ වැඩියෙන් මාළු ඇති ටැංකිය සොයා බලමු."
+OBJECT_MATCH_COMPARE_DEFAULT_RIGHT = "බලන්න දරුවනේ! වම් පැත්තේ සියලුම මාළු යා කර අවසන්. දකුණු පැත්තේ තවත් මාළු ඉතිරි වී ඇත. එබැවින් දකුණු පැත්තේ ටැංකියේ මාළු වැඩියි."
+OBJECT_MATCH_COMPARE_DEFAULT_LEFT = "බලන්න දරුවනේ! දකුණු පැත්තේ සියලුම මාළු යා කර අවසන්. වම් පැත්තේ තවත් මාළු ඉතිරි වී ඇත. එබැවින් වම් පැත්තේ ටැංකියේ මාළු වැඩියි."
+OBJECT_MATCH_COMPARE_DEFAULT_EQUAL = "හොඳයි දරුවනේ! ටැංකි දෙකේම මාළු එකම ගණනක් ඇත. එබැවින් මාළු ගණන සමානයි."
+
+def _clamp_float(value, default=0.0, low=0.0, high=100.0):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(low, min(high, number))
+
+def _normalize_object_positions(raw, prefix: str, count: int) -> list[dict]:
+    positions = []
+    source = raw if isinstance(raw, list) else []
+    for idx in range(count):
+        item = source[idx] if idx < len(source) and isinstance(source[idx], dict) else {}
+        positions.append({
+            "id": str(item.get("id") or f"{prefix}-{idx + 1}"),
+            "x": _clamp_float(item.get("x"), 18 + (idx % 4) * 20),
+            "y": _clamp_float(item.get("y"), 28 + (idx // 4) * 18),
+            "scale": _clamp_float(item.get("scale"), 1, 0.45, 2.5),
+            "rotation": _clamp_float(item.get("rotation"), 0, -180, 180),
+        })
+    return positions
+
+def parse_object_match_compare_activity(activity_json: str | dict | None) -> dict:
+    if not activity_json:
+        return {}
+    if isinstance(activity_json, dict):
+        payload = activity_json
+    else:
+        try:
+            payload = json.loads(activity_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    activity_type = str(payload.get("activity_type") or payload.get("type") or payload.get("slide_type") or "").strip().lower()
+    if activity_type != "object_match_compare":
+        return {}
+    left_count = max(0, min(30, int(_clamp_float(payload.get("leftObjectCount") or payload.get("left_object_count"), len(payload.get("leftObjectPositions") or []), 0, 30))))
+    right_count = max(0, min(30, int(_clamp_float(payload.get("rightObjectCount") or payload.get("right_object_count"), len(payload.get("rightObjectPositions") or []), 0, 30))))
+    return {
+        "type": "object_match_compare", "slide_type": "object_match_compare", "activity_type": "object_match_compare",
+        "title": str(payload.get("title") or payload.get("title_si") or "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු").strip(),
+        "instruction": str(payload.get("instruction") or payload.get("instruction_si") or "මාළුවෙකුට මාළුවෙකු යා කරන්න.").strip(),
+        "leftLabel": str(payload.get("leftLabel") or "වම් ටැංකිය").strip(),
+        "rightLabel": str(payload.get("rightLabel") or "දකුණු ටැංකිය").strip(),
+        "leftContainerImage": str(payload.get("leftContainerImage") or "").strip(),
+        "rightContainerImage": str(payload.get("rightContainerImage") or "").strip(),
+        "leftObjectImage": str(payload.get("leftObjectImage") or "").strip(),
+        "rightObjectImage": str(payload.get("rightObjectImage") or "").strip(),
+        "leftObjectCount": left_count, "rightObjectCount": right_count,
+        "leftObjectPositions": _normalize_object_positions(payload.get("leftObjectPositions"), "left", left_count),
+        "rightObjectPositions": _normalize_object_positions(payload.get("rightObjectPositions"), "right", right_count),
+        "introNarration": str(payload.get("introNarration") or OBJECT_MATCH_COMPARE_DEFAULT_INTRO).strip(),
+        "rightMoreNarration": str(payload.get("rightMoreNarration") or OBJECT_MATCH_COMPARE_DEFAULT_RIGHT).strip(),
+        "leftMoreNarration": str(payload.get("leftMoreNarration") or OBJECT_MATCH_COMPARE_DEFAULT_LEFT).strip(),
+        "equalNarration": str(payload.get("equalNarration") or OBJECT_MATCH_COMPARE_DEFAULT_EQUAL).strip(),
+        "rightMoreMessage": str(payload.get("rightMoreMessage") or "🎉 හොඳයි!\nදකුණු පැත්තේ ටැංකියේ මාළු වැඩියි.").strip(),
+        "leftMoreMessage": str(payload.get("leftMoreMessage") or "🎉 හොඳයි!\nවම් පැත්තේ ටැංකියේ මාළු වැඩියි.").strip(),
+        "equalMessage": str(payload.get("equalMessage") or "🎉 හොඳයි!\nටැංකි දෙකේම මාළු සමානයි.").strip(),
+    }
+
+def default_object_match_compare_payload(title_si=None, instruction_si=None) -> dict:
+    return parse_object_match_compare_activity({"activity_type":"object_match_compare","title":title_si or "මාළු වැඩියෙන් ඇති ටැංකිය සොයමු","instruction":instruction_si or "මාළුවෙකුට මාළුවෙකු යා කරන්න.","leftObjectCount":4,"rightObjectCount":8})
+
+def validate_object_match_compare_activity(payload: dict) -> str | None:
+    for key, label in [("leftContainerImage","left container image"),("rightContainerImage","right container image"),("leftObjectImage","left object image"),("rightObjectImage","right object image")]:
+        if not str(payload.get(key) or "").strip():
+            return f"Object Match Compare requires a {label}."
+    if int(payload.get("leftObjectCount") or 0) < 1 or int(payload.get("rightObjectCount") or 0) < 1:
+        return "Object Match Compare requires at least one object on each side."
+    if len(payload.get("leftObjectPositions") or []) != int(payload.get("leftObjectCount") or 0) or len(payload.get("rightObjectPositions") or []) != int(payload.get("rightObjectCount") or 0):
+        return "Object Match Compare requires saved positions for every object."
+    return None
+
 def parse_match_pairs_activity(activity_json: str | dict | None) -> dict:
     if not activity_json:
         return {}
@@ -15639,14 +15716,14 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
 .lesson-player-card:fullscreen .match-pairs-activity .mp-lines,
 .lesson-player-card:-webkit-full-screen .match-pairs-activity .mp-lines{{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;z-index:1!important;pointer-events:none}}
 @media (max-width:768px){{.match-pairs-activity.is-fullscreen .mp-board,.lesson-fullscreen .match-pairs-activity .mp-board,.fullscreen-lesson .match-pairs-activity .mp-board,body.lesson-fullscreen-active .match-pairs-activity .mp-board,.lesson-player-card.lesson-fullscreen-active .match-pairs-activity .mp-board,.lesson-player-card:fullscreen .match-pairs-activity .mp-board,.lesson-player-card:-webkit-full-screen .match-pairs-activity .mp-board{{grid-template-columns:76px 1fr 76px!important;column-gap:8px!important;height:calc(100vh - 130px)!important;min-height:360px!important;padding:8px 10px!important}}.match-pairs-activity.is-fullscreen .mp-col,.lesson-fullscreen .match-pairs-activity .mp-col,.fullscreen-lesson .match-pairs-activity .mp-col,body.lesson-fullscreen-active .match-pairs-activity .mp-col,.lesson-player-card.lesson-fullscreen-active .match-pairs-activity .mp-col,.lesson-player-card:fullscreen .match-pairs-activity .mp-col,.lesson-player-card:-webkit-full-screen .match-pairs-activity .mp-col{{max-width:76px!important;gap:6px!important}}.match-pairs-activity.is-fullscreen .mp-card,.lesson-fullscreen .match-pairs-activity .mp-card,.fullscreen-lesson .match-pairs-activity .mp-card,body.lesson-fullscreen-active .match-pairs-activity .mp-card,.lesson-player-card.lesson-fullscreen-active .match-pairs-activity .mp-card,.lesson-player-card:fullscreen .match-pairs-activity .mp-card,.lesson-player-card:-webkit-full-screen .match-pairs-activity .mp-card{{width:58px!important;height:58px!important;min-width:58px!important;min-height:58px!important;max-width:58px!important;max-height:58px!important;padding:5px!important}}}}
-</style><div class="activity-wrap match-pairs-activity" data-activity-type="match_pairs_activity" data-pairs='${{escapeHtml(JSON.stringify(pairs))}}'><div class="activity-title-row"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{audioButton}}</div>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="mp-board"><svg class="mp-lines"></svg><div class="mp-col mp-left">${{leftItems.map((item)=>card(item,"left")).join("")}}</div><div class="mp-space" aria-hidden="true"></div><div class="mp-col mp-right">${{rightItems.map((item)=>card(item,"right")).join("")}}</div></div><div class="mp-actions"><button type="button" class="mp-check">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="mp-reset">${{isSinhala ? "නැවත කරන්න" : "Reset"}}</button><div class="mp-message" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
+</style><div class="activity-wrap match-pairs-activity" data-activity-type="match_pairs_activity" data-pairs='${{escapeHtml(JSON.stringify(pairs))}}'><div class="activity-title-row"><h3 class="activity-question">${{escapeHtml(title)}}</h3>${{audioButton}}</div>${{instruction ? `<p class="slide-content">${{escapeHtml(instruction)}}</p>` : ""}}<div class="mp-board"><svg class="mp-lines"></svg><div class="mp-col mp-left">${{leftItems.map((item)=>card(item,"left")).join("")}}</div><div class="mp-space" aria-hidden="true"></div><div class="mp-col mp-right">${{rightItems.map((item)=>card(item,"right")).join("")}}</div></div><div class="mp-actions"><button type="button" class="mp-check">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="mp-reset">${{isSinhala ? "නැවත කරන්න" : "Reset"}}</button><div class="mp-message" aria-live="polite"></div></div></div>`; }} if (normalizedActivityType === "object_match_compare") {{ const left=Number(activityData.leftObjectCount||0), right=Number(activityData.rightObjectCount||0); const lpos=Array.isArray(activityData.leftObjectPositions)?activityData.leftObjectPositions:[]; const rpos=Array.isArray(activityData.rightObjectPositions)?activityData.rightObjectPositions:[]; const missing=!activityData.leftContainerImage||!activityData.rightContainerImage||!activityData.leftObjectImage||!activityData.rightObjectImage||!lpos.length||!rpos.length; if(missing) return `<div class="activity-wrap"><h3 class="activity-question">${{escapeHtml(activityData.title||questionTitle)}}</h3><p class="slide-content">${{isSinhala ? "මෙම ක්‍රියාකාරකමට අවශ්‍ය රූප හෝ ස්ථාන සුරැකී නැත." : "This activity is missing images or saved positions."}}</p></div>`; const obj=(p,side,img)=>`<button type="button" class="omc-object" data-side="${{side}}" data-id="${{escapeHtml(p.id||'')}}" style="left:${{Number(p.x||0)}}%;top:${{Number(p.y||0)}}%;--s:${{Number(p.scale||1)}};--r:${{Number(p.rotation||0)}}deg"><img src="${{escapeHtml(img)}}" alt=""><span class="omc-check">✓</span></button>`; const panel=(side,label,cimg,oimg,positions)=>`<section class="omc-panel" data-side="${{side}}"><h4>${{escapeHtml(label)}}</h4><div class="omc-container"><img src="${{escapeHtml(cimg)}}" alt="" class="omc-bg">${{positions.map(p=>obj(p,side,oimg)).join("")}}</div></section>`; return `<style>.object-match-compare{{max-width:1120px;margin:auto;padding:14px;border-radius:26px;background:linear-gradient(135deg,#ecfeff,#fef9c3);overflow:hidden}}.object-match-compare .activity-question{{font-size:clamp(24px,4vw,40px);text-align:center;color:#0f766e}}.omc-instruction{{text-align:center;font-weight:900;color:#1e40af}}.omc-progress{{text-align:center;background:#fff;border:2px solid #bfdbfe;border-radius:999px;padding:8px 14px;margin:8px auto;max-width:max-content;font-weight:900}}.omc-student-board{{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}}.omc-panel{{border:5px solid transparent;border-radius:24px;background:rgba(255,255,255,.75);padding:8px;transition:.25s}}.omc-panel.winner{{border-color:#22c55e;box-shadow:0 0 0 8px rgba(34,197,94,.22)}}.omc-panel h4{{text-align:center;margin:4px 0 8px;color:#0f172a}}.omc-container{{position:relative;aspect-ratio:4/3;overflow:hidden;border-radius:18px;background:#dbeafe}}.omc-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}}.omc-object{{position:absolute;min-width:80px;min-height:80px;width:80px;height:80px;border:0;background:transparent;padding:0;transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s));touch-action:manipulation;cursor:pointer;filter:drop-shadow(0 8px 8px rgba(15,23,42,.25))}}.omc-object img{{width:100%;height:100%;object-fit:contain;pointer-events:none}}.omc-object.selected{{filter:drop-shadow(0 0 14px #facc15)}}.omc-object.matched{{opacity:.4;pointer-events:none}}.omc-check{{display:none;position:absolute;right:0;top:0;background:#22c55e;color:white;border-radius:999px;width:28px;height:28px;font-weight:900}}.omc-object.matched .omc-check{{display:grid;place-items:center}}.omc-object.extra{{filter:drop-shadow(0 0 15px #facc15);animation:omcPulse .8s infinite alternate}}.omc-message{{display:none;text-align:center;white-space:pre-line;margin:12px auto 0;padding:14px;border-radius:18px;background:#dcfce7;color:#166534;font-size:clamp(18px,3vw,26px);font-weight:900}}.omc-actions{{display:flex;gap:10px;justify-content:center;margin-top:10px}}.omc-actions button{{border:0;border-radius:999px;padding:12px 18px;font-weight:900;background:#2563eb;color:white}}.omc-finish{{display:none}}@keyframes omcPulse{{to{{transform:translate(-50%,-50%) rotate(var(--r)) scale(calc(var(--s)*1.13))}}}}@media(max-width:680px) and (orientation:portrait){{.omc-student-board{{grid-template-columns:1fr}}.omc-object{{width:72px;height:72px;min-width:72px;min-height:72px}}}}body.lesson-fullscreen-active .omc-student-board,.lesson-player-card:fullscreen .omc-student-board{{grid-template-columns:1fr 1fr}}.lesson-player-card:fullscreen .object-match-compare{{height:calc(100dvh - 90px);display:flex;flex-direction:column}}.lesson-player-card:fullscreen .omc-student-board{{min-height:0;flex:1}}.lesson-player-card:fullscreen .omc-container{{max-height:calc(100dvh - 230px)}}</style><div class="activity-wrap object-match-compare" data-activity-type="object_match_compare" data-left="${{left}}" data-right="${{right}}"><h3 class="activity-question">${{escapeHtml(activityData.title||questionTitle)}}</h3><p class="omc-instruction">${{escapeHtml(activityData.instruction||"මාළුවෙකුට මාළුවෙකු යා කරන්න.")}}</p><div class="omc-progress">යා කළා: <span>0</span>/${{Math.min(left,right)}}</div><div class="omc-student-board">${{panel('left',activityData.leftLabel||'වම් ටැංකිය',activityData.leftContainerImage,activityData.leftObjectImage,lpos)}}${{panel('right',activityData.rightLabel||'දකුණු ටැංකිය',activityData.rightContainerImage,activityData.rightObjectImage,rpos)}}</div><div class="omc-message" aria-live="polite"></div><div class="omc-actions"><button type="button" class="omc-reset">Reset</button><button type="button" class="omc-finish">Finish</button></div></div>`; }} if (normalizedActivityType === "mcq") {{ const options = Array.isArray(activityData.options) ? activityData.options : []; if (!options.length) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Invalid quiz configuration.</p></div>`; const optionCards = options.slice(0, 4).map((option, idx)=>{{ const label = isSinhala ? (option.text_si || option.text || option.text_en || `Option ${{idx + 1}}`) : (option.text_en || option.text || option.text_si || `Option ${{idx + 1}}`); const icon = option.emoji || option.icon || ["🅰️","🅱️","🅲","🅳"][idx] || "🧠"; return `<button type="button" class="activity-card mcq-option" data-option-index="${{idx}}" data-correct="${{String(option.correct || "").toLowerCase() === "true" || String(activityData.correct_answer || "").trim().toLowerCase() === String(option.value || option.key || option.text || option.text_en || option.text_si || "").trim().toLowerCase()}}" data-option-label="${{label.replaceAll('"', '&quot;')}}" data-option-value="${{String(option.value || option.key || option.text || option.text_en || option.text_si || "").replaceAll('"', '&quot;')}}"><span class="activity-emoji">${{icon}}</span><span class="activity-name">${{label}}</span></button>`; }}).join(""); return `<div class="activity-wrap premium-quiz" data-activity-type="mcq"><h3 class="activity-question">${{questionTitle}}</h3><div class="activity-grid">${{optionCards}}</div><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (normalizedActivityType === "fill_blank") {{ return `<div class="activity-wrap premium-quiz" data-activity-type="fill_blank"><h3 class="activity-question">${{questionTitle}}</h3><input type="text" class="activity-input" id="fillBlankAnswerInput" autocomplete="off" placeholder="${{isSinhala ? "ඔබේ පිළිතුර ලියන්න" : "Type your answer"}}"><p class="slide-content" id="activityExplanation" style="display:none;margin-top:12px;"></p><div class="activity-actions"><button type="button" class="activity-check-btn" id="checkFillBlankBtn">${{isSinhala ? "පිළිතුර පරීක්ෂා කරන්න" : "Check Answer"}}</button><button type="button" class="activity-check-btn" id="tryAgainBtn" style="display:none;">${{isSinhala ? "නැවත උත්සාහ කරන්න" : "Try Again"}}</button><div class="activity-result" id="activityResult" style="display:none;"></div></div></div>`; }} if (["drag_drop","matching","ordering"].includes(activityType)) return `<div class="activity-wrap"><h3 class="activity-question">${{questionTitle}}</h3><p>Activity type <strong>${{activityType}}</strong> is coming soon.</p></div>`; return ""; }}
       function getCurrentSlideRequiresCorrect() {{
         const current = slides[currentIndex] || {{}};
         const activityType = String(current.activity?.type || current.activity?.activity_type || current.activity?.slide_type || "").toLowerCase();
         const activityTypeMap = {{"matching_pairs":"mcq","drag_drop_group":"mcq"}};
         const normalizedType = activityTypeMap[activityType] || activityType || String(current.slide_type || "").toLowerCase();
         if (current.is_required === false) return false;
-        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
+        return (String(current.slide_type || "").toLowerCase() === "quiz" && (normalizedType === "mcq" || normalizedType === "fill_blank")) || normalizedType === "tap_correct_picture" || normalizedType === "shape_flag_sorting" || normalizedType === "drag_drop_circle_size_match" || normalizedType === "sort_by_size_drag_drop" || normalizedType === "drag_color_match" || normalizedType === "select_and_color" || normalizedType === "object_match_compare" || normalizedType === "drawing_activity" || normalizedType === "coloring_activity" || normalizedType === "manual_interim_test" || (String(current.slide_type || "").toLowerCase() === "interactive_video" && current.activity?.required_answer !== false);
       }}
       function setCurrentSlideCompleted(source = "activity-complete") {{
         const current = slides[currentIndex];
@@ -15792,6 +15869,9 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         }});
         if (resetBtn) resetBtn.addEventListener("click", resetActivity);
       }}
+
+      function wireObjectMatchCompare(mediaWrap) {{ const wrap = mediaWrap.querySelector('[data-activity-type="object_match_compare"]'); if (!wrap) return; const current = slides[currentIndex]; const minCount=Math.min(Number(wrap.dataset.left||0),Number(wrap.dataset.right||0)); let selectedLeft=null, matched=0, done=false; const progress=wrap.querySelector('.omc-progress span'), msg=wrap.querySelector('.omc-message'), finish=wrap.querySelector('.omc-finish'), nextBtn=document.getElementById("finishLessonBtn"); if(nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled=true; function complete(){{ if(done) return; done=true; const left=Number(wrap.dataset.left||0), right=Number(wrap.dataset.right||0); let message=current.activity.equalMessage||"🎉 හොඳයි!\nටැංකි දෙකේම මාළු සමානයි."; if(right>left){{message=current.activity.rightMoreMessage||"🎉 හොඳයි!\nදකුණු පැත්තේ ටැංකියේ මාළු වැඩියි."; wrap.querySelector('.omc-panel[data-side="right"]')?.classList.add('winner'); wrap.querySelectorAll('.omc-object[data-side="right"]:not(.matched)').forEach(o=>o.classList.add('extra'));}} else if(left>right){{message=current.activity.leftMoreMessage||"🎉 හොඳයි!\nවම් පැත්තේ ටැංකියේ මාළු වැඩියි."; wrap.querySelector('.omc-panel[data-side="left"]')?.classList.add('winner'); wrap.querySelectorAll('.omc-object[data-side="left"]:not(.matched)').forEach(o=>o.classList.add('extra'));}} else {{wrap.querySelectorAll('.omc-panel').forEach(p=>p.classList.add('winner'));}} if(msg){{msg.textContent=message;msg.style.display='block';}} if(finish)finish.style.display='inline-flex'; solvedQuizSlides.add(current.id); enableFinishLessonButton(); if(nextBtn)nextBtn.disabled=false; recordLessonAnswer(current.id,`matched:${{matched}}/${{minCount}}`,true);}} function reset(){{selectedLeft=null;matched=0;done=false;progress.textContent='0';wrap.querySelectorAll('.omc-object').forEach(o=>o.classList.remove('selected','matched','extra'));wrap.querySelectorAll('.omc-panel').forEach(p=>p.classList.remove('winner'));if(msg){{msg.textContent='';msg.style.display='none';}} if(finish)finish.style.display='none'; solvedQuizSlides.delete(current.id); if(nextBtn)nextBtn.disabled=true;}} wrap.querySelectorAll('.omc-object').forEach(obj=>obj.addEventListener('click',()=>{{ if(done||obj.classList.contains('matched'))return; const side=obj.dataset.side; if(side==='left'){{wrap.querySelectorAll('.omc-object.selected').forEach(o=>o.classList.remove('selected')); selectedLeft=obj; obj.classList.add('selected'); return;}} if(side==='right'&&selectedLeft){{selectedLeft.classList.remove('selected'); selectedLeft.classList.add('matched'); obj.classList.add('matched'); selectedLeft=null; matched++; progress.textContent=String(matched); if(matched>=minCount) complete(); }}}})); wrap.querySelector('.omc-reset')?.addEventListener('click',reset); }}
+
       function wireDragDropCircleSizeMatch(mediaWrap) {{ const wrap = mediaWrap.querySelector('[data-activity-type="drag_drop_circle_size_match"]'); if (!wrap) return; const current = slides[currentIndex]; const nextBtn = document.getElementById("finishLessonBtn"); const items = [...wrap.querySelectorAll(".ddcs-item")]; const targets = [...wrap.querySelectorAll(".ddcs-target-circle")]; const sourceRow = wrap.querySelector(".ddcs-items-row"); const resetBtn = wrap.querySelector(".ddcs-reset"); const messageBox = wrap.querySelector("#ddcsMessage"); const successMessage = localizedActivityText(current.activity, "success_message", isSinhala ? "ඔබ සියලුම භාණ්ඩ නිවැරදිව ගැලපුවා!" : "You matched all objects correctly!"); const tryAgainMessage = localizedActivityText(current.activity, "try_again_message", isSinhala ? "නැවත උත්සාහ කරන්න." : "Try again."); let placedCount = 0; let completionRecorded = false; if (nextBtn && !solvedQuizSlides.has(current.id)) nextBtn.disabled = true; function setMessage(kind, text) {{ if (!messageBox) return; messageBox.className = `ddcs-message ${{kind || ""}}`; messageBox.textContent = text || ""; messageBox.style.display = text ? "block" : "none"; }} function clearTargetFeedback() {{ targets.forEach((target)=>target.classList.remove("hover", "reject")); }} function returnToSource(item) {{ item.classList.add("returning"); item.style.transform = "translate3d(0,0,0)"; window.setTimeout(()=>item.classList.remove("returning"), 340); }} async function completeIfReady() {{ if (placedCount !== items.length || completionRecorded) return; completionRecorded = true; solvedQuizSlides.add(current.id); enableFinishLessonButton(); if (nextBtn) nextBtn.disabled = false; setMessage("success", successMessage); await recordLessonAnswer(current.id, JSON.stringify(items.map((item)=>item.dataset.itemId || "")), true); }} function resetActivity() {{ placedCount = 0; completionRecorded = false; solvedQuizSlides.delete(current.id); targets.forEach((target)=>{{ target.dataset.occupiedItemId = ""; target.classList.remove("success", "hover", "reject"); }}); items.forEach((item)=>{{ item.classList.remove("placed", "dragging", "returning"); item.style.transform = ""; item.style.removeProperty("left"); item.style.removeProperty("top"); item.disabled = false; sourceRow.appendChild(item); }}); setMessage("", ""); if (nextBtn) nextBtn.disabled = true; }} function targetAtPoint(x, y) {{ return targets.find((target)=>{{ const rect = target.getBoundingClientRect(); return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom; }}) || null; }} items.forEach((item)=>{{ let startX = 0; let startY = 0; let dragging = false; item.addEventListener("pointerdown", (event)=>{{ if (item.classList.contains("placed")) return; event.preventDefault(); dragging = true; startX = event.clientX; startY = event.clientY; item.setPointerCapture(event.pointerId); item.classList.add("dragging"); item.classList.remove("returning"); item.style.transform = "translate3d(0,0,0)"; setMessage("", ""); }}); item.addEventListener("pointermove", (event)=>{{ if (!dragging) return; event.preventDefault(); const dx = event.clientX - startX; const dy = event.clientY - startY; item.style.transform = `translate3d(${{dx}}px, ${{dy}}px, 0)`; clearTargetFeedback(); const hovered = targetAtPoint(event.clientX, event.clientY); if (hovered && !hovered.dataset.occupiedItemId) hovered.classList.add("hover"); }}); item.addEventListener("pointerup", async (event)=>{{ if (!dragging) return; dragging = false; item.releasePointerCapture(event.pointerId); item.classList.remove("dragging"); clearTargetFeedback(); const target = targetAtPoint(event.clientX, event.clientY); const expectedTarget = item.dataset.targetId || ""; if (target && !target.dataset.occupiedItemId && target.dataset.targetId === expectedTarget) {{ item.style.transform = ""; item.classList.add("placed"); item.disabled = true; target.dataset.occupiedItemId = item.dataset.itemId || "placed"; target.classList.add("success"); target.appendChild(item); placedCount += 1; await completeIfReady(); return; }} if (target) {{ target.classList.add("reject"); window.setTimeout(()=>target.classList.remove("reject"), 360); }} setMessage("fail", tryAgainMessage); await recordLessonAnswer(current.id, `${{item.dataset.itemId || "item"}}:${{target?.dataset.targetId || "none"}}`, false); maybeShowAiAssistant(true); returnToSource(item); }}); item.addEventListener("pointercancel", ()=>{{ if (!dragging) return; dragging = false; item.classList.remove("dragging"); clearTargetFeedback(); returnToSource(item); }}); }}); if (resetBtn) resetBtn.addEventListener("click", resetActivity); }}
       function wireDragColorMatch(mediaWrap) {{
         const wrap = mediaWrap.querySelector('[data-activity-type="drag_color_match"]');
@@ -16980,6 +17060,7 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           if (normalizedType === "sort_by_size_drag_drop") wireSortBySizeMangoBaskets(mediaWrap);
           if (normalizedType === "drag_color_match") wireDragColorMatch(mediaWrap);
           if (normalizedType === "match_pairs_activity") wireMatchPairsActivity(mediaWrap);
+          if (normalizedType === "object_match_compare") wireObjectMatchCompare(mediaWrap);
           if (normalizedType === "drawing_activity") wireDrawingActivity(mediaWrap);
           if (normalizedType === "coloring_activity") wireColoringActivity(mediaWrap);
           if (normalizedType === "tap_correct_picture") wireTapCorrectPictureInteraction(mediaWrap);
@@ -17873,6 +17954,9 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         match_left_upload_files = request.files.getlist("match_left_images")
         match_right_upload_files = request.files.getlist("match_right_images")
         has_match_pair_uploads = any(upload and upload.filename for upload in match_left_upload_files + match_right_upload_files)
+        omc_upload_fields = ("omc_left_container_image", "omc_right_container_image", "omc_left_object_image", "omc_right_object_image")
+        omc_upload_files = {field: request.files.get(field) for field in omc_upload_fields}
+        has_omc_uploads = any(upload and upload.filename for upload in omc_upload_files.values())
         instruction_audio_si_upload = request.files.get("instruction_audio_si_file")
         instruction_audio_en_upload = request.files.get("instruction_audio_en_file")
         old_activity_payload = None
@@ -17947,6 +18031,16 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             or (submitted_activity_payload or {}).get("type") == "coloring_activity"
             or (submitted_activity_payload or {}).get("slide_type") == "coloring_activity"
             or has_coloring_upload
+        )
+        is_object_match_compare_submission = (
+            selected_slide_type == "object_match_compare"
+            or has_omc_uploads
+            or (old_activity_payload or {}).get("activity_type") == "object_match_compare"
+            or (old_activity_payload or {}).get("type") == "object_match_compare"
+            or (old_activity_payload or {}).get("slide_type") == "object_match_compare"
+            or (submitted_activity_payload or {}).get("activity_type") == "object_match_compare"
+            or (submitted_activity_payload or {}).get("type") == "object_match_compare"
+            or (submitted_activity_payload or {}).get("slide_type") == "object_match_compare"
         )
         is_match_pairs_submission = (
             selected_slide_type == "match_pairs_activity"
@@ -18271,6 +18365,48 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             if validation_error:
                 db.session.rollback(); return f"<h2>Could not save Match Pairs Activity</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
             obj.activity_json = json.dumps(match_payload, ensure_ascii=False)
+        elif is_object_match_compare_submission:
+            obj.image_url = None
+            if not slide:
+                db.session.add(obj)
+                db.session.flush()
+            base_payload = parse_object_match_compare_activity(submitted_activity_json) or parse_object_match_compare_activity(old_activity_json) or default_object_match_compare_payload(obj.title_si, obj.content_si)
+            image_keys = {
+                "omc_left_container_image": "leftContainerImage",
+                "omc_right_container_image": "rightContainerImage",
+                "omc_left_object_image": "leftObjectImage",
+                "omc_right_object_image": "rightObjectImage",
+            }
+            for form_field, payload_key in image_keys.items():
+                existing_value = (request.form.get(f"{form_field}_url") or base_payload.get(payload_key) or "").strip()
+                base_payload[payload_key] = existing_value
+                upload = omc_upload_files.get(form_field)
+                if upload and upload.filename:
+                    public_url, _, upload_error = upload_activity_image_to_supabase(lesson.id, obj.id or "temp", upload)
+                    if upload_error:
+                        db.session.rollback()
+                        return f"<h2>Object Match Compare image upload failed</h2><p>{escape(upload_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+                    if public_url:
+                        base_payload[payload_key] = public_url
+            for key in ("title","instruction","leftLabel","rightLabel","introNarration","rightMoreNarration","leftMoreNarration","equalNarration","rightMoreMessage","leftMoreMessage","equalMessage"):
+                if request.form.get(f"omc_{key}") is not None:
+                    base_payload[key] = request.form.get(f"omc_{key}") or ""
+            base_payload["leftObjectCount"] = int(request.form.get("omc_leftObjectCount") or base_payload.get("leftObjectCount") or 0)
+            base_payload["rightObjectCount"] = int(request.form.get("omc_rightObjectCount") or base_payload.get("rightObjectCount") or 0)
+            for key in ("leftObjectPositions", "rightObjectPositions"):
+                raw_positions = (request.form.get(f"omc_{key}") or "").strip()
+                if raw_positions:
+                    try:
+                        base_payload[key] = json.loads(raw_positions)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        db.session.rollback()
+                        return f"<h2>Could not save Object Match Compare</h2><p>{escape(key)} must be valid JSON.</p><p><a href='{request.path}'>Back</a></p>", 400
+            omc_payload = parse_object_match_compare_activity(base_payload)
+            validation_error = validate_object_match_compare_activity(omc_payload)
+            if validation_error:
+                db.session.rollback()
+                return f"<h2>Could not save Object Match Compare</h2><p>{escape(validation_error)}</p><p><a href='{request.path}'>Back</a></p>", 400
+            obj.activity_json = json.dumps(omc_payload, ensure_ascii=False)
         elif is_tap_correct_picture_submission:
             obj.image_url = None
             if not slide:
@@ -18522,6 +18658,11 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
             "එකකට එකක් යා කරන්න",
         ),
         (
+            "object_match_compare",
+            "Object Placement + Match and Compare",
+            "භාණ්ඩ යා කර වැඩි පැත්ත සොයන්න",
+        ),
+        (
             "select_and_color",
             "Select and Color Activity",
             "තෝරා පාට කිරීම",
@@ -18596,6 +18737,10 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
         <div class='match-admin-row'><img src='{escape(item.get('image_url') or '')}' alt='Right match image'><input type='hidden' name='match_existing_right_id' value='{escape(item.get('id') or '')}'><input type='hidden' name='match_existing_right_image_url' value='{escape(item.get('image_url') or '')}'><strong>{escape(item.get('id') or '')}</strong><label class='remove-image'><input type='checkbox' name='match_remove_right' value='{escape(item.get('image_url') or '')}'> Remove</label></div>
         """ for item in match_right_items if item.get('image_url'))
     match_pair_options_html = "".join(f"<label class='match-pair-choice'><input type='checkbox' name='match_pair_map' value='{escape(left.get('id') or '')}::{escape(right.get('id') or '')}' {'checked' if (left.get('id'), right.get('id')) in match_pair_set else ''}> {escape(left.get('id') or '')} → {escape(right.get('id') or '')}</label>" for left in match_left_items for right in match_right_items)
+    omc_activity = parse_object_match_compare_activity(slide.activity_json if slide else None) or default_object_match_compare_payload(slide.title_si if slide else None, slide.content_si if slide else None)
+    omc_left_positions_json = json.dumps(omc_activity.get("leftObjectPositions") or [], ensure_ascii=False)
+    omc_right_positions_json = json.dumps(omc_activity.get("rightObjectPositions") or [], ensure_ascii=False)
+    omc_data_json = json.dumps(omc_activity, ensure_ascii=False)
     drag_color_activity = parse_drag_color_match_activity(slide.activity_json if slide else None)
     drag_color_items = drag_color_activity.get("items", []) if drag_color_activity else []
     drag_color_zones = drag_color_activity.get("drop_zones", []) if drag_color_activity else []
@@ -18881,6 +19026,34 @@ def admin_lesson_builder_slide_form(lesson_id: int | None = None, slide_id: int 
           toggleBuilder(); applyFilters(); updateStatus();
         }})();
       </script>
+
+
+      <fieldset id='objectMatchCompareBuilder' style='border:1px solid #bbf7d0;border-radius:16px;padding:16px;max-width:1100px;margin-bottom:18px;background:#f0fdf4;'>
+        <legend><strong>Object Placement + Match and Compare</strong></legend>
+        <style>.omc-admin-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}.omc-admin-grid label{{display:grid;gap:5px;font-weight:700}}.omc-admin-grid input,.omc-admin-grid textarea{{width:100%;box-sizing:border-box}}.omc-current{{max-width:100px;max-height:70px;object-fit:contain;background:white;border:1px solid #dcfce7;border-radius:10px}}.omc-editor-wrap{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}}.omc-stage{{position:relative;aspect-ratio:4/3;background:#dbeafe;border:3px solid #22c55e;border-radius:18px;overflow:hidden;touch-action:none}}.omc-stage-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}}.omc-admin-object{{position:absolute;width:80px;height:80px;transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s));background:transparent;border:2px solid transparent;border-radius:18px;padding:0;touch-action:none;cursor:grab}}.omc-admin-object.selected{{border-color:#f59e0b;filter:drop-shadow(0 0 10px #fde047)}}.omc-admin-object img{{width:100%;height:100%;object-fit:contain;pointer-events:none}}.omc-controls{{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}}.omc-controls button{{padding:9px 12px;border:0;border-radius:999px;background:#16a34a;color:white;font-weight:800}}.omc-debug{{font-family:monospace;background:#052e16;color:#bbf7d0;border-radius:10px;padding:8px;white-space:pre-wrap}}@media(max-width:800px){{.omc-admin-grid,.omc-editor-wrap{{grid-template-columns:1fr}}}}</style>
+        <div class='omc-admin-grid'>
+          <label>Title <input name='omc_title' value='{escape(omc_activity.get("title") or "")}'></label>
+          <label>Instruction <input name='omc_instruction' value='{escape(omc_activity.get("instruction") or "")}'></label>
+          <label>Left Label <input name='omc_leftLabel' value='{escape(omc_activity.get("leftLabel") or "")}'></label>
+          <label>Right Label <input name='omc_rightLabel' value='{escape(omc_activity.get("rightLabel") or "")}'></label>
+          <label>Left Count <input id='omcLeftCount' type='number' min='1' max='30' name='omc_leftObjectCount' value='{int(omc_activity.get("leftObjectCount") or 1)}'></label>
+          <label>Right Count <input id='omcRightCount' type='number' min='1' max='30' name='omc_rightObjectCount' value='{int(omc_activity.get("rightObjectCount") or 1)}'></label>
+          <label>Left Container <input type='hidden' name='omc_left_container_image_url' value='{escape(omc_activity.get("leftContainerImage") or "")}'><input type='file' name='omc_left_container_image' accept='image/*'></label>
+          <label>Right Container <input type='hidden' name='omc_right_container_image_url' value='{escape(omc_activity.get("rightContainerImage") or "")}'><input type='file' name='omc_right_container_image' accept='image/*'></label>
+          <label>Left Object <input type='hidden' name='omc_left_object_image_url' value='{escape(omc_activity.get("leftObjectImage") or "")}'><input type='file' name='omc_left_object_image' accept='image/*'></label>
+          <label>Right Object <input type='hidden' name='omc_right_object_image_url' value='{escape(omc_activity.get("rightObjectImage") or "")}'><input type='file' name='omc_right_object_image' accept='image/*'></label>
+          <label>Intro narration <textarea name='omc_introNarration'>{escape(omc_activity.get("introNarration") or "")}</textarea></label>
+          <label>Right more narration <textarea name='omc_rightMoreNarration'>{escape(omc_activity.get("rightMoreNarration") or "")}</textarea></label>
+          <label>Left more narration <textarea name='omc_leftMoreNarration'>{escape(omc_activity.get("leftMoreNarration") or "")}</textarea></label>
+          <label>Equal narration <textarea name='omc_equalNarration'>{escape(omc_activity.get("equalNarration") or "")}</textarea></label>
+        </div>
+        <input type='hidden' id='omcLeftPositions' name='omc_leftObjectPositions' value='{escape(omc_left_positions_json)}'>
+        <input type='hidden' id='omcRightPositions' name='omc_rightObjectPositions' value='{escape(omc_right_positions_json)}'>
+        <div class='omc-controls'><button type='button' data-omc-side='left'>Edit Left Positions</button><button type='button' data-omc-side='right'>Edit Right Positions</button><button type='button' id='omcAdd'>Add Object</button><button type='button' id='omcReset'>Reset Positions</button><button type='button' id='omcSave'>Save Positions</button><button type='button' id='omcPreview'>Preview Activity</button><button type='button' id='omcGrow'>Increase size</button><button type='button' id='omcShrink'>Decrease size</button><button type='button' id='omcRotL'>Rotate left</button><button type='button' id='omcRotR'>Rotate right</button><button type='button' id='omcDelete'>Delete object</button></div>
+        <div class='omc-editor-wrap'><div><h4 id='omcEditTitle'>Left positions</h4><div id='omcStage' class='omc-stage'></div></div><div><div class='omc-debug' id='omcDebug'>Select an object.</div><p><strong>Validation:</strong> Upload/select four images, set counts, drag objects inside each container, then Save Positions before saving the slide.</p></div></div>
+        <script type='application/json' id='omcInitialData'>{escape(omc_data_json)}</script>
+        <script>(function(){{const typeSelect=document.getElementById('slideTypeSelect'),builder=document.getElementById('objectMatchCompareBuilder');function toggle(){{if(builder&&typeSelect)builder.style.display=typeSelect.value==='object_match_compare'?'block':'none'}}typeSelect?.addEventListener('change',toggle);toggle();const data=JSON.parse(document.getElementById('omcInitialData').textContent||'{{}}');let side='left',selected=null;const stage=document.getElementById('omcStage'),debug=document.getElementById('omcDebug'),leftHidden=document.getElementById('omcLeftPositions'),rightHidden=document.getElementById('omcRightPositions');function positions(){{return side==='left'?data.leftObjectPositions:data.rightObjectPositions}}function img(){{return side==='left'?data.leftObjectImage:data.rightObjectImage}}function bg(){{return side==='left'?data.leftContainerImage:data.rightContainerImage}}function count(){{return Number(document.getElementById(side==='left'?'omcLeftCount':'omcRightCount').value||0)}}function normalize(){{['left','right'].forEach(s=>{{const key=s==='left'?'leftObjectPositions':'rightObjectPositions',c=Number(document.getElementById(s==='left'?'omcLeftCount':'omcRightCount').value||0);data[key]=Array.from({{length:c}},(_,i)=>data[key]?.[i]||{{id:`${{s}}-${{i+1}}`,x:20+(i%4)*20,y:30+Math.floor(i/4)*18,scale:1,rotation:0}});}});}}function render(){{normalize();stage.innerHTML=`<img class='omc-stage-bg' src='${{bg()||''}}' alt=''>`;positions().forEach((p,i)=>{{const b=document.createElement('button');b.type='button';b.className='omc-admin-object'+(selected===i?' selected':'');b.style.left=p.x+'%';b.style.top=p.y+'%';b.style.setProperty('--s',p.scale||1);b.style.setProperty('--r',(p.rotation||0)+'deg');b.innerHTML=`<img src='${{img()||''}}' alt='object'>`;b.addEventListener('pointerdown',e=>drag(e,i,b));stage.appendChild(b);}});document.getElementById('omcEditTitle').textContent=(side==='left'?'Left':'Right')+' positions';showDebug();saveHidden();}}function showDebug(){{const p=positions()[selected];debug.textContent=p?`id: ${{p.id}}\nx: ${{p.x.toFixed(1)}}\ny: ${{p.y.toFixed(1)}}\nscale: ${{p.scale}}\nrotation: ${{p.rotation}}`:'Select an object.'}}function saveHidden(){{leftHidden.value=JSON.stringify(data.leftObjectPositions||[]);rightHidden.value=JSON.stringify(data.rightObjectPositions||[]);}}function clampPos(p){{const size=80*(p.scale||1),r=stage.getBoundingClientRect(),mx=size/2/r.width*100,my=size/2/r.height*100;p.x=Math.max(mx,Math.min(100-mx,p.x));p.y=Math.max(my,Math.min(100-my,p.y));}}function drag(e,i,el){{e.preventDefault();selected=i;render();el=stage.querySelectorAll('.omc-admin-object')[i];el.setPointerCapture(e.pointerId);const move=ev=>{{ev.preventDefault();const r=stage.getBoundingClientRect(),p=positions()[i];p.x=(ev.clientX-r.left)/r.width*100;p.y=(ev.clientY-r.top)/r.height*100;clampPos(p);el.style.left=p.x+'%';el.style.top=p.y+'%';showDebug();saveHidden();}};const up=ev=>{{el.releasePointerCapture(ev.pointerId);el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',up);}};el.addEventListener('pointermove',move);el.addEventListener('pointerup',up);}}document.querySelectorAll('[data-omc-side]').forEach(b=>b.onclick=()=>{{side=b.dataset.omcSide;selected=null;render();}});document.getElementById('omcAdd').onclick=()=>{{positions().push({{id:`${{side}}-${{positions().length+1}}`,x:50,y:50,scale:1,rotation:0}});document.getElementById(side==='left'?'omcLeftCount':'omcRightCount').value=positions().length;render();}};document.getElementById('omcReset').onclick=()=>{{data[side==='left'?'leftObjectPositions':'rightObjectPositions']=[];selected=null;render();}};document.getElementById('omcSave').onclick=()=>{{saveHidden();alert('Positions saved in the form. Click Save Slide to store them.');}};document.getElementById('omcPreview').onclick=()=>alert('Save the slide, then use Preview Lesson to play the student activity.');function adjust(fn){{if(selected==null)return;fn(positions()[selected]);clampPos(positions()[selected]);render();}}document.getElementById('omcGrow').onclick=()=>adjust(p=>p.scale=Math.min(2.5,+(p.scale+.1).toFixed(2)));document.getElementById('omcShrink').onclick=()=>adjust(p=>p.scale=Math.max(.45,+(p.scale-.1).toFixed(2)));document.getElementById('omcRotL').onclick=()=>adjust(p=>p.rotation=(p.rotation||0)-15);document.getElementById('omcRotR').onclick=()=>adjust(p=>p.rotation=(p.rotation||0)+15);document.getElementById('omcDelete').onclick=()=>{{if(selected==null)return;positions().splice(selected,1);document.getElementById(side==='left'?'omcLeftCount':'omcRightCount').value=positions().length;selected=null;render();}};['omcLeftCount','omcRightCount'].forEach(id=>document.getElementById(id)?.addEventListener('change',render));render();}})();</script>
+      </fieldset>
 
       <label>Activity JSON <textarea name='activity_json' rows='4' cols='70'>{escape(slide.activity_json) if slide and slide.activity_json else ''}</textarea></label>
       <p style='max-width:760px;color:#475569;'>For <strong>image_grid</strong>, uploaded image URLs and captions are saved automatically in this JSON field as <code>{{"type":"image_grid","images":[...]}}</code>.</p>
