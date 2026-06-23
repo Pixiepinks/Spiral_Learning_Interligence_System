@@ -14771,6 +14771,13 @@ def student_lesson_page(lesson_id: int):
         if isinstance(activity_payload, dict):
             activity_payload["instruction_audio_si_url"] = activity_payload.get("instruction_audio_si_url") or s.instruction_audio_si_url or ""
             activity_payload["instruction_audio_en_url"] = activity_payload.get("instruction_audio_en_url") or s.instruction_audio_en_url or ""
+            activity_payload["debug_select_color_compare_by_size"] = (
+                slide_content_type == "select_and_color"
+                and str(term.grade or "").strip() == "1"
+                and int(module.module_order or 0) == 1
+                and (chapter.chapter_name_en or "").strip().lower() == "compare by size"
+                and int(s.slide_order or 0) in {2, 3}
+            )
         image_grid_images = parse_image_grid_activity(s.activity_json)
         print(f"[student_lesson] slide.content_type={slide_content_type}")
         print(f"[student_lesson] slide.activity_json={s.activity_json or ''}")
@@ -16506,6 +16513,10 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         let strokeCount = 0;
         let undoStack = [];
         const minStrokes = Math.max(1, Number(activity.min_brush_strokes_required || 1));
+        const debugSelectColor = Boolean(activity.debug_select_color_compare_by_size);
+        const debugPrefix = `[SelectAndColor Grade 1 Module 1 Compare by Size Slide ${{current.slide_order}}]`;
+        function debugSelectColorLog(label, payload) {{ if (debugSelectColor) console.log(`${{debugPrefix}} ${{label}}`, payload); }}
+        debugSelectColorLog('loaded activity_json', {{ raw: current.activity_json || '', parsed: activity }});
         function localized(key, fallback) {{ return isSinhala ? (activity[`${{key}}_si`] || activity[`${{key}}_en`] || fallback) : (activity[`${{key}}_en`] || activity[`${{key}}_si`] || fallback); }}
         function showMessage(text, kind) {{ if (!message) return; message.textContent = text; message.className = `sca-message ${{kind || 'info'}}`; }}
         function updateFinishState() {{ if (finishButton) finishButton.disabled = !(selectedObjectId && strokeCount >= minStrokes); }}
@@ -16551,6 +16562,13 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         function validObjectZones() {{
           return (Array.isArray(activity.object_zones) ? activity.object_zones : []).filter((zone) => zone && zone.selectable !== false && zone.colorable !== false);
         }}
+        function normalizedZoneSummary() {{
+          return validObjectZones().map((zone) => {{
+            const type = String(zone.type || '').toLowerCase();
+            if (type === 'rect') return {{ id: zone.id || '', type, x: toNaturalX(zone, zone.x), y: toNaturalY(zone, zone.y), width: toNaturalX(zone, zone.width), height: toNaturalY(zone, zone.height), isCorrect: Boolean(zone.is_correct) || String(zone.id || '') === String(activity.correct_object_id || '') }};
+            return {{ id: zone.id || '', type: 'polygon', points: (Array.isArray(zone.points) ? zone.points : []).map((pt) => ({{ x: toNaturalX(zone, pt?.x), y: toNaturalY(zone, pt?.y) }})), isCorrect: Boolean(zone.is_correct) || String(zone.id || '') === String(activity.correct_object_id || '') }};
+          }});
+        }}
         function renderObjectZones() {{
           const nw = naturalWidth(); const nh = naturalHeight();
           svg.setAttribute('viewBox', `0 0 ${{nw}} ${{nh}}`);
@@ -16580,10 +16598,10 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
             node.setAttribute('tabindex', '0');
             node.setAttribute('role', 'button');
             node.setAttribute('aria-label', isSinhala ? (zone.label_si || zone.label_en || zone.id || '') : (zone.label_en || zone.label_si || zone.id || ''));
-            node.addEventListener('pointerdown', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node); }});
-            node.addEventListener('click', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node); }});
-            node.addEventListener('touchstart', (event) => {{ event.preventDefault(); event.stopPropagation(); const touch = event.changedTouches?.[0] || event.touches?.[0]; if (touch) handleZoneSelect(zone, node); }}, {{ passive: false }});
-            node.addEventListener('keydown', (event) => {{ if (event.key === 'Enter' || event.key === ' ') {{ event.preventDefault(); handleZoneSelect(zone, node); }} }});
+            node.addEventListener('pointerdown', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node, event); }});
+            node.addEventListener('click', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node, event); }});
+            node.addEventListener('touchstart', (event) => {{ event.preventDefault(); event.stopPropagation(); const touch = event.changedTouches?.[0] || event.touches?.[0]; if (touch) handleZoneSelect(zone, node, event); }}, {{ passive: false }});
+            node.addEventListener('keydown', (event) => {{ if (event.key === 'Enter' || event.key === ' ') {{ event.preventDefault(); handleZoneSelect(zone, node, event); }} }});
             svg.appendChild(node);
           }});
         }}
@@ -16596,6 +16614,25 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
             return x >= zx && x <= zx + zw && y >= zy && y <= zy + zh;
           }}
           const points = Array.isArray(zone?.points) ? zone.points.map((pt)=>({{x: toNaturalX(zone, pt?.x), y: toNaturalY(zone, pt?.y)}})) : [];
+          if (points.length < 3) return false;
+          let inside = false;
+          for (let i = 0, j = points.length - 1; i < points.length; j = i++) {{
+            const xi = points[i].x, yi = points[i].y, xj = points[j].x, yj = points[j].y;
+            const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / Math.max(0.00001, yj - yi) + xi);
+            if (intersect) inside = !inside;
+          }}
+          return inside;
+        }}
+        function pointInDisplayedZone(zone, point) {{
+          if (!debugSelectColor || zoneUsesPercentage(zone)) return false;
+          const x = point.x; const y = point.y;
+          const type = String(zone?.type || '').toLowerCase();
+          if (type === 'rect') {{
+            const zx = Number(zone.x || 0); const zy = Number(zone.y || 0);
+            const zw = Number(zone.width || 0); const zh = Number(zone.height || 0);
+            return zw > 0 && zh > 0 && x >= zx && x <= zx + zw && y >= zy && y <= zy + zh;
+          }}
+          const points = Array.isArray(zone?.points) ? zone.points.map((pt)=>({{ x: Number(pt?.x || 0), y: Number(pt?.y || 0) }})) : [];
           if (points.length < 3) return false;
           let inside = false;
           for (let i = 0, j = points.length - 1; i < points.length; j = i++) {{
@@ -16620,17 +16657,26 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           const clientY = touch ? touch.clientY : event.clientY;
           if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
           const point = naturalPointFromClient(clientX, clientY);
-          const zone = validObjectZones().find((candidate) => pointInZone(candidate, point));
+          const svgRect = svg.getBoundingClientRect();
+          const displayedPoint = {{ x: clientX - svgRect.left, y: clientY - svgRect.top }};
+          let coordinateSpace = 'natural';
+          let zone = validObjectZones().find((candidate) => pointInZone(candidate, point));
+          if (!zone) {{
+            const displayedZone = validObjectZones().find((candidate) => pointInDisplayedZone(candidate, displayedPoint));
+            if (displayedZone) {{ zone = displayedZone; coordinateSpace = 'displayed-fallback'; }}
+          }}
+          debugSelectColorLog('click/touch coordinate', {{ clientX, clientY, naturalX: point.x, naturalY: point.y, displayedX: displayedPoint.x, displayedY: displayedPoint.y, coordinateSpace }});
+          debugSelectColorLog(zone ? 'matched zone' : 'no zone matched', zone ? {{ id: zone.id || '', name: zone.name || zone.object_name || '', isCorrect: Boolean(zone.is_correct) || String(zone.id || '') === String(activity.correct_object_id || ''), coordinateSpace }} : {{ naturalX: point.x, naturalY: point.y, displayedX: displayedPoint.x, displayedY: displayedPoint.y }});
           if (!zone) return;
           event.preventDefault();
           event.stopPropagation();
-          handleZoneSelect(zone, zoneNodeForId(zone.id));
+          handleZoneSelect(zone, zoneNodeForId(zone.id), event);
         }}
         function resizeSelectAndColorCanvas() {{
           if (!stage || !img || !canvas || !svg || !ctx) return;
           const nw = naturalWidth(); const nh = naturalHeight();
           const rect = imageRelativeRect();
-          const ratio = isGrade1Chapter3Lesson1Slide1Coloring ? 1 : (window.devicePixelRatio || 1);
+          const ratio = window.devicePixelRatio || 1;
           const snapshot = canvas.width && canvas.height ? (() => {{ const temp = document.createElement('canvas'); temp.width = canvas.width; temp.height = canvas.height; temp.getContext('2d').drawImage(canvas, 0, 0); return temp; }})() : null;
           canvas.style.left = `${{rect.left}}px`; canvas.style.top = `${{rect.top}}px`;
           canvas.style.width = `${{rect.width}}px`; canvas.style.height = `${{rect.height}}px`;
@@ -16642,16 +16688,24 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           ctx.lineCap = 'round'; ctx.lineJoin = 'round';
           if (snapshot) ctx.drawImage(snapshot, 0, 0, rect.width, rect.height);
           renderObjectZones();
-          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
-            console.log({{
-              imageWidth: nw,
-              imageHeight: nh,
-              canvasWidth: canvas.width,
-              canvasHeight: canvas.height,
-              fullscreen: selectAndColorFullscreenState()
-            }});
-          }}
-          console.log('[SelectAndColor resize]', {{
+          debugSelectColorLog('normalized zones', normalizedZoneSummary());
+          debugSelectColorLog('displayed image bounds', {{
+            naturalImageWidth: nw,
+            naturalImageHeight: nh,
+            displayedImageWidth: rect.width,
+            displayedImageHeight: rect.height,
+            displayedImageXOffset: rect.left,
+            displayedImageYOffset: rect.top,
+            viewportLeft: rect.viewportLeft,
+            viewportTop: rect.viewportTop,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            svgWidth: svg.getBoundingClientRect().width,
+            svgHeight: svg.getBoundingClientRect().height,
+            fullscreen: selectAndColorFullscreenState()
+          }});
+          debugSelectColorLog('whether coloring canvas is enabled', Boolean(selectedObjectId && stage.classList.contains('coloring')));
+          debugSelectColorLog('resize', {{
             naturalImageWidth: nw,
             naturalImageHeight: nh,
             displayedImageWidth: rect.width,
@@ -16666,12 +16720,22 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           }});
         }}
         window.resizeSelectAndColorCanvas = resizeSelectAndColorCanvas;
-        function handleZoneSelect(zone, node) {{
+        function handleZoneSelect(zone, node, sourceEvent) {{
+          if (sourceEvent) {{
+            const touch = sourceEvent.changedTouches?.[0] || sourceEvent.touches?.[0];
+            const clientX = touch ? touch.clientX : sourceEvent.clientX;
+            const clientY = touch ? touch.clientY : sourceEvent.clientY;
+            if (Number.isFinite(clientX) && Number.isFinite(clientY)) {{
+              const point = naturalPointFromClient(clientX, clientY);
+              debugSelectColorLog('click/touch coordinate', {{ clientX, clientY, naturalX: point.x, naturalY: point.y }});
+            }}
+          }}
           const correctId = String(activity.correct_object_id || '');
           const isCorrect = Boolean(zone.is_correct) || String(zone.id || '') === correctId;
+          debugSelectColorLog('matched zone', {{ id: zone.id || '', name: zone.name || zone.object_name || '', isCorrect, correctObjectId: correctId, fullscreen: selectAndColorFullscreenState() }});
           if (!isCorrect) {{ showMessage(localized('retry_message', isSinhala ? 'නැවත උත්සාහ කරන්න.' : 'Try again.'), 'fail'); return; }}
           selectedObjectId = String(zone.id || correctId);
-          console.log('[SelectAndColor select]', {{ selectedObjectId, correctObjectId: correctId, fullscreen: selectAndColorFullscreenState() }});
+          debugSelectColorLog('whether coloring canvas is enabled', true);
           stage.classList.add('coloring');
           svg.querySelectorAll('.sca-zone-shape').forEach((shape) => shape.classList.toggle('selected', shape === node));
           showMessage(localized('correct_selection_message', isSinhala ? 'හරි! දැන් පාට කරන්න.' : 'Correct! Now color it.'), 'info');
@@ -16682,13 +16746,9 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
           const touch = event.touches?.[0] || event.changedTouches?.[0];
           const clientX = touch ? touch.clientX : event.clientX;
           const clientY = touch ? touch.clientY : event.clientY;
-          if (isGrade1Chapter3Lesson1Slide1Coloring) {{
-            return {{
-              x: (clientX - rect.left) * (canvas.width / Math.max(1, rect.width)),
-              y: (clientY - rect.top) * (canvas.height / Math.max(1, rect.height))
-            }};
-          }}
-          return {{ x: clientX - rect.left, y: clientY - rect.top }};
+          const point = {{ x: clientX - rect.left, y: clientY - rect.top }};
+          debugSelectColorLog('click/touch coordinate', {{ clientX, clientY, canvasX: point.x, canvasY: point.y, drawing: true }});
+          return point;
         }}
         function beginStroke(event) {{
           if (!selectedObjectId) return;
