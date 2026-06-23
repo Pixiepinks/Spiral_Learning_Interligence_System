@@ -2808,14 +2808,22 @@ def parse_select_and_color_activity(activity_json: str | dict | None) -> dict:
         if not isinstance(zone, dict):
             continue
         zone_type = "rect" if str(zone.get("type") or "").strip().lower() == "rect" else "polygon"
-        zone_id = str(zone.get("id") or f"zone_{index + 1}").strip()
+        zone_id = str(zone.get("id") or zone.get("object_id") or zone.get("name") or zone.get("object_name") or f"zone_{index + 1}").strip()
         if not zone_id:
             continue
+        correct_flag = zone.get("is_correct", zone.get("correct", zone.get("correct_answer", zone.get("is_answer", False))))
+        selectable_flag = zone.get("selectable", zone.get("is_selectable", True))
+        colorable_flag = zone.get("colorable", zone.get("is_colorable", True))
         item = {
             "id": zone_id,
-            "label_si": str(zone.get("label_si") or zone_id).strip(),
-            "label_en": str(zone.get("label_en") or zone_id).strip(),
-            "is_correct": bool(zone.get("is_correct") or zone_id == normalized.get("correct_object_id")),
+            "name": str(zone.get("name") or zone.get("object_name") or zone_id).strip(),
+            "object_id": str(zone.get("object_id") or zone_id).strip(),
+            "object_name": str(zone.get("object_name") or zone.get("name") or zone_id).strip(),
+            "label_si": str(zone.get("label_si") or zone.get("label") or zone_id).strip(),
+            "label_en": str(zone.get("label_en") or zone.get("label") or zone_id).strip(),
+            "is_correct": bool(correct_flag or zone_id == normalized.get("correct_object_id")),
+            "selectable": selectable_flag is not False and str(selectable_flag).strip().lower() not in {"false", "0", "no"},
+            "colorable": colorable_flag is not False and str(colorable_flag).strip().lower() not in {"false", "0", "no"},
             "type": zone_type,
         }
         if zone_type == "rect":
@@ -14758,6 +14766,8 @@ def student_lesson_page(lesson_id: int):
             activity_payload = parse_coloring_activity(activity_payload or s.activity_json) or default_coloring_activity_payload(s.title_en, s.title_si, s.content_en, s.content_si, s.image_url)
         if slide_content_type == "select_and_color_correct_object":
             activity_payload = parse_select_and_color_correct_object_activity(activity_payload or s.activity_json) or default_select_and_color_correct_object_payload()
+        if slide_content_type == "select_and_color":
+            activity_payload = parse_select_and_color_activity(activity_payload or s.activity_json) or default_select_and_color_activity_payload(s.title_en, s.title_si, s.content_en, s.content_si)
         if isinstance(activity_payload, dict):
             activity_payload["instruction_audio_si_url"] = activity_payload.get("instruction_audio_si_url") or s.instruction_audio_si_url or ""
             activity_payload["instruction_audio_en_url"] = activity_payload.get("instruction_audio_en_url") or s.instruction_audio_en_url or ""
@@ -16538,12 +16548,15 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         }}
         function toNaturalX(zone, value) {{ return Number(value || 0) * zoneScaleFactor(zone, 'x'); }}
         function toNaturalY(zone, value) {{ return Number(value || 0) * zoneScaleFactor(zone, 'y'); }}
+        function validObjectZones() {{
+          return (Array.isArray(activity.object_zones) ? activity.object_zones : []).filter((zone) => zone && zone.selectable !== false && zone.colorable !== false);
+        }}
         function renderObjectZones() {{
           const nw = naturalWidth(); const nh = naturalHeight();
           svg.setAttribute('viewBox', `0 0 ${{nw}} ${{nh}}`);
           svg.setAttribute('preserveAspectRatio', 'none');
           svg.innerHTML = '';
-          (Array.isArray(activity.object_zones) ? activity.object_zones : []).forEach((zone) => {{
+          validObjectZones().forEach((zone) => {{
             const type = String(zone.type || '').toLowerCase();
             let node = null;
             if (type === 'rect') {{
@@ -16568,9 +16581,50 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
             node.setAttribute('role', 'button');
             node.setAttribute('aria-label', isSinhala ? (zone.label_si || zone.label_en || zone.id || '') : (zone.label_en || zone.label_si || zone.id || ''));
             node.addEventListener('pointerdown', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node); }});
+            node.addEventListener('click', (event) => {{ event.preventDefault(); event.stopPropagation(); handleZoneSelect(zone, node); }});
+            node.addEventListener('touchstart', (event) => {{ event.preventDefault(); event.stopPropagation(); const touch = event.changedTouches?.[0] || event.touches?.[0]; if (touch) handleZoneSelect(zone, node); }}, {{ passive: false }});
             node.addEventListener('keydown', (event) => {{ if (event.key === 'Enter' || event.key === ' ') {{ event.preventDefault(); handleZoneSelect(zone, node); }} }});
             svg.appendChild(node);
           }});
+        }}
+        function pointInZone(zone, point) {{
+          const x = point.x; const y = point.y;
+          const type = String(zone?.type || '').toLowerCase();
+          if (type === 'rect') {{
+            const zx = toNaturalX(zone, zone.x); const zy = toNaturalY(zone, zone.y);
+            const zw = toNaturalX(zone, zone.width); const zh = toNaturalY(zone, zone.height);
+            return x >= zx && x <= zx + zw && y >= zy && y <= zy + zh;
+          }}
+          const points = Array.isArray(zone?.points) ? zone.points.map((pt)=>({{x: toNaturalX(zone, pt?.x), y: toNaturalY(zone, pt?.y)}})) : [];
+          if (points.length < 3) return false;
+          let inside = false;
+          for (let i = 0, j = points.length - 1; i < points.length; j = i++) {{
+            const xi = points[i].x, yi = points[i].y, xj = points[j].x, yj = points[j].y;
+            const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / Math.max(0.00001, yj - yi) + xi);
+            if (intersect) inside = !inside;
+          }}
+          return inside;
+        }}
+        function naturalPointFromClient(clientX, clientY) {{
+          const rect = svg.getBoundingClientRect();
+          return {{
+            x: ((clientX - rect.left) / Math.max(1, rect.width)) * naturalWidth(),
+            y: ((clientY - rect.top) / Math.max(1, rect.height)) * naturalHeight()
+          }};
+        }}
+        function zoneNodeForId(zoneId) {{ return svg.querySelector(`.sca-zone-shape[data-zone-id="${{CSS.escape(String(zoneId || ''))}}"]`); }}
+        function handleZoneHitTest(event) {{
+          if (selectedObjectId) return;
+          const touch = event.changedTouches?.[0] || event.touches?.[0];
+          const clientX = touch ? touch.clientX : event.clientX;
+          const clientY = touch ? touch.clientY : event.clientY;
+          if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
+          const point = naturalPointFromClient(clientX, clientY);
+          const zone = validObjectZones().find((candidate) => pointInZone(candidate, point));
+          if (!zone) return;
+          event.preventDefault();
+          event.stopPropagation();
+          handleZoneSelect(zone, zoneNodeForId(zone.id));
         }}
         function resizeSelectAndColorCanvas() {{
           if (!stage || !img || !canvas || !svg || !ctx) return;
@@ -16658,10 +16712,14 @@ body.lesson-fullscreen-active .match-pairs-activity .mp-lines,
         eraserButton?.addEventListener('click', () => {{ erasing = !erasing; eraserButton.classList.toggle('active', erasing); }});
         undoButton?.addEventListener('click', () => {{ const previous = undoStack.pop(); if (!previous) return; ctx.putImageData(previous, 0, 0); strokeCount = Math.max(0, strokeCount - 1); updateFinishState(); }});
         resetButton?.addEventListener('click', () => {{ ctx.clearRect(0, 0, canvas.width, canvas.height); undoStack = []; strokeCount = 0; updateFinishState(); }});
+        svg.addEventListener('pointerdown', handleZoneHitTest);
+        svg.addEventListener('click', handleZoneHitTest);
+        svg.addEventListener('touchstart', handleZoneHitTest, {{ passive: false }});
         canvas.addEventListener('pointerdown', beginStroke);
         canvas.addEventListener('pointermove', continueStroke);
         canvas.addEventListener('pointerup', endStroke);
         canvas.addEventListener('pointercancel', endStroke);
+        canvas.addEventListener('touchstart', (event) => {{ if (!selectedObjectId) return; event.preventDefault(); }}, {{ passive: false }});
         finishButton?.addEventListener('click', async () => {{
           if (!selectedObjectId || strokeCount < minStrokes) return;
           root.classList.add('complete');
