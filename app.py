@@ -55,6 +55,12 @@ STUDENT_PROFILE_IMAGE_BUCKET = "student-profile-images"
 SUBSCRIPTION_PLAN_AMOUNTS = {"monthly": 490, "annual": 3500}
 SUBSCRIPTION_PLAN_DAYS = {"monthly": 30, "annual": 365}
 SRI_LANKA_TZ = ZoneInfo("Asia/Colombo")
+WHATSAPP_ENABLED_TRUE_VALUES = {"true", "1", "yes", "on"}
+
+
+def is_whatsapp_enabled() -> bool:
+    """Return whether the WhatsApp integration is explicitly enabled."""
+    return (os.environ.get("WHATSAPP_ENABLED") or "").strip().lower() in WHATSAPP_ENABLED_TRUE_VALUES
 
 
 def sri_lanka_now() -> datetime:
@@ -374,6 +380,10 @@ def display_grade_with_label(grade, medium="English"):
 
 def send_whatsapp_text(to_number: str, body: str) -> bool:
     """Send a plain text WhatsApp Cloud API message."""
+    if not is_whatsapp_enabled():
+        app.logger.info("WhatsApp text send skipped: WhatsApp processing is disabled.")
+        return False
+
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
     phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
     to_number = (to_number or "").strip()
@@ -431,6 +441,10 @@ def send_whatsapp_template(
     button_index: int | str = 0,
 ) -> bool:
     """Send a WhatsApp Cloud API template message with optional header/button components."""
+    if not is_whatsapp_enabled():
+        app.logger.info("WhatsApp template send skipped: WhatsApp processing is disabled.")
+        return False
+
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
     phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
     to_number = (to_number or "").strip()
@@ -572,6 +586,10 @@ def send_whatsapp_template(
 
 
 def send_whatsapp_admin_registration_alert(student):
+    if not is_whatsapp_enabled():
+        app.logger.info("WhatsApp admin alert skipped: WhatsApp processing is disabled.")
+        return False
+
     token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
     phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
     admin_number = (os.environ.get("WHATSAPP_ADMIN_NUMBER") or "94703755777").strip()
@@ -9948,6 +9966,10 @@ def parse_whatsapp_timestamp(value) -> datetime | None:
 
 
 def queue_whatsapp_auto_reply(to_number: str, message_id: int) -> None:
+    if not is_whatsapp_enabled():
+        app.logger.info("WhatsApp auto reply skipped: WhatsApp processing is disabled.")
+        return
+
     def _send_reply():
         try:
             send_whatsapp_text(
@@ -10053,16 +10075,20 @@ def whatsapp_webhook():
         return Response("Forbidden", status=403, mimetype="text/plain")
 
     data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        app.logger.error("WhatsApp webhook POST failed: invalid or missing JSON payload.")
+        return jsonify({"success": False, "message": "Invalid JSON payload"}), 400
+
+    if not is_whatsapp_enabled():
+        app.logger.info("WhatsApp processing disabled; webhook acknowledged without processing.")
+        return jsonify({"success": True, "processed": False}), 200
+
     app.logger.error("=" * 80)
     app.logger.error("WHATSAPP WEBHOOK RECEIVED")
     app.logger.error(json.dumps(data, indent=2))
     app.logger.error("=" * 80)
     payload = data
     app.logger.info("WHATSAPP_WEBHOOK_POST_RECEIVED payload=%s", payload)
-    if not isinstance(payload, dict):
-        app.logger.error("WhatsApp webhook POST failed: invalid or missing JSON payload.")
-        return jsonify({"success": False, "message": "Invalid JSON payload"}), 400
-
     message_count = count_incoming_whatsapp_messages(payload)
     if message_count == 0:
         app.logger.info("WHATSAPP_WEBHOOK_NO_MESSAGES payload=%s", payload)
